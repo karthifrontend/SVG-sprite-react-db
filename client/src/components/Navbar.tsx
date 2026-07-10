@@ -16,12 +16,6 @@ function Navbar({ onOpenLogin, libraryToggleSlot }: NavbarProps) {
     showToast("Logged out successfully", "success");
   }
 
-  const initials = (currentUser?.displayName || currentUser?.email || "?")
-    .split(/\s+/)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("")
-    .slice(0, 2) || "?";
-
   return (
     <nav className="fixed left-0 right-0 top-0 z-40 flex items-center justify-between border-b border-slate-200/60 bg-white/80 px-4 py-3 backdrop-blur-md">
       <div className="flex items-center gap-3">
@@ -50,37 +44,23 @@ function Navbar({ onOpenLogin, libraryToggleSlot }: NavbarProps) {
 
       <div className="flex items-center gap-3">
         {currentUser ? (
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 py-1 pl-1 pr-3 shadow-sm">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-[11px] font-bold text-white">
-                {initials}
-              </span>
-              <div className="flex flex-col text-left leading-tight">
-                <span className="text-xs font-semibold text-slate-700">
-                  {currentUser.displayName || currentUser.email}
-                </span>
-                <span className="text-[10px] text-slate-400">
-                  {currentUser.isDemoAccount
-                    ? "Demo account"
-                    : currentUser.provider === "microsoft"
-                      ? "Microsoft"
-                      : "Signed in"}
-                </span>
-              </div>
-            </div>
+          <div className="flex items-center gap-4">
+            <span className="hidden sm:inline-block text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-md">
+              {currentUser.email}
+            </span>
             <button
               type="button"
               onClick={handleLogout}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-600 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-800"
+              className="text-sm text-slate-500 hover:text-rose-500 transition-colors"
             >
-              Log out
+              Logout
             </button>
           </div>
         ) : (
           <button
             type="button"
             onClick={onOpenLogin}
-            className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-sm font-semibold text-indigo-600 shadow-sm transition-colors hover:bg-indigo-50 hover:text-indigo-700"
+            className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition-colors border border-indigo-200 px-3 py-1.5 rounded-lg bg-white shadow-sm"
           >
             Sign in / sign up
           </button>

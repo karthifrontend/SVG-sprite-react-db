@@ -1,11 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useFileDropzone } from "../hooks/useFileDropzone";
 import { useSpriteCompiler } from "../hooks/useSpriteCompiler";
 import { useLibrary } from "../hooks/useLibrary";
 import { getSpriteById, saveSprite, type SpriteSummary } from "../api/sprites";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
-import CompilerFooter from "./compiler/CompilerFooter";
 import CompilerHeader from "./compiler/CompilerHeader";
 import ExistingSpriteSection from "./compiler/ExistingSpriteSection";
 import FileDropzone from "./compiler/FileDropzone";
@@ -86,6 +85,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // (only when the sprite came from a library version).
   const [liveDemoOpen, setLiveDemoOpen] = useState(false);
   const [liveDemoSource, setLiveDemoSource] = useState<LiveDemoSource>({ type: "scratch" });
+  const [demoSpriteXml, setDemoSpriteXml] = useState<string | null>(null);
+  const [demoSymbolIds, setDemoSymbolIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!spriteXml) return;
+    setDemoSpriteXml(spriteXml);
+    setDemoSymbolIds(symbolIds);
+  }, [spriteXml, symbolIds]);
 
   // User guide drawer.
   const [guideOpen, setGuideOpen] = useState(false);
@@ -342,6 +349,12 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           onCollapseToggle={() => onLibraryToggle(false)}
           onOpenLogin={() => onRequireAuth?.()}
           onLoadToUpdate={handleLoadFromLibrary}
+          onOpenDemo={({ sprite, symbolIds, source }) => {
+            setDemoSpriteXml(sprite);
+            setDemoSymbolIds(symbolIds);
+            setLiveDemoSource(source);
+            setLiveDemoOpen(true);
+          }}
           onLibraryRenamed={({ oldName, newName }) => {
             // If the user renamed the bundle currently loaded into
             // the compiler, update the local references so the next
@@ -380,7 +393,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
         <main className="flex min-h-[calc(100vh-57px)] flex-1 justify-center gap-6 px-4 py-10 sm:py-16">
           <div className="w-full max-w-2xl">
-            <CompilerHeader />
+            {!currentUser && <CompilerHeader />}
 
             <main
               className="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-xl shadow-slate-200/50 sm:p-8"
@@ -490,8 +503,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 onDemo={() => setLiveDemoOpen(true)}
               />
             </main>
-
-            <CompilerFooter />
           </div>
         </main>
       </div>
@@ -525,14 +536,16 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       <LiveDemoModal
         isOpen={liveDemoOpen}
         onClose={() => setLiveDemoOpen(false)}
-        sprite={spriteXml}
-        symbolIds={symbolIds}
+        sprite={demoSpriteXml ?? spriteXml}
+        symbolIds={demoSpriteXml ? demoSymbolIds : symbolIds}
         source={liveDemoSource}
         onUpdate={(next) => {
           // Re-hydrate the compiler's output with the mutated XML
           // so the result panel (download URL, code preview) stays
           // in sync with what the modal shows.
           loadFromLibrary({ xml: next.sprite, symbolIds: next.symbolIds });
+          setDemoSpriteXml(next.sprite);
+          setDemoSymbolIds(next.symbolIds);
         }}
         onCopySprite={async () => {
           try {
