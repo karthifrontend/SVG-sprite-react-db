@@ -44,6 +44,31 @@ export function DuplicateIcon({ className = "w-4 h-4", ...rest }: IconProps) {
   );
 }
 
+export function UnlockIcon({ className = "w-4 h-4", ...rest }: IconProps) {
+  return (
+    <svg {...ICON_BASE} className={className} {...rest}>
+      <path d="M8 11V7a4 4 0 118 0m-4 8v2" />
+      <path d="M6 19h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+    </svg>
+  );
+}
+
+export function ChevronDoubleLeftIcon({ className = "w-4 h-4", ...rest }: IconProps) {
+  return (
+    <svg {...ICON_BASE} className={className} {...rest}>
+      <path d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+    </svg>
+  );
+}
+
+export function RefreshIcon({ className = "w-4 h-4", ...rest }: IconProps) {
+  return (
+    <svg {...ICON_BASE} className={className} {...rest}>
+      <path d="M4 4v6h6M20 20v-6h-6M4 10a8 8 0 0114-3M20 14a8 8 0 01-14 3" />
+    </svg>
+  );
+}
+
 export function ClipboardIcon({ className = "w-4 h-4", ...rest }: IconProps) {
   return (
     <svg {...ICON_BASE} className={className} {...rest}>

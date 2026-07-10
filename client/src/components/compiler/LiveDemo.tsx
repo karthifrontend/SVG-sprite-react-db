@@ -143,6 +143,7 @@ export default function LiveDemoModal({
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [selectMode, setSelectMode] = useState<boolean>(false);
   const [selectedIcons, setSelectedIcons] = useState<Set<string>>(() => new Set());
+  const [displayedSymbolIds, setDisplayedSymbolIds] = useState<string[]>(() => symbolIds ?? []);
   const [activeTab, setActiveTab] = useState<"grid" | "css">("grid");
   const [iconSize, setIconSize] = useState<number>(24);
   const [activeColorClass, setActiveColorClass] = useState<string | null>(getDefaultActiveColor);
@@ -175,28 +176,35 @@ export default function LiveDemoModal({
     setIconSize(24);
   }, [isOpen, sprite, symbolIds]);
 
+  function syncSymbols(nextSymbols: Element[]): void {
+    symbolsRef.current = nextSymbols;
+    setDisplayedSymbolIds(nextSymbols.map((sym) => sym.getAttribute("id") || "").filter(Boolean));
+  }
+
   // Mirror the latest parsed symbol list so callbacks see fresh data
   // without re-rendering.
   useEffect(() => {
-    symbolsRef.current = parseSpriteSymbols(sprite);
-  }, [sprite]);
+    if (!isOpen) return;
+    syncSymbols(parseSpriteSymbols(sprite));
+  }, [isOpen, sprite]);
 
   const filteredIds = useMemo<string[]>(() => {
-    if (!symbolIds) return [];
     const term = searchTerm.trim().toLowerCase();
-    if (!term) return symbolIds;
-    return symbolIds.filter((id) => id.toLowerCase().includes(term));
-  }, [symbolIds, searchTerm]);
+    if (!term) return displayedSymbolIds;
+    return displayedSymbolIds.filter((id) => id.toLowerCase().includes(term));
+  }, [displayedSymbolIds, searchTerm]);
 
   function selectedIconsCount(): number {
     return selectedIcons.size;
   }
 
   function rebuildSprite(): void {
+    const nextIds = symbolsRef.current.map((s) => s.getAttribute("id") || "").filter(Boolean);
+    setDisplayedSymbolIds(nextIds);
     const updated = serializeLiveSprite(symbolsRef.current);
     onUpdate?.({
       sprite: updated,
-      symbolIds: symbolsRef.current.map((s) => s.getAttribute("id") || ""),
+      symbolIds: nextIds,
       hasChanges: true,
     });
     setHasChanges(true);
@@ -206,7 +214,7 @@ export default function LiveDemoModal({
     if (typeof window !== "undefined" && !window.confirm(`Remove "${iconId}" from this sprite?`)) {
       return;
     }
-    symbolsRef.current = symbolsRef.current.filter((sym) => sym.getAttribute("id") !== iconId);
+    syncSymbols(symbolsRef.current.filter((sym) => sym.getAttribute("id") !== iconId));
     rebuildSprite();
     showToast(`Removed #${iconId}`, "success");
     if (symbolsRef.current.length === 0) {
@@ -227,13 +235,15 @@ export default function LiveDemoModal({
     }
     // Clone the target symbol with the new id (preserves its viewBox
     // + content) instead of mutating attributes on a fresh element.
-    symbolsRef.current = symbolsRef.current.map((sym) => {
-      if (sym.getAttribute("id") !== renamingId) return sym;
-      const clone = sym.cloneNode(true) as Element;
-      clone.removeAttribute("id");
-      clone.setAttribute("id", newId);
-      return clone;
-    });
+    syncSymbols(
+      symbolsRef.current.map((sym) => {
+        if (sym.getAttribute("id") !== renamingId) return sym;
+        const clone = sym.cloneNode(true) as Element;
+        clone.removeAttribute("id");
+        clone.setAttribute("id", newId);
+        return clone;
+      })
+    );
     rebuildSprite();
     showToast(`Renamed #${renamingId} → #${newId}`, "success");
     setRenamingId(null);
@@ -392,6 +402,29 @@ export default function LiveDemoModal({
     defs.appendChild(grad);
   }, [activeGradient]);
 
+  // Ensure the sprite XML (symbols) is available in the document so
+  // <use href="#id"> inside the modal can resolve symbol references.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const HOST_ID = "live-demo-sprite-host";
+    let host = document.getElementById(HOST_ID);
+    if (!host) {
+      host = document.createElement("div");
+      host.id = HOST_ID;
+      host.style.cssText = "position:absolute;width:0;height:0;overflow:hidden;";
+      document.body.appendChild(host);
+    }
+    // Replace host content with the provided sprite XML (or clear)
+    host.innerHTML = sprite ?? "";
+    return () => {
+      // Remove the host when the modal is closed to avoid leaking defs
+      if (!isOpen) {
+        const existing = document.getElementById(HOST_ID);
+        if (existing) existing.remove();
+      }
+    };
+  }, [isOpen, sprite]);
+
   // Drop the hidden gradient host when the modal closes so stale
   // gradient defs don't leak between sessions.
   useEffect(() => {
@@ -542,6 +575,7 @@ export default function LiveDemoModal({
                         key={id}
                         id={id}
                         index={index}
+                        symbol={symbolsRef.current.find((sym) => sym.getAttribute("id") === id) ?? null}
                         isSelected={isSelected}
                         iconSize={iconSize}
                         activeColorClass={activeColorClass}
@@ -739,6 +773,7 @@ export default function LiveDemoModal({
 type DemoIconCardProps = {
   id: string;
   index: number;
+  symbol: Element | null;
   isSelected: boolean;
   iconSize: number;
   activeColorClass: string | null;
@@ -758,6 +793,7 @@ type DemoIconCardProps = {
 function DemoIconCard({
   id,
   index,
+  symbol,
   isSelected,
   iconSize,
   activeColorClass,
@@ -775,17 +811,25 @@ function DemoIconCard({
 }: DemoIconCardProps): ReactNode {
   const isRenaming = renamingId === id;
   const sizeStyle = { width: `${iconSize}px`, height: `${iconSize}px` } as const;
+  const viewBox = symbol?.getAttribute("viewBox") || "0 0 24 24";
+  const symbolInnerHtml = symbol?.innerHTML ?? "";
   let inlineSvg: ReactNode;
   if (activeGradient) {
     inlineSvg = (
-      <svg className="transition-all duration-200" style={sizeStyle}>
+      <svg
+        className="transition-all duration-200"
+        style={sizeStyle}
+        viewBox={viewBox}
+        preserveAspectRatio="xMidYMid meet"
+      >
         <defs>
           <linearGradient id={`grad-${id}`} x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor={activeGradient.start} />
             <stop offset="100%" stopColor={activeGradient.end} />
           </linearGradient>
           <mask id={`mask-${id}`}>
-            <use href={`#${id}`} width="100%" height="100%" style={{ color: "white" }} />
+            <rect width="100%" height="100%" fill="white" />
+            <g dangerouslySetInnerHTML={{ __html: symbolInnerHtml }} />
           </mask>
         </defs>
         <rect width="100%" height="100%" fill={`url(#grad-${id})`} mask={`url(#mask-${id})`} />
@@ -793,8 +837,13 @@ function DemoIconCard({
     );
   } else if (activeCustomColor) {
     inlineSvg = (
-      <svg className="transition-all duration-200" style={{ ...sizeStyle, color: activeCustomColor }}>
-        <use href={`#${id}`} />
+      <svg
+        className="transition-all duration-200"
+        style={{ ...sizeStyle, color: activeCustomColor }}
+        viewBox={viewBox}
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <g dangerouslySetInnerHTML={{ __html: symbolInnerHtml }} />
       </svg>
     );
   } else {
@@ -802,8 +851,10 @@ function DemoIconCard({
       <svg
         className={`transition-all duration-200 ${activeColorClass || "text-slate-700"}`}
         style={sizeStyle}
+        viewBox={viewBox}
+        preserveAspectRatio="xMidYMid meet"
       >
-        <use href={`#${id}`} />
+        <g dangerouslySetInnerHTML={{ __html: symbolInnerHtml }} />
       </svg>
     );
   }
