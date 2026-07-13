@@ -29,7 +29,15 @@ type LibraryActions = {
    */
   renameBundle: (id: string, name: string) => Promise<string>;
   /**
-   * Delete a sprite bundle (every version). Returns the bundle
+   * Delete a single sprite version by id. Returns the bundle name
+   * and the number of versions remaining so the caller can react
+   * (e.g. clear references when the last version is removed).
+   */
+  deleteVersion: (
+    id: string
+  ) => Promise<{ bundleName: string; remaining: number; version: number }>;
+  /**
+   * Delete every version of a sprite bundle. Returns the bundle
    * name that was removed so callers can react to it.
    */
   deleteBundle: (id: string) => Promise<string>;
@@ -107,9 +115,26 @@ export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
     [refetch]
   );
 
+  const deleteVersion = useCallback(
+    async (id: string) => {
+      const result = await deleteSprite({ id, scope: "version" });
+      // Optimistically drop the single version from the local list.
+      setState(prev => ({
+        ...prev,
+        sprites: prev.sprites.filter(s => s._id !== id),
+      }));
+      return {
+        bundleName: result.bundleName,
+        remaining: result.remaining ?? 0,
+        version: result.version ?? 0,
+      };
+    },
+    []
+  );
+
   const deleteBundle = useCallback(
     async (id: string): Promise<string> => {
-      const result = await deleteSprite({ id });
+      const result = await deleteSprite({ id, scope: "bundle" });
       // Optimistically drop the deleted bundle from the local list
       // so the UI updates instantly even before the refetch lands.
       setState(prev => ({
@@ -129,7 +154,14 @@ export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
     }
   }, [autoLoad, refetch]);
 
-  return { ...state, refetch, updateContent, renameBundle, deleteBundle };
+  return {
+    ...state,
+    refetch,
+    updateContent,
+    renameBundle,
+    deleteVersion,
+    deleteBundle,
+  };
 }
 
 function extractSymbolIds(xml: string): string[] {

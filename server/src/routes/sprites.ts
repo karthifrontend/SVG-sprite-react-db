@@ -332,15 +332,18 @@ router.patch("/:id/rename", async (req: Request, res: Response) => {
 });
 
 /**
- * Delete an entire sprite bundle (all versions). The UI groups
- * library cards by `bundleName`, so deleting a single version would
- * leave the card with an inconsistent state — we remove them all.
+ * Delete a sprite version. By default only the version with the
+ * given id is removed, leaving the rest of the bundle intact.
+ * Pass `?scope=bundle` (or `scope=all`) to remove every version of
+ * the bundle, useful for a "delete the whole library" action.
  */
 router.delete("/:id", async (req: Request, res: Response) => {
   const id = req.params.id;
   if (!id) {
     return res.status(400).json({ error: "Id parameter is required." });
   }
+  const scope = String(req.query.scope ?? "").toLowerCase();
+  const deleteBundle = scope === "bundle" || scope === "all";
 
   const connected = await ensureConnected();
   if (!connected) {
@@ -352,10 +355,26 @@ router.delete("/:id", async (req: Request, res: Response) => {
     if (!target) {
       return res.status(404).json({ error: "Sprite not found." });
     }
-    const result = await Sprite.deleteMany({ bundleName: target.bundleName });
+
+    if (deleteBundle) {
+      const result = await Sprite.deleteMany({ bundleName: target.bundleName });
+      return res.json({
+        bundleName: target.bundleName,
+        deleted: result.deletedCount ?? 0,
+        scope: "bundle",
+      });
+    }
+
+    await Sprite.deleteOne({ _id: id });
+    const remaining = await Sprite.countDocuments({
+      bundleName: target.bundleName,
+    });
     return res.json({
       bundleName: target.bundleName,
-      deleted: result.deletedCount ?? 0,
+      version: target.version,
+      deleted: 1,
+      remaining,
+      scope: "version",
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

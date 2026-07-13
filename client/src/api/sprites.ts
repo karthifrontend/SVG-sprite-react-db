@@ -143,10 +143,19 @@ export async function renameSprite(input: {
  */
 export async function deleteSprite(input: {
   id: string;
-}): Promise<{ bundleName: string; deleted: number }> {
+  scope?: "version" | "bundle";
+}): Promise<{
+  bundleName: string;
+  deleted: number;
+  remaining?: number;
+  version?: number;
+  scope: "version" | "bundle";
+}> {
   try {
+    const scope = input.scope ?? "version";
     const { data } = await axios.delete(
-      `${API_BASE}/api/sprites/${encodeURIComponent(input.id)}`
+      `${API_BASE}/api/sprites/${encodeURIComponent(input.id)}`,
+      { params: { scope: scope === "bundle" ? "bundle" : "version" } }
     );
     return data;
   } catch (err) {
