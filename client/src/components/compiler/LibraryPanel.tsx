@@ -3,7 +3,7 @@
 // (with load / refresh / rename / delete actions) when signed in.
 // UI mirrors the "react app with MS" reference, with collapse/
 // expand behavior owned by the parent.
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { useLibrary } from "../../hooks/useLibrary";
 import { getSpriteById } from "../../api/sprites";
 import {
@@ -80,8 +80,7 @@ function LibrarySkeleton() {
   );
 }
 
-type RenameModalProps = {
-  open: boolean;
+type InlineRenameInputProps = {
   currentName: string;
   existingNames: string[];
   busy: boolean;
@@ -89,24 +88,27 @@ type RenameModalProps = {
   onConfirm: (next: string) => void;
 };
 
-function RenameLibraryModal({
-  open,
+/**
+ * Inline text input used in place of the library title while
+ * renaming. Enter or blur saves, Escape cancels. The input keeps
+ * the same typography as the title so the row doesn't jump.
+ */
+function InlineRenameInput({
   currentName,
   existingNames,
   busy,
   onCancel,
   onConfirm,
-}: RenameModalProps) {
+}: InlineRenameInputProps) {
   const [name, setName] = useState(currentName);
   const [touched, setTouched] = useState(false);
 
-  // Reset the field whenever the modal re-opens with a new target.
+  // Keep the field in sync if the parent switches the target row
+  // (e.g. another library started editing while we were here).
   useEffect(() => {
-    if (open) {
-      setName(currentName);
-      setTouched(false);
-    }
-  }, [open, currentName]);
+    setName(currentName);
+    setTouched(false);
+  }, [currentName]);
 
   const trimmed = name.trim();
   const isUnchanged =
@@ -117,104 +119,77 @@ function RenameLibraryModal({
   const isInvalid = trimmed.length === 0 || trimmed.length > 100 || conflict;
   const showError = touched && isInvalid;
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function trySave() {
+    if (busy) return;
     setTouched(true);
-    if (isInvalid || isUnchanged || busy) return;
+    if (isInvalid || isUnchanged) {
+      onCancel();
+      return;
+    }
     onConfirm(trimmed);
   }
 
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      trySave();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      onCancel();
+    }
+  }
+
   return (
-    <Modal
-      isOpen={open}
-      onClose={busy ? () => undefined : onCancel}
-      maxWidth="max-w-sm"
-      ariaLabel="Rename library"
-    >
-      <form onSubmit={handleSubmit} className="p-6">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
-            <PencilIcon className="h-4 w-4" />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">Rename library</h3>
-            <p className="text-[11px] text-slate-500">
-              The new name is applied to every version of this bundle.
-            </p>
-          </div>
-        </div>
-
-        <label className="mb-1 block text-[11px] font-semibold text-slate-600">
-          Library name
-        </label>
-        <input
-          type="text"
-          value={name}
-          autoFocus
-          onChange={(event) => setName(event.target.value)}
-          onBlur={() => setTouched(true)}
-          maxLength={100}
-          disabled={busy}
-          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-200 disabled:opacity-60"
-          placeholder="my-icon-library"
-        />
-        {showError && trimmed.length === 0 && (
-          <p className="mt-1 text-[11px] text-rose-500">Name is required.</p>
-        )}
-        {showError && trimmed.length > 100 && (
-          <p className="mt-1 text-[11px] text-rose-500">Name is too long.</p>
-        )}
-        {showError && conflict && (
-          <p className="mt-1 text-[11px] text-rose-500">
-            Another library already uses that name.
-          </p>
-        )}
-
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={busy || isUnchanged || isInvalid}
-            className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
-          >
-            {busy ? "Saving…" : "Rename"}
-          </button>
-        </div>
-      </form>
-    </Modal>
+    <div className="flex min-w-0 flex-1 flex-col">
+      <input
+        type="text"
+        value={name}
+        autoFocus
+        disabled={busy}
+        onChange={(event) => setName(event.target.value)}
+        onBlur={trySave}
+        onKeyDown={handleKeyDown}
+        maxLength={100}
+        aria-label={`Rename ${currentName}`}
+        className="w-full truncate rounded-md border border-indigo-300 bg-white px-1.5 py-0.5 text-sm font-bold text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:opacity-60"
+        placeholder="my-icon-library"
+      />
+      {showError && trimmed.length === 0 && (
+        <p className="mt-1 text-[10px] text-rose-500">Name is required.</p>
+      )}
+      {showError && trimmed.length > 100 && (
+        <p className="mt-1 text-[10px] text-rose-500">Name is too long.</p>
+      )}
+      {showError && conflict && (
+        <p className="mt-1 text-[10px] text-rose-500">Name already in use.</p>
+      )}
+    </div>
   );
 }
 
-type DeleteModalProps = {
+type DeleteVersionModalProps = {
   open: boolean;
   bundleName: string;
-  versionCount: number;
+  version: number;
   busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 };
 
-function DeleteLibraryModal({
+function DeleteVersionModal({
   open,
   bundleName,
-  versionCount,
+  version,
   busy,
   onCancel,
   onConfirm,
-}: DeleteModalProps) {
+}: DeleteVersionModalProps) {
   return (
     <Modal
       isOpen={open}
       onClose={busy ? () => undefined : onCancel}
       maxWidth="max-w-sm"
-      ariaLabel="Delete library"
+      ariaLabel="Delete sprite version"
     >
       <div className="p-6">
         <div className="mb-4 flex items-center gap-3">
@@ -223,7 +198,7 @@ function DeleteLibraryModal({
           </div>
           <div>
             <h3 className="text-sm font-bold text-slate-900">
-              Delete library?
+              Delete version?
             </h3>
             <p className="text-[11px] text-slate-500">This cannot be undone.</p>
           </div>
@@ -231,12 +206,9 @@ function DeleteLibraryModal({
 
         <p className="text-xs text-slate-600">
           You are about to delete{" "}
+          <span className="font-semibold text-slate-900">v{version}</span> of{" "}
           <span className="font-semibold text-slate-900">“{bundleName}”</span>{" "}
-          and all of its{" "}
-          <span className="font-semibold text-slate-900">
-            {versionCount} version{versionCount === 1 ? "" : "s"}
-          </span>{" "}
-          from your library.
+          from your library. Other versions of this library will remain.
         </p>
 
         <div className="mt-5 flex justify-end gap-2">
@@ -272,26 +244,34 @@ function LibraryPanel({
   onLibraryDeleted,
 }: LibraryPanelProps) {
   const { currentUser } = useAuth();
-  const { sprites, loading, error, refetch, renameBundle, deleteBundle } =
-    useLibrary(!!currentUser);
+  const {
+    sprites,
+    loading,
+    error,
+    refetch,
+    renameBundle,
+    deleteVersion,
+  } = useLibrary(!!currentUser);
   const { showToast } = useToast();
   const [showSkeleton, setShowSkeleton] = useState(false);
 
-  // Pending rename: the version whose bundle the user wants to
-  // rename. We keep both the id (for the API call) and the current
-  // name (to pre-fill the input) here.
-  const [pendingRename, setPendingRename] = useState<{
+  // Inline rename: the bundle name currently being edited. Only one
+  // row at a time can be in edit mode. Saving calls the API; the
+  // busy flag disables the field while the request is in flight.
+  const [renamingName, setRenamingName] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{
     id: string;
     currentName: string;
   } | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
 
-  // Pending delete: the version whose bundle the user wants to
-  // remove. We confirm via a modal so a stray click can't wipe a
-  // whole library from MongoDB.
+  // Pending delete: the version the user wants to remove. We
+  // confirm via a modal so a stray click can't wipe data from
+  // MongoDB.
   const [pendingDelete, setPendingDelete] = useState<{
     id: string;
     bundleName: string;
+    version: number;
   } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
@@ -344,30 +324,38 @@ function LibraryPanel({
     );
   };
 
-  // Names of every library used to detect rename collisions inside
-  // the rename modal. Compared case-insensitively inside the modal.
+  // Names of every library used to detect rename collisions while
+  // editing. Compared case-insensitively inside the input.
   const existingLibraryNames = useMemo(
     () => groups.map((g) => g.bundleName),
     [groups],
   );
 
-  function openRenameModal(group: LibraryGroup) {
+  function startRename(group: LibraryGroup) {
     if (group.versions.length === 0) return;
-    setPendingRename({
+    setRenamingName(group.bundleName);
+    setRenameTarget({
       id: group.versions[0].id,
       currentName: group.bundleName,
     });
   }
 
+  function cancelRename() {
+    if (renameBusy) return;
+    setRenamingName(null);
+    setRenameTarget(null);
+  }
+
   async function handleConfirmRename(next: string) {
-    if (!pendingRename) return;
+    if (!renameTarget) return;
     setRenameBusy(true);
     try {
-      const oldName = pendingRename.currentName;
-      const newName = await renameBundle(pendingRename.id, next);
+      const oldName = renameTarget.currentName;
+      const newName = await renameBundle(renameTarget.id, next);
       showToast(`Renamed to “${newName}”.`, "success");
       onLibraryRenamed?.({ oldName, newName });
-      setPendingRename(null);
+      setRenamingName(null);
+      setRenameTarget(null);
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : "Failed to rename library.",
@@ -378,11 +366,12 @@ function LibraryPanel({
     }
   }
 
-  function openDeleteModal(group: LibraryGroup) {
-    if (group.versions.length === 0) return;
+  function openDeleteModal(version: LibraryGroupVersion) {
     setPendingDelete({
-      id: group.versions[0].id,
-      bundleName: group.bundleName,
+      id: version.id,
+      bundleName:
+        version.summary.bundleName || version.summary.name || "",
+      version: version.version,
     });
   }
 
@@ -390,13 +379,22 @@ function LibraryPanel({
     if (!pendingDelete) return;
     setDeleteBusy(true);
     try {
-      const removed = await deleteBundle(pendingDelete.id);
-      showToast(`Deleted “${removed}” from your library.`, "success");
-      onLibraryDeleted?.({ name: removed });
+      const { bundleName, remaining } = await deleteVersion(pendingDelete.id);
+      showToast(
+        remaining > 0
+          ? `Deleted v${pendingDelete.version} of “${bundleName}”.`
+          : `Deleted the last version of “${bundleName}”.`,
+        "success",
+      );
+      // Only notify the parent when there are no versions left, so
+      // it can clear any references pointing at the removed library.
+      if (remaining === 0) {
+        onLibraryDeleted?.({ name: bundleName });
+      }
       setPendingDelete(null);
     } catch (err) {
       showToast(
-        err instanceof Error ? err.message : "Failed to delete library.",
+        err instanceof Error ? err.message : "Failed to delete version.",
         "error",
       );
     } finally {
@@ -485,41 +483,33 @@ function LibraryPanel({
                     className="animate-fade-in-up mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
                     style={{ animationDelay: `${groupIdx * 0.05}s` }}
                   >
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <h3
-                        className="truncate text-sm font-bold text-slate-800"
-                        title={group.bundleName}
-                      >
-                        {group.bundleName}
-                      </h3>
-                      <div className="flex flex-shrink-0 items-center gap-1">
+                    <div className="group/header mb-3 flex items-start justify-between gap-2">
+                      {renamingName === group.bundleName && renameTarget ? (
+                        <InlineRenameInput
+                          currentName={renameTarget.currentName}
+                          existingNames={existingLibraryNames}
+                          busy={renameBusy}
+                          onCancel={cancelRename}
+                          onConfirm={handleConfirmRename}
+                        />
+                      ) : (
                         <button
                           type="button"
-                          onClick={() => openRenameModal(group)}
-                          className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                          onClick={() => startRename(group)}
+                          disabled={renameBusy}
+                          className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left transition-colors hover:text-indigo-600 disabled:cursor-not-allowed"
                           title="Rename library"
                           aria-label={`Rename ${group.bundleName}`}
                         >
-                          <button className="edit-lib-btn p-1 text-slate-400 hover:text-indigo-500 transition-colors bg-slate-50 rounded hover:bg-indigo-50" data-id="${lib.id}" data-name="${escapeHtml(lib.name)}" data-version="${escapeHtml(lib.versionDescription)}" title="Edit version details">
-                    <svg className="w-3.5 h-3.5 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                  </button>
+                          <h3
+                            className="truncate text-sm font-bold text-slate-800"
+                            title={group.bundleName}
+                          >
+                            {group.bundleName}
+                          </h3>
+                          <PencilIcon className="h-3.5 w-3.5 flex-shrink-0 text-slate-400 opacity-0 transition-opacity group-hover/header:opacity-100" />
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => openDeleteModal(group)}
-                          className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
-                          title="Delete library"
-                          aria-label={`Delete ${group.bundleName}`}
-                        >
-                          <button className="delete-lib-btn p-1 text-slate-400 hover:text-rose-500 transition-colors bg-slate-50 rounded hover:bg-rose-50" data-id="${lib.id}" data-name="${escapeHtml(lib.name)}" title="Delete version">
-                    <svg className="w-3.5 h-3.5 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                        </button>
-                      </div>
+                      )}
                     </div>
                     <div className="space-y-3">
                       {group.versions.map((version) => {
@@ -532,7 +522,7 @@ function LibraryPanel({
                             <div className="mb-1 flex items-start justify-between gap-2">
                               <div className="flex min-w-0 items-center gap-1.5">
                                 <span
-                                  className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-semibold ${
+                                  className={`inline-flex items-center rounded px-1.5 py-0.5 text-[14px] font-mono font-semibold ${
                                     isLatest
                                       ? "bg-emerald-50 text-emerald-700"
                                       : "bg-slate-100 text-slate-500"
@@ -658,6 +648,18 @@ function LibraryPanel({
                                   </svg>
                                 </button>
                               </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openDeleteModal(version);
+                                }}
+                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                                title={`Delete v${version.version}`}
+                                aria-label={`Delete ${group.bundleName} v${version.version}`}
+                              >
+                                <TrashIcon className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                           </div>
                         );
@@ -678,29 +680,10 @@ function LibraryPanel({
         )}
       </div>
 
-      <RenameLibraryModal
-        open={!!pendingRename}
-        currentName={pendingRename?.currentName ?? ""}
-        existingNames={existingLibraryNames}
-        busy={renameBusy}
-        onCancel={() => {
-          if (!renameBusy) setPendingRename(null);
-        }}
-        onConfirm={handleConfirmRename}
-      />
-
-      <DeleteLibraryModal
+      <DeleteVersionModal
         open={!!pendingDelete}
         bundleName={pendingDelete?.bundleName ?? ""}
-        versionCount={
-          pendingDelete
-            ? (groups.find(
-                (g) =>
-                  g.bundleName.toLowerCase() ===
-                  pendingDelete.bundleName.toLowerCase(),
-              )?.versions.length ?? 0)
-            : 0
-        }
+        version={pendingDelete?.version ?? 0}
         busy={deleteBusy}
         onCancel={() => {
           if (!deleteBusy) setPendingDelete(null);

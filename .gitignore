@@ -13,6 +13,14 @@ dist-ssr
 *.local
 .env
 
+# TypeScript build artifacts emitted next to sources (server tsc with
+# no outDir writes .js/.d.ts alongside .ts). Scoped to server/src to
+# avoid clobbering real .js configs in the client.
+server/src/**/*.js
+server/src/**/*.js.map
+server/src/**/*.d.ts
+server/src/**/*.d.ts.map
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
