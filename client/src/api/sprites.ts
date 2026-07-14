@@ -2,12 +2,35 @@ import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
+// Attach the current Google session token (if any) to every request
+// so the server's `requireUser` middleware can authenticate the call.
+// The token is kept on `window.__svgCompilerSessionToken` by the
+// AuthContext so the interceptor can read it without becoming a
+// circular import.
+declare global {
+  interface Window {
+    __svgCompilerSessionToken?: string | null;
+  }
+}
+
+const authApi = axios.create({ baseURL: API_BASE });
+authApi.interceptors.request.use((config) => {
+  const token = window.__svgCompilerSessionToken;
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 export type SavedSprite = {
   id: string;
   name: string;
   bundleName: string;
   version: number;
   symbolCount: number;
+  isPublic?: boolean;
+  isOwner?: boolean;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -18,6 +41,13 @@ export type SpriteSummary = {
   bundleName: string;
   version: number;
   symbolCount: number;
+  isPublic?: boolean;
+  /**
+   * True when the sprite belongs to the currently signed-in user.
+   * `false` for public sprites owned by someone else — the UI uses
+   * this to hide rename / delete / load-to-update actions.
+   */
+  isOwner?: boolean;
   updatedAt?: string;
 };
 
@@ -38,11 +68,16 @@ export async function saveSprite(input: {
   xml: string;
   symbolIds: string[];
   symbolCount: number;
+  isPublic?: boolean;
 }): Promise<SavedSprite> {
   try {
-    const { data } = await axios.post<SavedSprite>(
-      `${API_BASE}/api/sprites`,
-      { ...input, bundleName: input.bundleName ?? input.name },
+    const { data } = await authApi.post<SavedSprite>(
+      `/api/sprites`,
+      {
+        ...input,
+        bundleName: input.bundleName ?? input.name,
+        isPublic: !!input.isPublic,
+      },
       { headers: { "Content-Type": "application/json" } }
     );
     return data;
@@ -56,7 +91,7 @@ export async function saveSprite(input: {
  */
 export async function listSprites(): Promise<SpriteSummary[]> {
   try {
-    const { data } = await axios.get<SpriteSummary[]>(`${API_BASE}/api/sprites`);
+    const { data } = await authApi.get<SpriteSummary[]>(`/api/sprites`);
     return data;
   } catch (err) {
     throw wrapAxiosError(err, "load sprite library");
@@ -68,8 +103,8 @@ export async function listSprites(): Promise<SpriteSummary[]> {
  */
 export async function getSprite(name: string): Promise<SpriteDetail> {
   try {
-    const { data } = await axios.get<SpriteDetail>(
-      `${API_BASE}/api/sprites/${encodeURIComponent(name)}`
+    const { data } = await authApi.get<SpriteDetail>(
+      `/api/sprites/${encodeURIComponent(name)}`
     );
     return data;
   } catch (err) {
@@ -82,8 +117,8 @@ export async function getSprite(name: string): Promise<SpriteDetail> {
  */
 export async function getSpriteById(id: string): Promise<SpriteDetail> {
   try {
-    const { data } = await axios.get<SpriteDetail>(
-      `${API_BASE}/api/sprites/id/${encodeURIComponent(id)}`
+    const { data } = await authApi.get<SpriteDetail>(
+      `/api/sprites/id/${encodeURIComponent(id)}`
     );
     return data;
   } catch (err) {
@@ -103,8 +138,8 @@ export async function putSprite(input: {
   symbolCount: number;
 }): Promise<SavedSprite> {
   try {
-    const { data } = await axios.put<SavedSprite>(
-      `${API_BASE}/api/sprites/${encodeURIComponent(input.id)}`,
+    const { data } = await authApi.put<SavedSprite>(
+      `/api/sprites/${encodeURIComponent(input.id)}`,
       {
         xml: input.xml,
         symbolIds: input.symbolIds,
@@ -127,8 +162,8 @@ export async function renameSprite(input: {
   name: string;
 }): Promise<{ oldBundleName: string; newBundleName: string; updated: number }> {
   try {
-    const { data } = await axios.patch(
-      `${API_BASE}/api/sprites/${encodeURIComponent(input.id)}/rename`,
+    const { data } = await authApi.patch(
+      `/api/sprites/${encodeURIComponent(input.id)}/rename`,
       { name: input.name },
       { headers: { "Content-Type": "application/json" } }
     );
@@ -153,8 +188,8 @@ export async function deleteSprite(input: {
 }> {
   try {
     const scope = input.scope ?? "version";
-    const { data } = await axios.delete(
-      `${API_BASE}/api/sprites/${encodeURIComponent(input.id)}`,
+    const { data } = await authApi.delete(
+      `/api/sprites/${encodeURIComponent(input.id)}`,
       { params: { scope: scope === "bundle" ? "bundle" : "version" } }
     );
     return data;

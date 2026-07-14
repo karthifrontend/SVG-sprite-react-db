@@ -6,12 +6,14 @@
 // a new version of the bundle (server-side), so the user can keep
 // iterating on the same sprite without typing a new name.
 import { useEffect, useState } from "react";
+import { InfoIcon } from "../icons";
 
 type InlineSaveValue = {
   enabled: boolean;
   name: string;
   saveAsNew: boolean;
   hasNameConflict: boolean;
+  isPublic: boolean;
 };
 
 type InlineSaveSectionProps = {
@@ -35,6 +37,7 @@ function InlineSaveSection({
 }: InlineSaveSectionProps) {
   const [name, setName] = useState(value?.name || "");
   const [saveAsNew, setSaveAsNew] = useState(value?.saveAsNew || false);
+  const [isPublic, setIsPublic] = useState<boolean>(value?.isPublic ?? false);
 
   useEffect(() => {
     if (value?.name !== undefined) setName(value.name);
@@ -43,6 +46,10 @@ function InlineSaveSection({
   useEffect(() => {
     if (value?.saveAsNew !== undefined) setSaveAsNew(value.saveAsNew);
   }, [value?.saveAsNew]);
+
+  useEffect(() => {
+    if (value?.isPublic !== undefined) setIsPublic(value.isPublic);
+  }, [value?.isPublic]);
 
   if (!isVisible) return null;
 
@@ -53,6 +60,7 @@ function InlineSaveSection({
     ? value?.enabled && saveAsNew
     : value?.enabled;
   const showSaveAsNewToggle = isUpdateMode && !!value?.enabled;
+  const showPublicOption = !!value?.enabled;
   const trimmed = name.trim().toLowerCase();
   const activeKey = activeBundleName.trim().toLowerCase();
   const isActiveBundle = trimmed.length > 0 && trimmed === activeKey;
@@ -80,6 +88,7 @@ function InlineSaveSection({
       saveAsNew,
       enabled: next,
       hasNameConflict,
+      isPublic,
     });
   }
 
@@ -90,6 +99,7 @@ function InlineSaveSection({
       saveAsNew,
       enabled: value?.enabled,
       hasNameConflict: false,
+      isPublic,
     });
   }
 
@@ -100,6 +110,18 @@ function InlineSaveSection({
       saveAsNew: next,
       enabled: value?.enabled,
       hasNameConflict,
+      isPublic,
+    });
+  }
+
+  function handlePublic(next: boolean) {
+    setIsPublic(next);
+    onLibraryNameChange?.({
+      name,
+      saveAsNew,
+      enabled: value?.enabled,
+      hasNameConflict,
+      isPublic: next,
     });
   }
 
@@ -172,6 +194,45 @@ function InlineSaveSection({
               A library with this name already exists. Pick a different name.
             </p>
           )}
+        </div>
+      )}
+
+      {showPublicOption && (
+        <div className="mt-4 border-t border-slate-200/60 pt-3">
+          <label className="group flex cursor-pointer items-center gap-2.5">
+            <div className="relative">
+              <input
+                type="checkbox"
+                checked={isPublic}
+                onChange={(event) => handlePublic(event.target.checked)}
+                className="peer sr-only"
+              />
+              <div className="block h-5 w-9 rounded-full bg-slate-200 transition-colors peer-checked:bg-indigo-500" />
+              <div className="dot absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
+            </div>
+            <span className="text-sm font-semibold text-slate-700 transition-colors group-hover:text-slate-900">
+              Make it as public
+            </span>
+            <span
+              className="group/info relative inline-flex"
+              tabIndex={0}
+              aria-label="What does public mean?"
+            >
+              <InfoIcon className="h-3.5 w-3.5 cursor-help text-slate-400 transition-colors group-hover/info:text-indigo-500" />
+              {/* Tooltip — appears on hover/focus so screen readers can
+                  discover the explanation via the focusable wrapper. */}
+              <span
+                role="tooltip"
+                className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-56 -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-center text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/info:opacity-100 group-focus-within/info:opacity-100"
+              >
+                dummy
+                <span
+                  aria-hidden
+                  className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900"
+                />
+              </span>
+            </span>
+          </label>
         </div>
       )}
     </div>

@@ -127,3 +127,13 @@ export function SadFaceIcon({ className = "w-4 h-4", ...rest }: IconProps) {
     </svg>
   );
 }
+
+export function InfoIcon({ className = "w-4 h-4", ...rest }: IconProps) {
+  return (
+    <svg {...ICON_BASE} className={className} {...rest}>
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="11" x2="12" y2="16" />
+      <circle cx="12" cy="8" r="0.6" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}

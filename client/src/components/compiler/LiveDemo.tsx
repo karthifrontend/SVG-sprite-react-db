@@ -45,7 +45,7 @@ type ActiveGradient = {
 };
 
 type Source =
-  | { type: "library"; id: string; name: string; version?: number }
+  | { type: "library"; id: string; name: string; version?: number; isOwner?: boolean; isPublic?: boolean }
   | { type: "scratch" };
 
 export type { Source };
@@ -752,7 +752,7 @@ export default function LiveDemoModal({
               <DuplicateIcon className="w-3.5 h-3.5" />
               Copy Sprite
             </button>
-            {source?.type === "library" && (
+            {source?.type === "library" && source.isOwner !== false && (
               <button
                 type="button"
                 onClick={() => void handleSaveChanges()}

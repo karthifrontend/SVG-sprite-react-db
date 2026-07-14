@@ -72,6 +72,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     name: "",
     saveAsNew: false,
     hasNameConflict: false,
+    isPublic: false,
   });
 
   const [saving, setSaving] = useState(false);
@@ -135,6 +136,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         // not "save as new library".
         saveAsNew: current.saveAsNew && !isActiveBundle,
         hasNameConflict: existingLibraryNames.includes(candidateKey) && !isActiveBundle,
+        // Preserve the existing visibility choice when re-enabling
+        // the toggle so users don't accidentally flip a bundle
+        // between public and private mid-flow.
+        isPublic: current.isPublic,
       }));
     } else {
       setInlineSave((current) => ({ ...current, enabled: false }));
@@ -173,6 +178,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       name: "",
       saveAsNew: false,
       hasNameConflict: false,
+      isPublic: false,
     }));
   }
 
@@ -231,6 +237,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         xml,
         symbolIds: ids,
         symbolCount: ids.length,
+        isPublic: inlineSave.isPublic,
       });
       const isNewBundle = !inlineSave.saveAsNew && activeBundleName
         ? false
@@ -268,6 +275,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       name: "",
       saveAsNew: false,
       hasNameConflict: false,
+      isPublic: false,
     });
     setSaveStatus(null);
   };
@@ -280,6 +288,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     try {
       const detail = await getSpriteById(summary._id);
       const bundleName = detail.bundleName || detail.name;
+      const isOwner = detail.isOwner !== false; // server defaults to true on writes
 
       // Build a synthetic File from the loaded XML so the existing
       // sprite section can display the base file (and the compiler
@@ -296,15 +305,20 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         id: detail.id,
         name: bundleName,
         version: detail.version,
+        isOwner,
+        isPublic: !!detail.isPublic,
       });
 
-      // Pre-enable the save toggle with the bundle name so the user
-      // can save the merged result as v(n+1) with a single click.
+      // Only pre-enable the save toggle for the owner of the
+      // bundle. Public bundles loaded by non-owners stay
+      // read-only on this screen (they can still open the live
+      // demo, copy the XML, or load it to a new bundle).
       setInlineSave({
-        enabled: true,
+        enabled: isOwner,
         name: bundleName,
         saveAsNew: false,
         hasNameConflict: false,
+        isPublic: !!detail.isPublic,
       });
     } catch (err) {
       showToast(
@@ -320,13 +334,16 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         id: summary._id,
         name: summary.bundleName || summary.name,
         version: summary.version,
+        isOwner: summary.isOwner !== false,
+        isPublic: !!summary.isPublic,
       });
       setInlineSave((current) => ({
         ...current,
-        enabled: true,
+        enabled: summary.isOwner !== false,
         name: summary.bundleName || summary.name,
         saveAsNew: false,
         hasNameConflict: false,
+        isPublic: !!summary.isPublic,
       }));
     } finally {
       setLoadingFromLibrary(false);
@@ -386,6 +403,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 name: "",
                 saveAsNew: false,
                 hasNameConflict: false,
+                isPublic: false,
               }));
             }
           }}
@@ -396,7 +414,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
             {!currentUser && <CompilerHeader />}
 
             <main
-              className="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-xl shadow-slate-200/50 sm:p-8"
+              className={`animate-fade-in-up flex-1 rounded-2xl border border-slate-200/60 bg-white p-6 shadow-xl shadow-slate-200/50 sm:p-8 ${currentUser ? "mt-8" : ""}`}
               style={{ animationDelay: ".08s" }}
             >
               <ModeTabs value={mode} onChange={changeMode} />
