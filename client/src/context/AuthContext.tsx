@@ -1,23 +1,48 @@
 // AuthContext
 // ---------------------------------------------------------------------------
-// Microsoft-only authentication. The original app also supported
-// email/password and Google sign-in; both have been removed so that
-// sign-in and sign-up are exclusive to Microsoft (Azure AD / Entra ID)
-// via a popup window, mirroring the UX of the previous Google button.
+// Multi-provider authentication: Google (GIS), Microsoft (placeholder),
+// and a built-in Demo account.
 //
-// We use the official MSAL.js library loaded from Microsoft's CDN so no
-// build-time dependency is required. Configure your Azure AD app by
-// setting window.MS_CLIENT_ID before this module is imported, or by
-// editing the default below.
+// Google flow (full implementation):
+//   1. User clicks "Sign in with Google" in the modal.
+//   2. We re-initialize GIS with a per-attempt `state` token and
+//      `callback`, then click the rendered button. Google opens its
+//      full account chooser.
+//   3. The chosen account returns an `id_token` (a JWT).
+//   4. We POST that token to /api/auth/google. The server verifies
+//      it, upserts the User, and returns a session JWT.
+//
+// Demo flow:
+//   1. User clicks "Continue as Demo".
+//   2. We POST to /api/auth/demo. The server upserts a shared demo
+//      `User` doc (its own `ownerId`, distinct from real users) and
+//      returns a session token.
+//
+// Microsoft flow:
+//   1. User clicks "Sign in with Microsoft".
+//   2. We POST to /api/auth/microsoft. The server route is not
+//      implemented yet, so the server returns 501 and we surface
+//      the message in the login modal.
+//
+// In all cases we store { user, token } in localStorage and the
+// sprites API attaches the token via an axios interceptor.
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import {
+  fetchCurrentUser,
+  loginAsDemo as loginAsDemoApi,
+  loginWithGoogle as loginWithGoogleApi,
+  loginWithMicrosoft as loginWithMicrosoftApi,
+  type ServerUser,
+} from "../api/auth";
 
 export type CurrentUser = {
   id: string;
@@ -25,274 +50,406 @@ export type CurrentUser = {
   displayName: string;
   picture: string | null;
   emailVerified: boolean;
-  provider: "microsoft" | "demo";
-  isDemoAccount?: boolean;
-  token?: string;
+  provider: "google" | "microsoft" | "demo";
 };
 
 type AuthContextValue = {
   currentUser: CurrentUser | null;
-  signInWithEmailPassword: (email: string, password: string) => Promise<CurrentUser>;
+  /** True until we've finished rehydrating the user from localStorage. */
+  initializing: boolean;
+  /**
+   * Open the Google account chooser and return the signed-in user.
+   * The chooser is a popup, not One-Tap, so it always lists every
+   * signed-in account and exposes the "Use another account" option.
+   */
   loginWithGoogle: () => Promise<CurrentUser>;
+  /**
+   * Sign in as the built-in demo user. Returns the demo `CurrentUser`
+   * so the modal can show a success message.
+   */
+  loginAsDemo: () => Promise<CurrentUser>;
+  /**
+   * Microsoft sign-in. The server-side MSAL flow is not wired up
+   * yet, so this resolves to a thrown error with a clear message
+   * the modal can display.
+   */
   loginWithMicrosoft: () => Promise<CurrentUser>;
+  /** Clear local session and revoke the Google session if possible. */
   logout: () => Promise<void>;
 };
 
-const STORAGE_USER_KEY = "currentUser";
+const STORAGE_KEY = "currentUser";
+const TOKEN_KEY = "sessionToken";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const DEFAULT_MS_CLIENT_ID = "00000000-0000-0000-0000-000000000000";
-const MS_TENANT = "common";
-const MS_SCOPES = ["openid", "profile", "email", "User.Read"];
+type StoredSession = {
+  user: CurrentUser;
+  token: string;
+};
 
-// Augment window so TS knows about MSAL globals we attach at runtime.
 declare global {
   interface Window {
-    msal?: {
-      PublicClientApplication: new (config: unknown) => MsalInstance;
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: { credential?: string; select_by?: string }) => void;
+            auto_select?: boolean;
+            cancel_on_tap_outside?: boolean;
+            /** A unique token per sign-in attempt. GIS uses it to
+             *  guarantee the popup returns a fresh credential. */
+            state?: string;
+            /** Pass-through to `g_state` for replay protection. */
+            itp_support?: boolean;
+          }) => void;
+          prompt: () => void;
+          renderButton: (
+            parent: HTMLElement,
+            options: {
+              type?: "standard" | "icon";
+              theme?: "outline" | "filled_blue" | "filled_black";
+              size?: "large" | "medium" | "small";
+              text?: "signin_with" | "signup_with" | "continue_with" | "signin";
+              shape?: "rectangular" | "pill" | "circle" | "square";
+              logo_alignment?: "left" | "center";
+              width?: number;
+              locale?: string;
+            }
+          ) => void;
+          disableAutoSelect: () => void;
+          revoke: (hint: string, done?: () => void) => void;
+        };
+      };
     };
-    MS_CLIENT_ID?: string;
+    GOOGLE_CLIENT_ID?: string;
+    // Read by the sprites API's axios interceptor.
+    __svgCompilerSessionToken?: string | null;
   }
 }
 
-type MsalCtor = new (config: unknown) => MsalInstance;
-
-type MsalAccount = {
-  homeAccountId?: string;
-  localAccountId?: string;
-  username?: string;
-  name?: string;
-};
-
-type MsalInstance = {
-  initialize: () => Promise<void>;
-  setActiveAccount: (account: MsalAccount | null) => void;
-  getActiveAccount: () => MsalAccount | null;
-  loginPopup: (request: { scopes: string[]; prompt?: string }) => Promise<{
-    account?: MsalAccount;
-    accessToken?: string;
-  }>;
-  logoutPopup: (request: {
-    account: MsalAccount;
-    mainWindowRedirectUri?: string;
-  }) => Promise<void>;
-};
-
-function readStoredUser(): CurrentUser | null {
+function readStoredSession(): StoredSession | null {
   try {
-    const raw = localStorage.getItem(STORAGE_USER_KEY);
-    return raw ? (JSON.parse(raw) as CurrentUser) : null;
+    const rawUser = localStorage.getItem(STORAGE_KEY);
+    const rawToken = localStorage.getItem(TOKEN_KEY);
+    if (!rawUser || !rawToken) return null;
+    return {
+      user: JSON.parse(rawUser) as CurrentUser,
+      token: rawToken,
+    };
   } catch {
     return null;
   }
 }
 
-function persistUser(user: CurrentUser | null) {
-  if (user) localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(user));
-  else localStorage.removeItem(STORAGE_USER_KEY);
+function persistSession(session: StoredSession | null) {
+  if (session) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(session.user));
+    localStorage.setItem(TOKEN_KEY, session.token);
+  } else {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+  }
+  // Mirror the token on `window` so the sprites API interceptor can
+  // pick it up without creating a circular import.
+  window.__svgCompilerSessionToken = session?.token ?? null;
 }
 
-// Loads the MSAL browser SDK on demand. We keep a module-level promise
-// so concurrent callers share the same load.
-let msalLoadPromise: Promise<MsalCtor | null> | null = null;
-function loadMsal(): Promise<MsalCtor | null> {
+function toCurrentUser(serverUser: ServerUser): CurrentUser {
+  return {
+    id: serverUser.id,
+    email: serverUser.email,
+    displayName: serverUser.displayName,
+    picture: serverUser.picture,
+    emailVerified: serverUser.emailVerified,
+    // Trust the server's provider label so a stale `google` cached
+    // in localStorage can never be reported as the demo user.
+    provider: serverUser.provider,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Google Identity Services loader
+// ---------------------------------------------------------------------------
+
+let gisLoadPromise: Promise<NonNullable<Window["google"]> | null> | null = null;
+function loadGis(): Promise<NonNullable<Window["google"]> | null> {
   if (typeof window === "undefined") return Promise.resolve(null);
-  if (window.msal) return Promise.resolve(window.msal.PublicClientApplication);
-  if (msalLoadPromise) return msalLoadPromise;
-  msalLoadPromise = new Promise((resolve) => {
+  if (window.google?.accounts?.id) return Promise.resolve(window.google);
+  if (gisLoadPromise) return gisLoadPromise;
+  gisLoadPromise = new Promise((resolve) => {
     const script = document.createElement("script");
-    script.src =
-      "https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.27.0/lib/msal-browser.min.js";
+    script.src = "https://accounts.google.com/gsi/client";
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve(window.msal?.PublicClientApplication ?? null);
+    script.onload = () => resolve(window.google ?? null);
     script.onerror = () => resolve(null);
     document.head.appendChild(script);
   });
-  return msalLoadPromise;
+  return gisLoadPromise;
 }
 
-let msalInstancePromise: Promise<MsalInstance> | null = null;
-function getMsalInstance(): Promise<MsalInstance> {
-  if (msalInstancePromise) return msalInstancePromise;
-  msalInstancePromise = (async () => {
-    const PublicClientApplication = (await loadMsal()) as MsalCtor | null;
-    if (!PublicClientApplication) {
-      throw new Error("Microsoft Authentication Library failed to load.");
+let cachedButtonHost: HTMLDivElement | null = null;
+function ensureButtonHost(): HTMLDivElement {
+  if (cachedButtonHost && document.body.contains(cachedButtonHost)) {
+    return cachedButtonHost;
+  }
+  const host = document.createElement("div");
+  host.id = "google-signin-button-host";
+  // Off-screen but still focusable / clickable.
+  host.style.position = "fixed";
+  host.style.left = "-9999px";
+  host.style.top = "-9999px";
+  host.style.width = "1px";
+  host.style.height = "1px";
+  host.style.overflow = "hidden";
+  document.body.appendChild(host);
+  cachedButtonHost = host;
+  return host;
+}
+
+/**
+ * Open the Google account chooser. The GIS button is the only entry
+ * point that shows the full chooser with every signed-in Gmail
+ * account + "Use another account". We re-initialize GIS with a
+ * fresh `callback` and a per-attempt `state` token on every call so
+ * the popup always presents a picker (no auto-select of the most
+ * recent account).
+ */
+async function requestGoogleCredential(): Promise<string> {
+  const google = await loadGis();
+  if (!google) {
+    throw new Error("Google Identity Services failed to load.");
+  }
+  const clientId = (window.GOOGLE_CLIENT_ID ?? "").trim();
+  if (!clientId) {
+    throw new Error(
+      "Google sign-in is not configured. Add VITE_GOOGLE_CLIENT_ID to client/.env (no space around `=`) and restart the dev server."
+    );
+  }
+
+  const host = ensureButtonHost();
+
+  return await new Promise<string>((resolve, reject) => {
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      fn();
+    };
+    let timeoutId = window.setTimeout(() => {
+      finish(() => reject(new Error("Google sign-in was cancelled.")));
+    }, 5 * 60_000);
+
+    // Per-attempt `state` token: GIS encodes this in the returned
+    // id_token, guaranteeing the popup is for this specific call and
+    // not a replay of a previous attempt.
+    const stateToken =
+      Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+    try {
+      google.accounts.id.initialize({
+        client_id: clientId,
+        callback: (response) => {
+          const credential = response?.credential;
+          if (credential) {
+            finish(() => resolve(credential));
+          } else {
+            finish(() =>
+              reject(new Error("Google sign-in did not return a credential."))
+            );
+          }
+        },
+        // Important: never auto-select. The whole point of using the
+        // button is to give the user a chooser every time.
+        auto_select: false,
+        cancel_on_tap_outside: true,
+        state: stateToken,
+        itp_support: true,
+      });
+    } catch (err) {
+      finish(() =>
+        reject(err instanceof Error ? err : new Error("Google init failed."))
+      );
+      return;
     }
-    const clientId = window.MS_CLIENT_ID || DEFAULT_MS_CLIENT_ID;
-    const instance = new PublicClientApplication!({
-      auth: {
-        clientId,
-        authority: `https://login.microsoftonline.com/${MS_TENANT}`,
-        redirectUri: typeof window !== "undefined" ? window.location.origin : undefined,
-      },
-      cache: {
-        cacheLocation: "sessionStorage",
-        storeAuthStateInCookie: false,
-      },
-    });
-    await instance.initialize();
-    // Reuse an existing session if the user previously signed in.
-    const cached = sessionStorage.getItem("msal.account");
-    if (cached) {
+
+    // Render the GIS button into the host (idempotent — re-rendering
+    // would create a second button, so we only do it once).
+    if (!host.dataset.gisRendered) {
       try {
-        instance.setActiveAccount(JSON.parse(cached));
-      } catch {
-        // ignore – active account will be set on next login
+        google.accounts.id.renderButton(host, {
+          type: "standard",
+          theme: "outline",
+          size: "large",
+          text: "signin_with",
+          shape: "rectangular",
+          logo_alignment: "left",
+          width: 320,
+        });
+        host.dataset.gisRendered = "true";
+      } catch (err) {
+        finish(() =>
+          reject(
+            err instanceof Error
+              ? err
+              : new Error("Google sign-in button failed to render.")
+          )
+        );
+        return;
       }
     }
-    return instance;
-  })();
-  return msalInstancePromise;
+
+    // Click the hidden GIS button to open the chooser. The button
+    // renders either as an inner `<div role="button">` (older
+    // builds) or an `<iframe>` (newer builds); either responds to
+    // `.click()`.
+    const inner = host.querySelector<HTMLElement>(
+      'div[role="button"], iframe'
+    );
+    const target = inner ?? host;
+    target.click();
+  });
 }
+
+// ---------------------------------------------------------------------------
+// Provider
+// ---------------------------------------------------------------------------
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => readStoredUser());
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [initializing, setInitializing] = useState(true);
 
+  // Rehydrate the user from localStorage on mount. We also try to
+  // verify the stored token with the server so a stale session is
+  // detected and cleared automatically.
   useEffect(() => {
-    persistUser(currentUser);
-  }, [currentUser]);
-
-  // Kept for backward compatibility with any callers that still import
-  // these names. They now route to the Microsoft flow so existing UI
-  // does not break if it ever references them.
-  const signInWithEmailPassword = useCallback(
-    async (email: string, password: string): Promise<CurrentUser> => {
-      // === DEMO DUMMY CODE START - REMOVABLE ===
-      // Demo sign-in: any non-empty password works for demo@syncfusion.com.
-      // This is a self-contained demo login that bypasses the Microsoft
-      // popup. Search for "REMOVABLE" to find every related block.
-      const demoEmail = "demo@syncfusion.com";
-      const cleanEmail = String(email || "").trim().toLowerCase();
-      const cleanPassword = String(password || "").trim();
-      if (cleanEmail === demoEmail && cleanPassword.length > 0) {
-        const user: CurrentUser = {
-          id: demoEmail,
-          email: demoEmail,
-          displayName: "Demo User",
-          picture: null,
-          emailVerified: true,
-          provider: "demo",
-          isDemoAccount: true,
-        };
-        setCurrentUser(user);
-        return user;
+    let cancelled = false;
+    async function rehydrate() {
+      const stored = readStoredSession();
+      if (!stored) {
+        persistSession(null);
+        if (!cancelled) setInitializing(false);
+        return;
       }
-      // === DEMO DUMMY CODE END - REMOVABLE ===
-      throw new Error("Email/password sign-in has been removed. Use Microsoft sign-in.");
-    },
-    []
-  );
+      window.__svgCompilerSessionToken = stored.token;
+      if (!cancelled) setCurrentUser(stored.user);
+      try {
+        const fresh = await fetchCurrentUser(stored.token);
+        if (cancelled) return;
+        const next = toCurrentUser(fresh);
+        setCurrentUser(next);
+        persistSession({ user: next, token: stored.token });
+      } catch {
+        // Server rejected the token (expired / revoked). Wipe the
+        // local session and force the user to sign in again.
+        if (cancelled) return;
+        persistSession(null);
+        setCurrentUser(null);
+      } finally {
+        if (!cancelled) setInitializing(false);
+      }
+    }
+    void rehydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const loginWithGoogle = useCallback(async () => {
-    throw new Error("Google sign-in has been removed. Use Microsoft sign-in.");
+  const loginWithGoogle = useCallback(async (): Promise<CurrentUser> => {
+    const credential = await requestGoogleCredential();
+    const { user, token } = await loginWithGoogleApi(credential);
+    const next = toCurrentUser(user);
+    setCurrentUser(next);
+    persistSession({ user: next, token });
+    return next;
+  }, []);
+
+  const loginAsDemo = useCallback(async (): Promise<CurrentUser> => {
+    // The demo flow does not use Google Identity Services, so we
+    // skip the GIS re-init and go straight to the API. The server
+    // upserts a shared demo `User` doc every time, but the
+    // resulting `CurrentUser` (with its own `ownerId`) is
+    // indistinguishable from a real session as far as the rest of
+    // the app is concerned.
+    const { user, token } = await loginAsDemoApi();
+    const next = toCurrentUser(user);
+    setCurrentUser(next);
+    persistSession({ user: next, token });
+    return next;
   }, []);
 
   const loginWithMicrosoft = useCallback(async (): Promise<CurrentUser> => {
-    let instance: MsalInstance;
-    try {
-      instance = await getMsalInstance();
-    } catch (err) {
-      throw new Error(
-        "Microsoft sign-in is not configured. Set window.MS_CLIENT_ID to your Azure AD application client id."
-      );
-    }
-    let result: { account?: MsalAccount; accessToken?: string };
-    try {
-      result = await instance.loginPopup({ scopes: MS_SCOPES, prompt: "select_account" });
-    } catch (err) {
-      const e = err as { errorCode?: string; message?: string };
-      if (e?.errorCode === "popup_window_error" || e?.message?.includes("Popup")) {
-        throw new Error("Microsoft sign-in popup was blocked or closed.");
-      }
-      if (e?.errorCode === "user_cancelled" || e?.errorCode === "popup_closed") {
-        throw new Error("Microsoft sign-in was cancelled.");
-      }
-      if (e?.errorCode === "invalid_client" || e?.errorCode === "unauthorized_client") {
-        throw new Error(
-          "Microsoft sign-in is not configured for this app. Set window.MS_CLIENT_ID to a valid Azure AD client id."
-        );
-      }
-      throw new Error(e?.message || "Microsoft sign-in failed.");
-    }
-
-    const account = result?.account;
-    if (!account) {
-      throw new Error("Microsoft sign-in did not return an account.");
-    }
-    instance.setActiveAccount(account);
-    try {
-      sessionStorage.setItem("msal.account", JSON.stringify(account));
-    } catch {
-      // sessionStorage may be unavailable – non-fatal
-    }
-
-    // Pull a richer profile from Microsoft Graph (display name, photo).
-    let displayName = account.name || account.username || "";
-    let picture: string | null = null;
-    let mail = account.username || "";
-    try {
-      const graphRes = await fetch("https://graph.microsoft.com/v1.0/me", {
-        headers: { Authorization: `Bearer ${result.accessToken}` },
-      });
-      if (graphRes.ok) {
-        const profile = (await graphRes.json()) as {
-          displayName?: string;
-          mail?: string;
-          userPrincipalName?: string;
-        };
-        displayName = profile.displayName || displayName;
-        mail = profile.mail || profile.userPrincipalName || mail;
-      }
-    } catch {
-      // Non-fatal – the id_token claims are still usable
-    }
-
-    const user: CurrentUser = {
-      id: account.homeAccountId || account.localAccountId || mail,
-      email: mail,
-      displayName: displayName || mail,
-      picture,
-      emailVerified: true,
-      provider: "microsoft",
-      token: result.accessToken,
-    };
-    setCurrentUser(user);
-    return user;
+    // The server route is a placeholder (501). We let the error
+    // bubble up to the caller (the login modal) so it can show the
+    // server-provided message in the error slot.
+    const { user, token } = await loginWithMicrosoftApi();
+    const next = toCurrentUser(user);
+    setCurrentUser(next);
+    persistSession({ user: next, token });
+    return next;
   }, []);
 
+  // Track the most-recently-logged-in user so `logout` can revoke
+  // their Google session. Revoking makes the chooser appear on the
+  // next sign-in instead of auto-selecting the same account.
+  const lastUserRef = useRef<CurrentUser | null>(null);
+  useEffect(() => {
+    if (currentUser) lastUserRef.current = currentUser;
+  }, [currentUser]);
+
   const logout = useCallback(async () => {
+    const previous = lastUserRef.current;
+    persistSession(null);
+    setCurrentUser(null);
     try {
-      const instance = await getMsalInstance();
-      const account = instance.getActiveAccount();
-      if (account) {
-        await instance.logoutPopup({
-          account,
-          mainWindowRedirectUri: window.location.origin,
-        });
-      }
-    } catch {
-      // Ignore – we still want to clear local state
-    }
-    try {
-      sessionStorage.removeItem("msal.account");
+      // Disable auto-select so the next GIS attempt shows the
+      // chooser rather than signing in silently.
+      window.google?.accounts.id.disableAutoSelect();
     } catch {
       // ignore
     }
-    setCurrentUser(null);
+    if (previous?.email) {
+      // Revoke the Google session for the email we just signed out
+      // from. This invalidates Google's own session cookies for
+      // this origin so the chooser appears next time.
+      await new Promise<void>((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          resolve();
+        };
+        try {
+          window.google?.accounts.id.revoke(previous.email, () => finish());
+        } catch {
+          finish();
+        }
+        // GIS's `revoke` callback is best-effort; don't hang.
+        window.setTimeout(finish, 1500);
+      });
+    }
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       currentUser,
-      signInWithEmailPassword,
+      initializing,
       loginWithGoogle,
+      loginAsDemo,
       loginWithMicrosoft,
       logout,
     }),
-    [currentUser, signInWithEmailPassword, loginWithGoogle, loginWithMicrosoft, logout]
+    [
+      currentUser,
+      initializing,
+      loginWithGoogle,
+      loginAsDemo,
+      loginWithMicrosoft,
+      logout,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -12,6 +12,8 @@ import {
   ChevronDoubleLeftIcon,
   PencilIcon,
   TrashIcon,
+  EyeIcon,
+  DuplicateIcon,
 } from "../icons";
 import type { Source as LiveDemoSource } from "./LiveDemo";
 import { useAuth } from "../../context/AuthContext";
@@ -25,12 +27,16 @@ type LibraryGroupVersion = {
   version: number;
   symbolCount: number;
   updatedAt?: string;
+  isPublic: boolean;
+  isOwner: boolean;
   summary: SpriteSummary;
 };
 
 type LibraryGroup = {
   bundleName: string;
   versions: LibraryGroupVersion[];
+  isPublic: boolean;
+  isOwner: boolean;
 };
 
 type LibraryPanelProps = {
@@ -295,13 +301,26 @@ function LibraryPanel({
         byName.set(key, {
           bundleName: sprite.bundleName || sprite.name,
           versions: [],
+          // A bundle is "public" / "owned" if any version says so.
+          // In practice the server applies the same flag to every
+          // version of a bundle, but we OR defensively in case a
+          // future change makes them diverge.
+          isPublic: false,
+          isOwner: false,
         });
       }
-      byName.get(key)!.versions.push({
+      const group = byName.get(key)!;
+      const isPublic = !!sprite.isPublic;
+      const isOwner = sprite.isOwner !== false;
+      if (isPublic) group.isPublic = true;
+      if (isOwner) group.isOwner = true;
+      group.versions.push({
         id: sprite._id,
         version: sprite.version ?? 1,
         symbolCount: sprite.symbolCount,
         updatedAt: sprite.updatedAt,
+        isPublic,
+        isOwner,
         summary: sprite,
       });
     }
@@ -492,7 +511,7 @@ function LibraryPanel({
                           onCancel={cancelRename}
                           onConfirm={handleConfirmRename}
                         />
-                      ) : (
+                      ) : group.isOwner ? (
                         <button
                           type="button"
                           onClick={() => startRename(group)}
@@ -509,6 +528,24 @@ function LibraryPanel({
                           </h3>
                           <PencilIcon className="h-3.5 w-3.5 flex-shrink-0 text-slate-400 opacity-0 transition-opacity group-hover/header:opacity-100" />
                         </button>
+                      ) : (
+                        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                          <h3
+                            className="truncate text-sm font-bold text-slate-800"
+                            title={group.bundleName}
+                          >
+                            {group.bundleName}
+                          </h3>
+                        </div>
+                      )}
+                      {group.isPublic && (
+                        <span
+                          className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600"
+                          title="Visible to all signed-in users. Only the owner can rename or delete."
+                        >
+                          <EyeIcon className="h-3 w-3" />
+                          Public
+                        </span>
                       )}
                     </div>
                     <div className="space-y-3">
@@ -536,13 +573,15 @@ function LibraryPanel({
                               </span>
                             </div>
                             <div className="mt-1.5 flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleLoad(version)}
-                                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-100"
-                              >
-                                Load to Update
-                              </button>
+                              {version.isOwner && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleLoad(version)}
+                                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-100"
+                                >
+                                  Load to Update
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={async (e) => {
@@ -559,6 +598,8 @@ function LibraryPanel({
                                         id: detail.id,
                                         name: detail.bundleName || detail.name,
                                         version: detail.version,
+                                        isOwner: version.isOwner,
+                                        isPublic: version.isPublic,
                                       },
                                     });
                                   } catch (err) {
@@ -570,33 +611,11 @@ function LibraryPanel({
                                     );
                                   }
                                 }}
-                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
-                                title="Open live demo"
+                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600"
+                                title="Preview icons"
+                                aria-label={`Preview ${group.bundleName} v${version.version}`}
                               >
-                                <button
-                                  className="preview-lib-btn p-1 text-slate-400 hover:text-emerald-500 transition-colors bg-slate-50 rounded hover:bg-emerald-50"
-                                  data-id="${lib.id}"
-                                  title="Preview icons"
-                                >
-                                  <svg
-                                    className="w-3.5 h-3.5 pointer-events-none"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                  >
-                                    <path
-                                      stroke-linecap="round"
-                                      stroke-linejoin="round"
-                                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                                    />
-                                    <path
-                                      stroke-linecap="round"
-                                      stroke-linejoin="round"
-                                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                                    />
-                                  </svg>
-                                </button>
+                                <EyeIcon className="h-3.5 w-3.5" />
                               </button>
                               <button
                                 type="button"
@@ -627,39 +646,24 @@ function LibraryPanel({
                                 }}
                                 className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
                                 title="Copy sprite XML"
+                                aria-label={`Copy ${group.bundleName} v${version.version}`}
                               >
+                                <DuplicateIcon className="h-3.5 w-3.5" />
+                              </button>
+                              {version.isOwner && (
                                 <button
-                                  className="copy-lib-btn p-1 text-slate-400 hover:text-indigo-500 transition-colors bg-slate-50 rounded hover:bg-indigo-50"
-                                  data-id="${lib.id}"
-                                  title="Copy Sprite Code"
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openDeleteModal(version);
+                                  }}
+                                  className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                                  title={`Delete v${version.version}`}
+                                  aria-label={`Delete ${group.bundleName} v${version.version}`}
                                 >
-                                  <svg
-                                    className="w-3.5 h-3.5 pointer-events-none"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                  >
-                                    <path
-                                      stroke-linecap="round"
-                                      stroke-linejoin="round"
-                                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                    />
-                                  </svg>
+                                  <TrashIcon className="h-3.5 w-3.5" />
                                 </button>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openDeleteModal(version);
-                                }}
-                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
-                                title={`Delete v${version.version}`}
-                                aria-label={`Delete ${group.bundleName} v${version.version}`}
-                              >
-                                <TrashIcon className="h-3.5 w-3.5" />
-                              </button>
+                              )}
                             </div>
                           </div>
                         );
