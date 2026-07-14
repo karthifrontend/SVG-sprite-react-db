@@ -41,6 +41,29 @@ const spriteSchema = new Schema(
       type: Number,
       default: 0,
     },
+    // The Google-authenticated user that owns this sprite. Set on
+    // create from the bearer-token session; used to scope reads
+    // and to gate edits / deletes.
+    ownerId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+    ownerEmail: {
+      type: String,
+      required: true,
+      trim: true,
+      lowercase: true,
+    },
+    // When true, every authenticated user can see this bundle in
+    // the library list and load the latest version. Edits, renames
+    // and deletes are still restricted to `ownerId` server-side.
+    isPublic: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -52,6 +75,8 @@ const spriteSchema = new Schema(
 // other) but never the same (bundleName, version) pair.
 spriteSchema.index({ bundleName: 1, version: 1 }, { unique: true });
 spriteSchema.index({ bundleName: 1, updatedAt: -1 });
+// Owner-scoped lookups (list my libraries, count by owner).
+spriteSchema.index({ ownerId: 1, updatedAt: -1 });
 
 export type SpriteDoc = InferSchemaType<typeof spriteSchema>;
 export type SpriteModel = Model<SpriteDoc>;

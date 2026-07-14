@@ -14,6 +14,11 @@ function Navbar({ onOpenLogin, libraryToggleSlot }: NavbarProps) {
   async function handleLogout() {
     await logout();
     showToast("Logged out successfully", "success");
+    // Hard-reload the page so every in-memory state (library cache,
+    // compiler state, file dropzone, etc.) is reset to a clean
+    // signed-out baseline. A soft state reset would risk stale
+    // data leaking from the previous session.
+    window.location.reload();
   }
 
   return (

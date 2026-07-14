@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import Sprite from "../models/Sprite.js";
 import { ensureConnected } from "../db.js";
+import { requireUser } from "../middleware/requireUser.js";
 
 const router = Router();
 
@@ -10,6 +11,7 @@ type CreateSpriteBody = {
   xml?: unknown;
   symbolIds?: unknown;
   symbolCount?: unknown;
+  isPublic?: unknown;
 };
 
 type UpdateSpriteBody = {
@@ -20,6 +22,17 @@ type UpdateSpriteBody = {
 
 type RenameSpriteBody = {
   name?: unknown;
+};
+
+type ListSpriteItem = {
+  _id: unknown;
+  name: string;
+  bundleName: string;
+  version: number;
+  symbolCount: number;
+  isPublic?: boolean;
+  ownerId: unknown;
+  updatedAt?: Date;
 };
 
 function asString(value: unknown): string | null {
@@ -33,6 +46,10 @@ function asStringArray(value: unknown): string[] {
 
 function asNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function asBoolean(value: unknown): boolean {
+  return value === true;
 }
 
 function sanitizeBundleName(raw: string): string {
@@ -51,12 +68,57 @@ function notConnectedResponse(res: Response) {
   });
 }
 
+function forbiddenResponse(res: Response, message = "You can only modify libraries you own.") {
+  return res.status(403).json({ error: message });
+}
+
+type OwnerLike = { ownerId?: unknown };
+
+function ownerIdString(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null && "toString" in value) {
+    return String((value as { toString(): unknown }).toString());
+  }
+  return null;
+}
+
+/**
+ * Returns 403 via `res` if `sprite.ownerId` does not match the
+ * session user, otherwise returns `true` so the caller can keep
+ * going. Returns `false` if the sprite is missing (the response is
+ * already written as 404).
+ */
+function ensureOwner(
+  res: Response,
+  sprite: OwnerLike | null,
+  user: { _id: unknown } | undefined
+): boolean {
+  if (!sprite) {
+    res.status(404).json({ error: "Sprite not found." });
+    return false;
+  }
+  if (!user) {
+    res.status(401).json({ error: "Authentication required." });
+    return false;
+  }
+  const ownerString = ownerIdString(sprite.ownerId);
+  const userString = ownerIdString(user._id);
+  if (!ownerString || !userString || ownerString !== userString) {
+    forbiddenResponse(res);
+    return false;
+  }
+  return true;
+}
+
 type SpriteLike = {
   _id: unknown;
   name: string;
   bundleName: string;
   version: number;
   symbolCount: number;
+  isPublic?: boolean;
+  ownerId?: unknown;
   createdAt?: Date;
   updatedAt?: Date;
 };
@@ -66,13 +128,15 @@ type SpriteDetailLike = SpriteLike & {
   symbolIds: string[];
 };
 
-function serializeSprite(sprite: SpriteLike) {
+function serializeSprite(sprite: SpriteLike, isOwner = true) {
   return {
     id: sprite._id,
     name: sprite.name,
     bundleName: sprite.bundleName,
     version: sprite.version,
     symbolCount: sprite.symbolCount,
+    isPublic: !!sprite.isPublic,
+    isOwner,
     createdAt: sprite.createdAt,
     updatedAt: sprite.updatedAt,
   };
@@ -91,7 +155,7 @@ function serializeSpriteDetail(sprite: SpriteDetailLike) {
  * (the `name` field, or `bundleName` if provided). The new version
  * number is always (latest + 1) so the client never has to compute it.
  */
-router.post("/", async (req: Request, res: Response) => {
+router.post("/", requireUser, async (req: Request, res: Response) => {
   const body = req.body as CreateSpriteBody;
 
   const name = asString(body.name);
@@ -99,6 +163,7 @@ router.post("/", async (req: Request, res: Response) => {
   const xml = asString(body.xml);
   const symbolIds = asStringArray(body.symbolIds);
   const symbolCount = asNumber(body.symbolCount, symbolIds.length);
+  const isPublic = asBoolean(body.isPublic);
 
   if (!name) {
     return res.status(400).json({ error: "Sprite name is required." });
@@ -129,6 +194,9 @@ router.post("/", async (req: Request, res: Response) => {
       xml,
       symbolIds,
       symbolCount,
+      ownerId: req.user!._id,
+      ownerEmail: req.user!.email,
+      isPublic,
     });
     return res.status(201).json(serializeSprite(sprite));
   } catch (err) {
@@ -140,7 +208,7 @@ router.post("/", async (req: Request, res: Response) => {
 /**
  * Fetch a single sprite by id. Returns the full XML payload.
  */
-router.get("/id/:id", async (req: Request, res: Response) => {
+router.get("/id/:id", requireUser, async (req: Request, res: Response) => {
   const id = req.params.id;
   if (!id) {
     return res.status(400).json({ error: "Id parameter is required." });
@@ -156,6 +224,14 @@ router.get("/id/:id", async (req: Request, res: Response) => {
     if (!sprite) {
       return res.status(404).json({ error: "Sprite not found." });
     }
+    // Public sprites are readable by any authenticated user. The
+    // owner-only gate is enforced for every write route below; for
+    // reads we just return a flag so the UI can disable mutating
+    // actions for non-owners.
+    const isOwner = ownerIdString(sprite.ownerId) === ownerIdString(req.user!._id);
+    if (!isOwner && !sprite.isPublic) {
+      return forbiddenResponse(res, "You can only access libraries you own or that are public.");
+    }
     return res.json(serializeSpriteDetail(sprite));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -166,7 +242,7 @@ router.get("/id/:id", async (req: Request, res: Response) => {
 /**
  * Fetch the latest version of a sprite bundle by bundle name.
  */
-router.get("/:name", async (req: Request, res: Response) => {
+router.get("/:name", requireUser, async (req: Request, res: Response) => {
   const name = req.params.name;
   if (!name) {
     return res.status(400).json({ error: "Name parameter is required." });
@@ -183,6 +259,10 @@ router.get("/:name", async (req: Request, res: Response) => {
     if (!sprite) {
       return res.status(404).json({ error: "Sprite not found." });
     }
+    const isOwner = ownerIdString(sprite.ownerId) === ownerIdString(req.user!._id);
+    if (!isOwner && !sprite.isPublic) {
+      return forbiddenResponse(res, "You can only access libraries you own or that are public.");
+    }
     return res.json(serializeSpriteDetail(sprite));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -191,30 +271,48 @@ router.get("/:name", async (req: Request, res: Response) => {
 });
 
 /**
- * List every version of every sprite bundle. The client groups by
- * `bundleName` to render the version tree in the library panel.
+ * List sprite bundles. Returns the current user's own bundles plus
+ * every bundle marked `isPublic` (regardless of owner). Each entry
+ * carries an `isOwner` flag so the client can render owner-only
+ * actions (load to update, rename, delete) appropriately.
  */
-router.get("/", async (_req: Request, res: Response) => {
+router.get("/", requireUser, async (req: Request, res: Response) => {
   const connected = await ensureConnected();
   if (!connected) {
     return notConnectedResponse(res);
   }
 
   try {
+    const userId = req.user!._id;
     const sprites = await Sprite.find(
-      {},
-      { name: 1, bundleName: 1, version: 1, symbolCount: 1, updatedAt: 1 }
+      {
+        $or: [{ ownerId: userId }, { isPublic: true }],
+      },
+      {
+        name: 1,
+        bundleName: 1,
+        version: 1,
+        symbolCount: 1,
+        isPublic: 1,
+        ownerId: 1,
+        updatedAt: 1,
+      }
     )
       .sort({ updatedAt: -1 })
       .lean();
-    const list = sprites.map((sprite) => ({
-      _id: sprite._id,
-      name: sprite.name,
-      bundleName: sprite.bundleName,
-      version: sprite.version,
-      symbolCount: sprite.symbolCount,
-      updatedAt: sprite.updatedAt,
-    }));
+    const list = sprites.map((sprite: ListSpriteItem) => {
+      const isOwner = ownerIdString(sprite.ownerId) === ownerIdString(userId);
+      return {
+        _id: sprite._id,
+        name: sprite.name,
+        bundleName: sprite.bundleName,
+        version: sprite.version,
+        symbolCount: sprite.symbolCount,
+        isPublic: !!sprite.isPublic,
+        isOwner,
+        updatedAt: sprite.updatedAt,
+      };
+    });
     return res.json(list);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -227,7 +325,7 @@ router.get("/", async (_req: Request, res: Response) => {
  * does not change `bundleName` or `version`; new versions should go
  * through POST /.
  */
-router.put("/:id", async (req: Request, res: Response) => {
+router.put("/:id", requireUser, async (req: Request, res: Response) => {
   const id = req.params.id;
   if (!id) {
     return res.status(400).json({ error: "Id parameter is required." });
@@ -246,15 +344,16 @@ router.put("/:id", async (req: Request, res: Response) => {
   }
 
   try {
-    const sprite = await Sprite.findByIdAndUpdate(
-      id,
-      { xml, symbolIds, symbolCount },
-      { returnDocument: "after", runValidators: true }
-    );
-    if (!sprite) {
+    const existing = await Sprite.findById(id);
+    if (!existing) {
       return res.status(404).json({ error: "Sprite not found." });
     }
-    return res.json(serializeSprite(sprite));
+    if (!ensureOwner(res, existing, req.user!)) return;
+    existing.xml = xml;
+    existing.symbolIds = symbolIds;
+    existing.symbolCount = symbolCount;
+    await existing.save();
+    return res.json(serializeSprite(existing));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return res.status(500).json({ error: message });
@@ -266,7 +365,7 @@ router.put("/:id", async (req: Request, res: Response) => {
  * `name` (e.g. "my-sprite v3") on every version of the bundle so
  * the library grouping stays consistent.
  */
-router.patch("/:id/rename", async (req: Request, res: Response) => {
+router.patch("/:id/rename", requireUser, async (req: Request, res: Response) => {
   const id = req.params.id;
   if (!id) {
     return res.status(400).json({ error: "Id parameter is required." });
@@ -290,6 +389,7 @@ router.patch("/:id/rename", async (req: Request, res: Response) => {
     const target = await Sprite.findById(id);
     if (!target) {
       return res.status(404).json({ error: "Sprite not found." });
+    if (!ensureOwner(res, target, req.user!)) return;
     }
     const oldBundleName = target.bundleName;
 
@@ -323,7 +423,7 @@ router.patch("/:id/rename", async (req: Request, res: Response) => {
       oldBundleName,
       newBundleName,
       updated: versions.length,
-      versions: versions.map(serializeSprite),
+      versions: versions.map((s) => serializeSprite(s, true)),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -337,7 +437,7 @@ router.patch("/:id/rename", async (req: Request, res: Response) => {
  * Pass `?scope=bundle` (or `scope=all`) to remove every version of
  * the bundle, useful for a "delete the whole library" action.
  */
-router.delete("/:id", async (req: Request, res: Response) => {
+router.delete("/:id", requireUser, async (req: Request, res: Response) => {
   const id = req.params.id;
   if (!id) {
     return res.status(400).json({ error: "Id parameter is required." });
@@ -353,7 +453,8 @@ router.delete("/:id", async (req: Request, res: Response) => {
   try {
     const target = await Sprite.findById(id).lean();
     if (!target) {
-      return res.status(404).json({ error: "Sprite not found." });
+     
+    if (!ensureOwner(res, target, req.user!)) return; return res.status(404).json({ error: "Sprite not found." });
     }
 
     if (deleteBundle) {

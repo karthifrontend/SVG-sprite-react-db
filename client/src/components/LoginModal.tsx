@@ -1,8 +1,16 @@
-// Login modal – Microsoft sign-in / sign-up only. The same Microsoft
-// account popup is used for both flows (Azure AD creates the account on
-// first use). The rest of the UI (icon, headings, "Cancel / Continue
-// as Guest" link) is unchanged.
-import { useState, type FormEvent } from "react";
+// Login modal — Google / Microsoft / Demo sign-in.
+//
+// Google: real OAuth via Google Identity Services. Same button
+// handles sign-in and sign-up; GIS creates the account on first
+// use.
+//
+// Microsoft: UI button is wired up but the backend route is a
+// placeholder (returns 501). The server's message is shown in the
+// error slot so users get a clear explanation.
+//
+// Demo: instant sign-in. The server upserts a built-in shared
+// demo `User` doc on every click and returns a session token.
+import { useState } from "react";
 import Modal from "./Modal";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -43,44 +51,85 @@ function LockIcon({ className = "w-8 h-8", strokeWidth = 1.5 }: IconProps) {
   );
 }
 
-function MicrosoftLogo({ className = "w-5 h-5" }: { className?: string }) {
+function GoogleLogo({ className = "w-5 h-5" }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="0 0 48 48"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       aria-hidden="true"
     >
-      <rect x="3" y="3" width="8" height="8" fill="#F25022" />
-      <rect x="13" y="3" width="8" height="8" fill="#7FBA00" />
-      <rect x="3" y="13" width="8" height="8" fill="#00A4EF" />
-      <rect x="13" y="13" width="8" height="8" fill="#FFB900" />
+      <path
+        fill="#FFC107"
+        d="M43.611 20.083H42V20H24v8h11.303C33.972 32.91 29.388 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"
+      />
+      <path
+        fill="#FF3D00"
+        d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"
+      />
+      <path
+        fill="#4CAF50"
+        d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.366 0-9.931-3.066-11.288-7.945l-6.522 5.025C9.505 39.556 16.227 44 24 44z"
+      />
+      <path
+        fill="#1976D2"
+        d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"
+      />
     </svg>
   );
 }
 
+function MicrosoftLogo({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 23 23"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      <path fill="#F25022" d="M1 1h10v10H1z" />
+      <path fill="#7FBA00" d="M12 1h10v10H12z" />
+      <path fill="#00A4EF" d="M1 12h10v10H1z" />
+      <path fill="#FFB900" d="M12 12h10v10H12z" />
+    </svg>
+  );
+}
+
+function SparklesIcon({
+  className = "w-5 h-5",
+  strokeWidth = 1.5,
+}: IconProps) {
+  return (
+    <svg
+      {...ICON_BASE}
+      strokeWidth={strokeWidth}
+      className={className}
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
+      />
+    </svg>
+  );
+}
+
+type Provider = "google" | "microsoft" | "demo";
+
 export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
-  const { loginWithMicrosoft, signInWithEmailPassword } = useAuth();
+  const { loginWithGoogle, loginWithMicrosoft, loginAsDemo } = useAuth();
   const { showToast } = useToast();
-  const [microsoftSubmitting, setMicrosoftSubmitting] = useState(false);
+  const [submittingProvider, setSubmittingProvider] = useState<Provider | null>(
+    null
+  );
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-
-  // === DEMO DUMMY CODE START - REMOVABLE ===
-  // Local state for the demo email/password form. The form is only
-  // shown for the demo@syncfusion.com flow and is fully removable.
-  const [demoEmail, setDemoEmail] = useState("demo@syncfusion.com");
-  const [demoPassword, setDemoPassword] = useState("");
-  const [demoSubmitting, setDemoSubmitting] = useState(false);
-  // === DEMO DUMMY CODE END - REMOVABLE ===
 
   function reset() {
     setError("");
     setMessage("");
-    setMicrosoftSubmitting(false);
-    // === DEMO DUMMY CODE START - REMOVABLE ===
-    setDemoSubmitting(false);
-    // === DEMO DUMMY CODE END - REMOVABLE ===
+    setSubmittingProvider(null);
   }
 
   function close() {
@@ -88,43 +137,37 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     onClose?.();
   }
 
-  async function handleMicrosoft() {
+  async function handleProvider(provider: Provider) {
     setError("");
     setMessage("");
-    setMicrosoftSubmitting(true);
+    setSubmittingProvider(provider);
     try {
-      const user = await loginWithMicrosoft();
-      setMessage(`Signed in as ${user.email}`);
+      const user =
+        provider === "google"
+          ? await loginWithGoogle()
+          : provider === "microsoft"
+          ? await loginWithMicrosoft()
+          : await loginAsDemo();
+      const providerLabel =
+        provider === "google"
+          ? "Google"
+          : provider === "microsoft"
+          ? "Microsoft"
+          : "Demo";
+      setMessage(`Signed in as ${user.email} (${providerLabel})`);
       showToast(`Welcome, ${user.email}!`, "success");
       setTimeout(close, 400);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Microsoft sign-in cancelled.");
+      setError(
+        err instanceof Error ? err.message : "Sign-in cancelled."
+      );
     } finally {
-      setMicrosoftSubmitting(false);
+      setSubmittingProvider(null);
     }
   }
 
-  // === DEMO DUMMY CODE START - REMOVABLE ===
-  // Demo sign-in handler. Logs the user in as demo@syncfusion.com with
-  // any non-empty password, mirroring the rest of the signed-in UX
-  // (welcome toast, modal close, library access, etc.).
-  async function handleDemoLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    setMessage("");
-    setDemoSubmitting(true);
-    try {
-      const user = await signInWithEmailPassword(demoEmail, demoPassword);
-      setMessage(`Signed in as ${user.email}`);
-      showToast(`Welcome, ${user.email}! (demo)`, "success");
-      setTimeout(close, 400);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Demo sign-in failed.");
-    } finally {
-      setDemoSubmitting(false);
-    }
-  }
-  // === DEMO DUMMY CODE END - REMOVABLE ===
+  const isBusy = submittingProvider !== null;
+  const isProvider = (p: Provider) => submittingProvider === p;
 
   return (
     <Modal
@@ -139,56 +182,57 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
         </div>
         <h2 className="text-2xl font-bold text-slate-900 mb-2">Library Login</h2>
         <p className="text-sm text-slate-500 mb-6">
-          Sign in or sign up with your Microsoft account.
+          Sign in to save sprites to your personal library.
         </p>
-        <div className="space-y-4">
+        <div className="space-y-3">
           <button
             type="button"
-            onClick={handleMicrosoft}
-            disabled={microsoftSubmitting}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-md shadow-indigo-200 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            onClick={() => handleProvider("google")}
+            disabled={isBusy}
+            className="w-full py-3 bg-white border border-slate-200 text-slate-700 rounded-xl font-semibold shadow-sm hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
           >
-            <MicrosoftLogo className="w-5 h-5" />
-            {microsoftSubmitting ? "Opening Microsoft…" : "Sign in with Microsoft"}
+            <GoogleLogo className="w-5 h-5" />
+            {isProvider("google")
+              ? "Opening Google…"
+              : "Sign in with Google"}
           </button>
 
-          {/* === DEMO DUMMY CODE START - REMOVABLE === */}
-          <div className="relative my-2 flex items-center text-xs text-slate-400">
-            <span className="flex-1 border-t border-slate-200" />
-            <span className="px-3 uppercase tracking-wider">or demo</span>
-            <span className="flex-1 border-t border-slate-200" />
+          <button
+            type="button"
+            onClick={() => handleProvider("microsoft")}
+            disabled={isBusy}
+            className="w-full py-3 bg-white border border-slate-200 text-slate-700 rounded-xl font-semibold shadow-sm hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <MicrosoftLogo className="w-5 h-5" />
+            {isProvider("microsoft")
+              ? "Opening Microsoft…"
+              : "Sign in with Microsoft"}
+          </button>
+
+          <div className="relative my-2">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200" />
+            </div>
+            <div className="relative flex justify-center text-[10px] uppercase tracking-wider">
+              <span className="bg-white px-2 text-slate-400">or</span>
+            </div>
           </div>
-          <form className="space-y-3" onSubmit={handleDemoLogin}>
-            <input
-              type="email"
-              required
-              placeholder="demo@syncfusion.com"
-              value={demoEmail}
-              onChange={(event) => setDemoEmail(event.target.value)}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-sm"
-            />
-            <input
-              type="password"
-              required
-              placeholder="Any password"
-              value={demoPassword}
-              onChange={(event) => setDemoPassword(event.target.value)}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-sm"
-            />
-            <button
-              type="submit"
-              disabled={demoSubmitting || microsoftSubmitting}
-              className="w-full py-2 bg-white border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {demoSubmitting ? "Signing in…" : "Continue as demo@syncfusion.com"}
-            </button>
-          </form>
-          {/* === DEMO DUMMY CODE END - REMOVABLE === */}
+
+          <button
+            type="button"
+            onClick={() => handleProvider("demo")}
+            disabled={isBusy}
+            className="w-full py-3 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl font-semibold shadow-sm hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <SparklesIcon className="w-5 h-5" strokeWidth={1.5} />
+            {isProvider("demo") ? "Signing in…" : "Continue as Demo"}
+          </button>
 
           <button
             type="button"
             onClick={close}
-            className="w-full py-2 mt-2 text-sm text-slate-500 hover:text-slate-700 font-medium transition-colors"
+            disabled={isBusy}
+            className="w-full py-2 mt-2 text-sm text-slate-500 hover:text-slate-700 font-medium transition-colors disabled:opacity-50"
           >
             Cancel / Continue as Guest
           </button>
