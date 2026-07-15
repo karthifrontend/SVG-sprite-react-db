@@ -6,6 +6,7 @@ import { getSpriteById, saveSprite, type SpriteSummary } from "../api/sprites";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { buildSpriteXml, extractSymbolsFromSprite } from "../utils/sprite";
+import { copyToClipboard } from "../utils/formatters";
 import CompilerHeader from "./compiler/CompilerHeader";
 import ExistingSpriteSection from "./compiler/ExistingSpriteSection";
 import FileDropzone from "./compiler/FileDropzone";
@@ -190,6 +191,12 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // the save still succeeds.
   const [saveModalPlaceholder, setSaveModalPlaceholder] = useState<string>("");
   const [saveModalNextVersion, setSaveModalNextVersion] = useState<number>(1);
+  // Initial value of the modal's "Make it as public" toggle.
+  // Seeded from the currently-loaded library's `isPublic` flag
+  // when the modal opens, so saving a new version of an
+  // existing bundle keeps the same visibility; falls back to
+  // `false` (private) for new bundles.
+  const [saveModalIsPublic, setSaveModalIsPublic] = useState<boolean>(false);
   const [saveModalBusy, setSaveModalBusy] = useState(false);
 
   // Returns the next version the server will assign for a given
@@ -219,6 +226,17 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setSaveModalName("");
     setSaveModalPlaceholder(placeholder);
     setSaveModalNextVersion(1);
+    // Seed the public toggle from the currently-loaded library so
+    // "save v4 of my public library" stays public by default.
+    // For a fresh compile (no active bundle) it stays private.
+    const activeSummary = activeBundleName
+      ? librarySprites.find(
+          (s) =>
+            (s.bundleName || s.name || "").trim().toLowerCase() ===
+            activeBundleName.trim().toLowerCase(),
+        )
+      : undefined;
+    setSaveModalIsPublic(!!activeSummary?.isPublic);
     // Close the live demo so the user can interact with the
     // "Save to Organization" form on a clean canvas. The modal
     // remembers the sprite via `demoSpriteXml`/`demoSymbolIds`,
@@ -227,7 +245,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setSaveModalOpen(true);
   }
 
-  async function handleSaveToLibraryConfirm(input: { name: string; version: string }) {
+  async function handleSaveToLibraryConfirm(input: { name: string; version: string; isPublic: boolean }) {
     if (saveModalBusy) return;
     // The bundle name is exactly what the user typed, OR the
     // placeholder when the field was left empty. The version
@@ -254,7 +272,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         xml,
         symbolIds: ids,
         symbolCount: ids.length,
-        isPublic: false,
+        // Visibility is chosen in the modal — `true` makes the new
+        // bundle / version visible to every signed-in user, `false`
+        // keeps it private to the current owner.
+        isPublic: input.isPublic,
       });
       setActiveBundleName(saved.bundleName);
       // Commit the in-progress preview buffer to the newly-saved
@@ -963,8 +984,19 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           setDemoSymbolIds(next.symbolIds);
         }}
         onCopySprite={async () => {
+          // The Live Demo shows `demoSpriteXml` (which reflects any
+          // rename / remove actions the user performed inside the
+          // modal) and only falls back to the compiler's
+          // freshly-generated `spriteXml` when no demo preview has
+          // been opened. Copy whichever the user is actually
+          // looking at — the compiler's `copy()` helper reads
+          // `spriteXml` only, so it can be null (nothing generated
+          // yet, only a demo loaded from the library) or stale
+          // (demo was mutated after the original compile).
+          const xmlToCopy = demoSpriteXml ?? spriteXml;
+          if (!xmlToCopy) return false;
           try {
-            await copy();
+            await copyToClipboard(xmlToCopy);
             return true;
           } catch {
             return false;
@@ -995,6 +1027,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         defaultName={saveModalName}
         placeholder={saveModalPlaceholder}
         nextVersion={saveModalNextVersion}
+        initialIsPublic={saveModalIsPublic}
         onClose={() => {
           if (!saveModalBusy) setSaveModalOpen(false);
         }}

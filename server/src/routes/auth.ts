@@ -115,7 +115,11 @@ router.post("/google", async (req: Request, res: Response) => {
           providerId: claims.sub,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      {
+        upsert: true,
+        returnDocument: "after",
+        setDefaultsOnInsert: true,
+      }
     );
 
     const token = await signSession({
@@ -166,7 +170,11 @@ router.post("/demo", async (_req: Request, res: Response) => {
           providerId: DEMO_PROVIDER_ID,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      {
+        upsert: true,
+        returnDocument: "after",
+        setDefaultsOnInsert: true,
+      }
     );
 
     const token = await signSession({
