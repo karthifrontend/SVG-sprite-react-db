@@ -137,3 +137,11 @@ export function InfoIcon({ className = "w-4 h-4", ...rest }: IconProps) {
     </svg>
   );
 }
+
+export function ChevronDownIcon({ className = "w-4 h-4", ...rest }: IconProps) {
+  return (
+    <svg {...ICON_BASE} className={className} {...rest}>
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}

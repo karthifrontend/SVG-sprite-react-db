@@ -10,6 +10,7 @@ import {
   UnlockIcon,
   RefreshIcon,
   ChevronDoubleLeftIcon,
+  ChevronDownIcon,
   PencilIcon,
   TrashIcon,
   EyeIcon,
@@ -18,7 +19,7 @@ import {
 import type { Source as LiveDemoSource } from "./LiveDemo";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { formatDate, formatSize } from "../../utils/sprite";
+import { formatDate } from "../../utils/sprite";
 import type { SpriteSummary } from "../../api/sprites";
 import Modal from "../Modal";
 
@@ -292,6 +293,13 @@ function LibraryPanel({
     return () => clearTimeout(timer);
   }, [loading, sprites.length]);
 
+  // Accordion state: "Public" rendered first (closed by default),
+  // "Private" rendered second (open by default). The split below
+  // drives the two sections, so a single group never appears in
+  // both lists.
+  const [publicOpen, setPublicOpen] = useState(false);
+  const [privateOpen, setPrivateOpen] = useState(true);
+
   const groups = useMemo<LibraryGroup[]>(() => {
     const byName = new Map<string, LibraryGroup>();
     for (const sprite of sprites) {
@@ -330,6 +338,201 @@ function LibraryPanel({
     }
     return Array.from(byName.values());
   }, [sprites]);
+
+  // Split the unified group list into the two accordion buckets.
+  // "Public" = any version flagged public (typically org-wide),
+  // "Private" = anything the signed-in user owns that is not public.
+  // Public is rendered first in the panel, Private second.
+  const publicGroups = useMemo(
+    () => groups.filter((g) => g.isPublic),
+    [groups],
+  );
+  const privateGroups = useMemo(
+    () => groups.filter((g) => !g.isPublic),
+    [groups],
+  );
+
+  // Renders the original library list. Pulled out so the public
+  // and private accordions can share identical markup. Each
+  // library keeps its own card container for visual separation,
+  // while the outer accordion section stays flat (no card).
+  function renderGroupList(groupList: LibraryGroup[], listKey: string) {
+    return (
+      <div className="space-y-2 pb-1">
+        {groupList.map((group, groupIdx) => (
+          <div
+            key={`${listKey}-${group.bundleName}`}
+            className="animate-fade-in-up mb-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+            style={{ animationDelay: `${groupIdx * 0.05}s` }}
+          >
+            <div className="group/header mb-2 flex items-center gap-1.5">
+              {renamingName === group.bundleName && renameTarget ? (
+                <InlineRenameInput
+                  currentName={renameTarget.currentName}
+                  existingNames={existingLibraryNames}
+                  busy={renameBusy}
+                  onCancel={cancelRename}
+                  onConfirm={handleConfirmRename}
+                />
+              ) : group.isOwner ? (
+                <button
+                  type="button"
+                  onClick={() => startRename(group)}
+                  disabled={renameBusy}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left transition-colors hover:text-indigo-600 disabled:cursor-not-allowed"
+                  title="Rename library"
+                  aria-label={`Rename ${group.bundleName}`}
+                >
+                  <h3
+                    className="truncate text-sm font-bold text-slate-800"
+                    title={group.bundleName}
+                  >
+                    {group.bundleName}
+                  </h3>
+                  <PencilIcon className="h-3.5 w-3.5 flex-shrink-0 text-slate-400 opacity-0 transition-opacity group-hover/header:opacity-100" />
+                </button>
+              ) : (
+                <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <h3
+                    className="truncate text-sm font-bold text-slate-800"
+                    title={group.bundleName}
+                  >
+                    {group.bundleName}
+                  </h3>
+                </div>
+              )}
+              {group.isPublic && (
+                <span
+                  className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600"
+                  title="Visible to all signed-in users. Only the owner can rename or delete."
+                >
+                  <EyeIcon className="h-3 w-3" />
+                  Public
+                </span>
+              )}
+            </div>
+            <div className="space-y-2 pl-2">
+              {group.versions.map((version) => {
+                const isLatest = version === group.versions[0];
+                return (
+                  <div
+                    key={version.id}
+                    className="group relative border-l-2 border-indigo-100 pl-3"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[12px] font-mono font-semibold ${
+                            isLatest
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          v{version.version}
+                        </span>
+                      </div>
+                      <span className="whitespace-nowrap font-mono text-[10px] text-slate-400">
+                        {formatDate(version.updatedAt)}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-1.5">
+                      {version.isOwner && (
+                        <button
+                          type="button"
+                          onClick={() => handleLoad(version)}
+                          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-100"
+                        >
+                          Load to Update
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const detail = await getSpriteById(version.id);
+                            onOpenDemo?.({
+                              sprite: detail.xml,
+                              symbolIds: detail.symbolIds,
+                              source: {
+                                type: "library",
+                                id: detail.id,
+                                name: detail.bundleName || detail.name,
+                                version: detail.version,
+                                isOwner: version.isOwner,
+                                isPublic: version.isPublic,
+                              },
+                            });
+                          } catch (err) {
+                            showToast(
+                              err instanceof Error
+                                ? err.message
+                                : "Failed to open demo",
+                              "error",
+                            );
+                          }
+                        }}
+                        className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-500"
+                        title="Preview icons"
+                        aria-label={`Preview ${group.bundleName} v${version.version}`}
+                      >
+                        <EyeIcon className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const detail = await getSpriteById(version.id);
+                            const ok = await navigator.clipboard
+                              ?.writeText(detail.xml)
+                              .then(() => true)
+                              .catch(() => false);
+                            showToast(
+                              ok
+                                ? "Sprite XML copied to clipboard"
+                                : "Failed to copy sprite",
+                              ok ? "success" : "error",
+                            );
+                          } catch (err) {
+                            showToast(
+                              err instanceof Error
+                                ? err.message
+                                : "Failed to copy sprite",
+                              "error",
+                            );
+                          }
+                        }}
+                        className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-500"
+                        title="Copy sprite XML"
+                        aria-label={`Copy ${group.bundleName} v${version.version}`}
+                      >
+                        <DuplicateIcon className="h-3.5 w-3.5" />
+                      </button>
+                      {version.isOwner && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDeleteModal(version);
+                          }}
+                          className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
+                          title={`Delete v${version.version}`}
+                          aria-label={`Delete ${group.bundleName} v${version.version}`}
+                        >
+                          <TrashIcon className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   const handleRefresh = () => {
     void refetch();
@@ -421,6 +624,52 @@ function LibraryPanel({
     }
   }
 
+  // Accordion section: flat collapsible header (chevron + title)
+  // with the body rendered directly below, no card container.
+  // Mirrors the simple grouped-list look (e.g. Folders / Chats in
+  // a sidebar): no border, no count badge, no nested background.
+  function renderAccordionSection(opts: {
+    title: string;
+    count: number;
+    open: boolean;
+    onToggle: () => void;
+    body: React.ReactNode;
+    emptyMessage: string;
+  }) {
+    const { title, count, open, onToggle, body, emptyMessage } = opts;
+    return (
+      <section className="mb-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-controls={`accordion-${title.toLowerCase()}`}
+          className="flex w-full items-center gap-1.5 rounded px-1 py-1.5 text-left transition-colors hover:bg-slate-200/60"
+        >
+          <ChevronDownIcon
+            className={`h-3.5 w-3.5 flex-shrink-0 text-slate-500 transition-transform duration-200 ${
+              open ? "" : "-rotate-90"
+            }`}
+          />
+          <span className="truncate text-xs font-semibold text-slate-700">
+            {title}
+          </span>
+        </button>
+        {open && (
+          <div id={`accordion-${title.toLowerCase()}`} className="pl-4">
+            {count === 0 ? (
+              <p className="py-2 pl-1 text-[11px] text-slate-400">
+                {emptyMessage}
+              </p>
+            ) : (
+              body
+            )}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <aside
       aria-label="Organization Library"
@@ -495,191 +744,25 @@ function LibraryPanel({
                 No sprites found in library.
               </p>
             ) : (
-              <div className="space-y-3 pb-4">
-                {groups.map((group, groupIdx) => (
-                  <div
-                    key={group.bundleName}
-                    className="animate-fade-in-up mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-                    style={{ animationDelay: `${groupIdx * 0.05}s` }}
-                  >
-                    <div className="group/header mb-3 flex items-start justify-between gap-2">
-                      {renamingName === group.bundleName && renameTarget ? (
-                        <InlineRenameInput
-                          currentName={renameTarget.currentName}
-                          existingNames={existingLibraryNames}
-                          busy={renameBusy}
-                          onCancel={cancelRename}
-                          onConfirm={handleConfirmRename}
-                        />
-                      ) : group.isOwner ? (
-                        <button
-                          type="button"
-                          onClick={() => startRename(group)}
-                          disabled={renameBusy}
-                          className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left transition-colors hover:text-indigo-600 disabled:cursor-not-allowed"
-                          title="Rename library"
-                          aria-label={`Rename ${group.bundleName}`}
-                        >
-                          <h3
-                            className="truncate text-sm font-bold text-slate-800"
-                            title={group.bundleName}
-                          >
-                            {group.bundleName}
-                          </h3>
-                          <PencilIcon className="h-3.5 w-3.5 flex-shrink-0 text-slate-400 opacity-0 transition-opacity group-hover/header:opacity-100" />
-                        </button>
-                      ) : (
-                        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                          <h3
-                            className="truncate text-sm font-bold text-slate-800"
-                            title={group.bundleName}
-                          >
-                            {group.bundleName}
-                          </h3>
-                        </div>
-                      )}
-                      {group.isPublic && (
-                        <span
-                          className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600"
-                          title="Visible to all signed-in users. Only the owner can rename or delete."
-                        >
-                          <EyeIcon className="h-3 w-3" />
-                          Public
-                        </span>
-                      )}
-                    </div>
-                    <div className="space-y-3">
-                      {group.versions.map((version) => {
-                        const isLatest = version === group.versions[0];
-                        return (
-                          <div
-                            key={version.id}
-                            className="group relative border-l-2 border-indigo-100 pl-3"
-                          >
-                            <div className="mb-1 flex items-start justify-between gap-2">
-                              <div className="flex min-w-0 items-center gap-1.5">
-                                <span
-                                  className={`inline-flex items-center rounded px-1.5 py-0.5 text-[14px] font-mono font-semibold ${
-                                    isLatest
-                                      ? "bg-emerald-50 text-emerald-700"
-                                      : "bg-slate-100 text-slate-500"
-                                  }`}
-                                >
-                                  v{version.version}
-                                </span>
-                              </div>
-                              <span className="ml-2 whitespace-nowrap font-mono text-[10px] text-slate-400">
-                                {formatDate(version.updatedAt)}
-                              </span>
-                            </div>
-                            <div className="mt-1.5 flex items-center gap-2">
-                              {version.isOwner && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleLoad(version)}
-                                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-100"
-                                >
-                                  Load to Update
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  try {
-                                    const detail = await getSpriteById(
-                                      version.id,
-                                    );
-                                    onOpenDemo?.({
-                                      sprite: detail.xml,
-                                      symbolIds: detail.symbolIds,
-                                      source: {
-                                        type: "library",
-                                        id: detail.id,
-                                        name: detail.bundleName || detail.name,
-                                        version: detail.version,
-                                        isOwner: version.isOwner,
-                                        isPublic: version.isPublic,
-                                      },
-                                    });
-                                  } catch (err) {
-                                    showToast(
-                                      err instanceof Error
-                                        ? err.message
-                                        : "Failed to open demo",
-                                      "error",
-                                    );
-                                  }
-                                }}
-                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600"
-                                title="Preview icons"
-                                aria-label={`Preview ${group.bundleName} v${version.version}`}
-                              >
-                                <EyeIcon className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  try {
-                                    const detail = await getSpriteById(
-                                      version.id,
-                                    );
-                                    const ok = await navigator.clipboard
-                                      ?.writeText(detail.xml)
-                                      .then(() => true)
-                                      .catch(() => false);
-                                    showToast(
-                                      ok
-                                        ? "Sprite XML copied to clipboard"
-                                        : "Failed to copy sprite",
-                                      ok ? "success" : "error",
-                                    );
-                                  } catch (err) {
-                                    showToast(
-                                      err instanceof Error
-                                        ? err.message
-                                        : "Failed to copy sprite",
-                                      "error",
-                                    );
-                                  }
-                                }}
-                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
-                                title="Copy sprite XML"
-                                aria-label={`Copy ${group.bundleName} v${version.version}`}
-                              >
-                                <DuplicateIcon className="h-3.5 w-3.5" />
-                              </button>
-                              {version.isOwner && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openDeleteModal(version);
-                                  }}
-                                  className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
-                                  title={`Delete v${version.version}`}
-                                  aria-label={`Delete ${group.bundleName} v${version.version}`}
-                                >
-                                  <TrashIcon className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <>
+                {renderAccordionSection({
+                  title: "Public",
+                  count: publicGroups.length,
+                  open: publicOpen,
+                  onToggle: () => setPublicOpen((prev) => !prev),
+                  body: renderGroupList(publicGroups, "public"),
+                  emptyMessage: "No public libraries available.",
+                })}
+                {renderAccordionSection({
+                  title: "Private",
+                  count: privateGroups.length,
+                  open: privateOpen,
+                  onToggle: () => setPrivateOpen((prev) => !prev),
+                  body: renderGroupList(privateGroups, "private"),
+                  emptyMessage: "No private libraries yet.",
+                })}
+              </>
             )}
-
-            <div className="mt-3 border-t border-slate-200 pt-3 text-center text-[10px] text-slate-400">
-              {sprites.length} version{sprites.length === 1 ? "" : "s"} ·{" "}
-              {formatSize(
-                sprites.reduce((sum, s) => sum + (s.symbolCount || 0) * 512, 0),
-              )}
-            </div>
           </div>
         )}
       </div>
