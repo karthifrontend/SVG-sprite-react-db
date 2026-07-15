@@ -2,9 +2,10 @@ type GenerateButtonProps = {
   disabled: boolean;
   busy: boolean;
   onClick: () => void;
+  label?: string;
 };
 
-function GenerateButton({ disabled, busy, onClick }: GenerateButtonProps) {
+function GenerateButton({ disabled, busy, onClick, label = "Generate Sprite" }: GenerateButtonProps) {
   return (
     <button
       type="button"
@@ -15,7 +16,7 @@ function GenerateButton({ disabled, busy, onClick }: GenerateButtonProps) {
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
         <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
       </svg>
-      <span>{busy ? "Generating..." : "Generate Sprite"}</span>
+      <span>{busy ? "Generating..." : label}</span>
     </button>
   );
 }

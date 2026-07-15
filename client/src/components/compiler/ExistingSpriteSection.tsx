@@ -1,8 +1,8 @@
 // Update-mode "Base Sprite File" picker. Mirrors the
 // "react app with MS" reference: shows a small drop zone
 // (with a "select from library" hint) when no file is picked,
-// and an emerald file card with a Preview / Change action row
-// once a sprite is loaded.
+// and an emerald file card with a Change action row once a
+// sprite is loaded.
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { formatSize } from "../../utils/sprite";
 
@@ -10,7 +10,6 @@ type ExistingSpriteSectionProps = {
   file: File | null;
   onFile: (file: File | null) => void;
   onClear: () => void;
-  onPreview?: () => void;
   onSelectFromLibrary?: () => void;
   canSelectFromLibrary?: boolean;
 };
@@ -19,23 +18,6 @@ function CheckCircleIcon({ className = "w-5 h-5" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  );
-}
-
-function EyeIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-      />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-      />
     </svg>
   );
 }
@@ -68,7 +50,6 @@ function ExistingSpriteSection({
   file,
   onFile,
   onClear,
-  onPreview,
   onSelectFromLibrary,
   canSelectFromLibrary,
 }: ExistingSpriteSectionProps) {
@@ -187,20 +168,6 @@ function ExistingSpriteSection({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {onPreview && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onPreview();
-                }}
-                className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-600 shadow-sm transition-colors hover:bg-indigo-50 hover:text-indigo-700"
-                title="Preview icons"
-              >
-                <EyeIcon className="h-3.5 w-3.5" />
-                Preview
-              </button>
-            )}
             <button
               type="button"
               onClick={(event) => {

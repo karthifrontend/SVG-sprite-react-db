@@ -4,16 +4,44 @@ import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from 
  * Manages staged SVG files plus the drag/drop + click-to-browse interactions
  * for a dropzone UI. The hook is intentionally UI-agnostic — it returns the
  * props each dropzone section needs.
+ *
+ * Duplicates (same name + same size) are silently skipped. Callers can
+ * receive the number of skipped files via the `onSkipped` callback so they
+ * can surface a toast/notice.
  */
-export function useFileDropzone() {
+export function useFileDropzone(options?: {
+  onSkipped?: (count: number) => void;
+}) {
   const [files, setFiles] = useState<File[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Keep the onSkipped callback in a ref so `addFiles` doesn't need to
+  // re-create itself on every render.
+  const onSkippedRef = useRef(options?.onSkipped);
+  onSkippedRef.current = options?.onSkipped;
 
   const addFiles = useCallback((incoming: FileList | null) => {
     if (!incoming) return;
     const svgOnly = Array.from(incoming).filter(f => f.type === "image/svg+xml");
     if (svgOnly.length === 0) return;
-    setFiles(prev => [...prev, ...svgOnly]);
+    setFiles(prev => {
+      // Build a lookup of files already staged. Use name + size as the
+      // dedupe key (size disambiguates identically-named files of
+      // different content).
+      const seen = new Set(prev.map(f => `${f.name.toLowerCase()}|${f.size}`));
+      const accepted: File[] = [];
+      let skipped = 0;
+      for (const file of svgOnly) {
+        const key = `${file.name.toLowerCase()}|${file.size}`;
+        if (seen.has(key)) {
+          skipped += 1;
+          continue;
+        }
+        seen.add(key);
+        accepted.push(file);
+      }
+      if (skipped > 0) onSkippedRef.current?.(skipped);
+      return [...prev, ...accepted];
+    });
   }, []);
 
   const clear = useCallback(() => setFiles([]), []);
