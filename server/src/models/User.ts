@@ -1,7 +1,18 @@
-// User model — persists authenticated principals. The Google sign-in
-// flow upserts a user document keyed by the Google `sub` (subject)
-// claim so a returning user is matched deterministically and we
-// never create duplicate accounts for the same Google account.
+// User model — persists authenticated principals.
+//
+// Two flavours of user are supported by the same collection:
+//   • OAuth users (Google / Microsoft) where the user is upserted
+//     on sign-in keyed by the provider's stable `sub` claim. These
+//     users have no password hash (they authenticate with the
+//     provider).
+//   • Password users (future / external) where `passwordHash` is
+//     set and `provider` is `password` (or another credential-
+//     bearing provider). The `name` field on the document is the
+//     user-visible display name (mirrors the spec field).
+//
+// The Google sign-in flow upserts a user document keyed by the
+// `sub` claim so a returning user is matched deterministically and
+// we never create duplicate accounts for the same Google account.
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 
 const userSchema = new Schema(
@@ -19,14 +30,27 @@ const userSchema = new Schema(
       // is a built-in shared account for users who just want to
       // try the app without signing in. `system` is reserved for
       // the one-time backfill that claims pre-existing sprites
-      // before authenticated writes started.
-      enum: ["google", "microsoft", "demo", "system"],
+      // before authenticated writes started. `password` covers
+      // direct credential-based accounts that use the `name` /
+      // `passwordHash` fields below.
+      enum: ["google", "microsoft", "demo", "system", "password"],
       default: "google",
     },
     providerId: {
       type: String,
       required: true,
       trim: true,
+    },
+    // User-visible display name. For OAuth users this mirrors
+    // `displayName` (the Google/Microsoft profile name); for
+    // password users it's the value they registered with.
+    // `name` is kept as an alias of `displayName` for the
+    // password-style documents described in the spec.
+    name: {
+      type: String,
+      trim: true,
+      maxlength: 200,
+      default: "",
     },
     email: {
       type: String,
@@ -46,6 +70,15 @@ const userSchema = new Schema(
       maxlength: 200,
     },
     picture: {
+      type: String,
+      default: null,
+    },
+    // Hashed password for direct credential-based sign-in. Only
+    // populated for `provider: "password"` users. Stored as a
+    // string so the model can hold any hash format the auth code
+    // chooses (bcrypt, argon2, scrypt, etc.) without needing a
+    // schema migration when the algorithm changes.
+    passwordHash: {
       type: String,
       default: null,
     },
