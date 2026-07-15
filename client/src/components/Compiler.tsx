@@ -55,10 +55,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     files,
     clear: clearFiles,
     removeAt,
-    onDrop: baseOnDrop,
     onDragOver: baseOnDragOver,
     openPicker,
-    onFileChange: baseOnFileChange,
     inputRef,
   } = baseDropzone;
 
@@ -66,10 +64,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // Drives the "hide staged list / sign-in hint" behaviour and the
   // tab-lock on the Generate button.
   const [hasGenerated, setHasGenerated] = useState(false);
-  // The mode that was active when the sprite was generated. While
-  // set, switching to the other tab disables the Generate button
-  // (in both tabs) until new files are added.
-  const [modeAtGeneration, setModeAtGeneration] = useState<CompilerMode | null>(null);
 
   function resetForNewUpload() {
     // Drop the generated result so the UI looks like a fresh upload
@@ -78,7 +72,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     resetSprite();
     setSaveStatus(null);
     setHasGenerated(false);
-    setModeAtGeneration(null);
     // The tab and base sprite file stay as the user left them. We
     // intentionally do NOT force a tab switch on upload — the user
     // expects to remain on whichever tab they were working in.
@@ -227,15 +220,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   const hasResult = spriteXml !== null;
   const trimmedName = inlineSave.name.trim();
   const canSave = inlineSave.enabled && trimmedName.length > 0 && !inlineSave.hasNameConflict;
-  // In update mode, BOTH a base sprite file AND staged icons are
-  // required before the user can generate. In create mode, only
-  // staged icons are required (the original behaviour).
-  const updateReady = mode === "update" && !!baseSpriteFile && hasFiles;
-  const newReady = mode === "new" && hasFiles;
   const canGenerate =
     !generating &&
     !saving &&
-    (updateReady || newReady) &&
+    (hasFiles || (mode === "update" && !!baseSpriteFile)) &&
+    (mode !== "update" || !!baseSpriteFile) &&
     (!inlineSave.enabled || canSave);
 
   // ── Mode switcher side-effects ─────────────────────────────
@@ -288,11 +277,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
     await generate(files, existingContent ? { existingContent } : undefined);
 
-    // Lock the UI to the tab that produced this sprite. The Generate
-    // button stays enabled only on this tab; switching tabs disables
-    // it (in both tabs) until new files are added.
+    // Lock the Generate button until new files are uploaded.
     setHasGenerated(true);
-    setModeAtGeneration(mode);
 
     // Drop the base sprite file (its contents have been consumed by
     // the generator). This also visually clears the Base Sprite
