@@ -16,6 +16,21 @@ export function useFileDropzone() {
     setFiles(prev => [...prev, ...svgOnly]);
   }, []);
 
+  // Append already-constructed File objects to the staged list.
+  // Mirrors `addFiles` but skips the FileList -> array conversion
+  // and the SVG MIME filter, so callers that produced the File
+  // objects themselves (e.g. the "paste into workspace" flow,
+  // which builds a `File` from a copied `<svg>` string) can drop
+  // them straight in. The filter is intentionally relaxed to
+  // accept any `image/svg+xml` file — pastes always come with the
+  // right MIME since the LiveDemo constructs them explicitly.
+  const appendFiles = useCallback((incoming: File[]) => {
+    if (!incoming || incoming.length === 0) return;
+    const svgOnly = incoming.filter(f => f.type === "image/svg+xml");
+    if (svgOnly.length === 0) return;
+    setFiles(prev => [...prev, ...svgOnly]);
+  }, []);
+
   const clear = useCallback(() => setFiles([]), []);
 
   const removeAt = useCallback((index: number) => {
@@ -52,6 +67,7 @@ export function useFileDropzone() {
   return {
     files,
     addFiles,
+    appendFiles,
     clear,
     removeAt,
     onDrop,

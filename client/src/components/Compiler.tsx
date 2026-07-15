@@ -45,6 +45,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     files,
     clear: clearFiles,
     removeAt,
+    appendFiles,
     onDrop,
     onDragOver,
     openPicker,
@@ -329,11 +330,47 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // individual File objects, then forcing a regen. This is the
   // simplest way to inject symbols without rewriting the file
   // dropzone API.
-  function handlePasteIntoWorkspace(_icons: CopiedIcon[]) {
-    // The current architecture doesn't expose a staging mutator; a
-    // future "paste into workspace" feature can hook here. For now
-    // we no-op so the modal closes cleanly and the toast still
-    // gives feedback to the user.
+  //
+  // Each copied icon already carries a full standalone `<svg>`
+  // document (`CopiedIcon.content`) and its source symbol id
+  // (`CopiedIcon.name`). We wrap the SVG text in a `File` so the
+  // existing dropzone / staged-list code path renders it like any
+  // other upload — the user can then either:
+  //   1. Click "Generate" in the main page to compile a new
+  //      sprite from the staged files, OR
+  //   2. Already be in "update" mode against a library, in which
+  //      case the next Generate merges the pasted icons into a
+  //      new version of that library.
+  function handlePasteIntoWorkspace(icons: CopiedIcon[]) {
+    if (!icons || icons.length === 0) return;
+    // De-duplicate by name against the currently-staged files so
+    // the user doesn't end up with two rows for the same icon if
+    // they paste the same selection twice. We compare by basename
+    // (since every File the dropzone stores has its own name) and
+    // by the source symbol id, so a paste that targets the same
+    // icon from a different selection set is treated as a refresh,
+    // not a duplicate.
+    const stagedNames = new Set(files.map((f) => f.name));
+    const newFiles: File[] = [];
+    for (const icon of icons) {
+      const fileName = `${icon.name}.svg`;
+      if (stagedNames.has(fileName)) continue;
+      stagedNames.add(fileName);
+      const file = new File([icon.content], fileName, { type: "image/svg+xml" });
+      newFiles.push(file);
+    }
+    if (newFiles.length === 0) {
+      showToast(
+        `All ${icons.length} icon${icons.length === 1 ? "" : "s"} already staged.`,
+        "warning",
+      );
+      return;
+    }
+    appendFiles(newFiles);
+    showToast(
+      `Pasted ${newFiles.length} icon${newFiles.length === 1 ? "" : "s"} into the workspace.`,
+      "success",
+    );
   }
 
   // Paste icons into a specific library version. Loads the
@@ -519,6 +556,26 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       // from a clean custom-CSS slate, not a stale preview.
       setDemoPreviewCssState(null);
       lastSeededSourceKeyRef.current = null;
+    } else if (next === "update" && mode !== "update") {
+      // Entering the "Update Existing Sprite" tab from "Create
+      // New Sprite" — default the master "Save new version to
+      // library" toggle to ON, with the "Save as a new library
+      // instead" sub-toggle OFF, so the user starts in the most
+      // common flow (save a new version of the bundle they're
+      // about to load). We only seed on the tab transition
+      // itself, not on every render, so a user who explicitly
+      // flips the toggle off while in update mode keeps that
+      // choice until they re-enter the tab.
+      setInlineSave((current) =>
+        current.enabled
+          ? current
+          : {
+              ...current,
+              enabled: true,
+              saveAsNew: false,
+              hasNameConflict: false,
+            },
+      );
     }
     setSaveStatus(null);
   }
@@ -655,13 +712,22 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setLiveDemoSource({ type: "scratch" });
     setDemoPreviewCssState(null);
     lastSeededSourceKeyRef.current = null;
-    setInlineSave({
-      enabled: false,
-      name: "",
+    // Drop the staged files but keep the master "Save new version
+    // to library" toggle on (its default in update mode). The
+    // user is still in update mode with the base sprite loaded,
+    // so they should keep the same save intent as before — only
+    // the staged files are gone. We clear the typed name + public
+    // flag since those referred to the now-removed staged files,
+    // but the toggle itself stays on, and the sub-toggle stays
+    // off so the user remains in the "new version" branch.
+    setInlineSave((current) => ({
+      ...current,
+      enabled: true,
       saveAsNew: false,
+      name: "",
       hasNameConflict: false,
       isPublic: false,
-    });
+    }));
     setSaveStatus(null);
   };
 

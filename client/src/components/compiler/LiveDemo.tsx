@@ -392,7 +392,13 @@ export default function LiveDemoModal({
       const innerHTML = sym.innerHTML;
       copied.push({
         name: id,
-        content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${innerHTML}</svg>`,
+        // Bake the active size + color/gradient into the
+        // standalone SVG payload so the pasted / downloaded
+        // icon renders with the user's chosen CSS, not the
+        // raw black default. The `rawSymbol` stays plain
+        // because the symbol will be merged into a sprite
+        // that is re-styled by the consumer.
+        content: buildStyledStandaloneSvg(viewBox, innerHTML),
         rawSymbol: `<symbol id="${id}" viewBox="${viewBox}">${innerHTML}</symbol>`,
       });
     });
@@ -414,12 +420,12 @@ export default function LiveDemoModal({
   }
 
   function handlePasteIntoWorkspace(icons: CopiedIcon[]): void {
+    // The parent (Compiler) is the source of truth for the
+    // workspace paste — it actually injects the icons as staged
+    // files and surfaces its own toast with the post-dedup count.
+    // We only own the modal's spinner / busy state here.
     setPasteBusy(true);
     onPasteIntoWorkspace?.(icons);
-    showToast(
-      `Pasted ${icons.length} icon${icons.length === 1 ? "" : "s"} into the workspace.`,
-      "success"
-    );
     setPendingPasteIcons(null);
     setPasteBusy(false);
   }
@@ -472,49 +478,129 @@ export default function LiveDemoModal({
   }
 
   function applyPreset(preset: SolidPreset): void {
-    setActiveColorClass(preset.color);
-    setActiveCustomColor(null);
-    setActiveGradient(null);
-    setUseGradient(false);
+    // Each of these state changes used to be a separate
+    // `updateCss` call. That looked right, but each call
+    // computed `next` from the closure's stale `currentCss`,
+    // so the *last* call in the sequence overwrote every
+    // earlier one (only its patch survived). Result: clicking
+    // a swatch did nothing visible. Fix: compute the full
+    // next state once and write it in a single call.
+    updateCss({
+      activeColorClass: preset.color,
+      activeCustomColor: null,
+      activeGradient: null,
+      useGradient: false,
+    });
   }
 
   function applyCustomColor(hex: string): void {
-    setCustomColor(hex);
-    setActiveCustomColor(hex);
-    setActiveColorClass(null);
-    setActiveGradient(null);
-    setUseGradient(false);
+    updateCss({
+      customColor: hex,
+      activeCustomColor: hex,
+      activeColorClass: null,
+      activeGradient: null,
+      useGradient: false,
+    });
   }
 
   function applyGradientPreset(preset: GradientPreset): void {
-    setGradientStart(preset.start);
-    setGradientEnd(preset.end);
-    setUseGradient(true);
-    setActiveGradient({ start: preset.start, end: preset.end });
-    setActiveColorClass(null);
-    setActiveCustomColor(null);
+    updateCss({
+      gradientStart: preset.start,
+      gradientEnd: preset.end,
+      useGradient: true,
+      activeGradient: { start: preset.start, end: preset.end },
+      activeColorClass: null,
+      activeCustomColor: null,
+    });
   }
 
   function handleGradientToggle(checked: boolean): void {
-    setUseGradient(checked);
     if (checked) {
-      setActiveGradient({ start: gradientStart, end: gradientEnd });
-      setActiveColorClass(null);
-      setActiveCustomColor(null);
+      updateCss({
+        useGradient: true,
+        activeGradient: { start: gradientStart, end: gradientEnd },
+        activeColorClass: null,
+        activeCustomColor: null,
+      });
     } else {
-      setActiveGradient(null);
-      setActiveColorClass(getDefaultActiveColor());
+      updateCss({
+        useGradient: false,
+        activeGradient: null,
+        activeColorClass: getDefaultActiveColor(),
+      });
     }
   }
 
   function handleGradientStart(next: string): void {
-    setGradientStart(next);
-    if (useGradient) setActiveGradient({ start: next, end: gradientEnd });
+    updateCss({
+      gradientStart: next,
+      ...(useGradient
+        ? { activeGradient: { start: next, end: gradientEnd } }
+        : {}),
+    });
   }
 
   function handleGradientEnd(next: string): void {
-    setGradientEnd(next);
-    if (useGradient) setActiveGradient({ start: gradientStart, end: next });
+    updateCss({
+      gradientEnd: next,
+      ...(useGradient
+        ? { activeGradient: { start: gradientStart, end: next } }
+        : {}),
+    });
+  }
+
+  // Resolve the effective color the icon grid is currently
+  // applying. Mirrors the `cssSnippet` formula so a single
+  // source of truth picks the gradient / custom hex / preset
+  // hex in that priority order. Used by the "Copy N Selected"
+  // flow to bake the user's CSS choice into the standalone
+  // `<svg>` payload so the pasted / downloaded icon keeps the
+  // selected color.
+  function resolveActiveColor(): { kind: "gradient"; start: string; end: string } | { kind: "color"; hex: string } | null {
+    if (useGradient && activeGradient) {
+      return { kind: "gradient", start: activeGradient.start, end: activeGradient.end };
+    }
+    if (activeCustomColor) {
+      return { kind: "color", hex: activeCustomColor };
+    }
+    const preset = SOLID_PRESETS.find((p) => p.color === activeColorClass);
+    if (preset) return { kind: "color", hex: preset.hex };
+    return null;
+  }
+
+  // Build a standalone `<svg>` payload that bakes in the
+  // active size + color/gradient. When no color is active,
+  // fall back to the plain black symbol so the payload is
+  // still self-contained.
+  function buildStyledStandaloneSvg(viewBox: string, inner: string): string {
+    const color = resolveActiveColor();
+    const sizeAttrs = `width="${iconSize}" height="${iconSize}"`;
+    if (!color) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}">${inner}</svg>`;
+    }
+    if (color.kind === "color") {
+      return `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}" color="${color.hex}">${inner}</svg>`;
+    }
+    // Gradient: emit an inline <defs> + a per-icon <linearGradient>
+    // and fill the icon via a mask. Keeps the SVG self-contained
+    // so the pasted / downloaded icon renders the gradient
+    // without needing the host page's hidden gradient host.
+    const gradId = `grad-${Math.random().toString(36).slice(2, 9)}`;
+    return (
+      `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}">` +
+      `<defs>` +
+      `<linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">` +
+      `<stop offset="0%" stop-color="${color.start}"/>` +
+      `<stop offset="100%" stop-color="${color.end}"/>` +
+      `</linearGradient>` +
+      `<mask id="mask-${gradId}">` +
+      `<rect width="100%" height="100%" fill="white"/>` +
+      `${inner}` +
+      `</mask>` +
+      `</defs>` +
+      `<rect width="100%" height="100%" fill="url(#${gradId})" mask="url(#mask-${gradId})"/>` +
+      `</svg>`
+    );
   }
 
   // Inject the active gradient definition into a hidden <svg> in the
@@ -1039,6 +1125,33 @@ function DemoIconCard({
   const sizeStyle = { width: `${iconSize}px`, height: `${iconSize}px` } as const;
   const viewBox = symbol?.getAttribute("viewBox") || "0 0 24 24";
   const symbolInnerHtml = symbol?.innerHTML ?? "";
+  // Resolve the active solid color (gradient is handled in its
+  // own branch).
+  const preset = activeColorClass
+    ? SOLID_PRESETS.find((p) => p.color === activeColorClass)
+    : undefined;
+  const activeHex = activeCustomColor || (preset ? preset.hex : null);
+  // Build a tiny `<style>` block that targets every descendant
+  // of the icon SVG and forces fill + stroke to the active
+  // color, with `!important`. This is the only reliable way to
+  // override the children when they declare an explicit
+  // presentation attribute (e.g. `<path fill="black" .../>`):
+  // a presentation attribute behaves as a low-specificity CSS
+  // rule on the child element, and an `!important` rule on any
+  // selector that matches the child wins per the CSS cascade.
+  // The `*` selector is intentionally broad so it covers any
+  // nested element (path, rect, circle, polyline, g, etc.) the
+  // icon might use. The selector is scoped to this icon via the
+  // unique `data-demo-icon-style` attribute we set on the
+  // wrapping `<svg>`, so two icons side by side can't bleed
+  // styles into each other.
+  const scopedColorStyle: ReactNode = activeHex ? (
+    <style>{`[data-demo-icon-style="${id}"] * { fill: ${activeHex} !important; stroke: ${activeHex} !important; }`}</style>
+  ) : (
+    // No color picked yet — keep the slate-700 default on every
+    // descendant for the same "consistent look" reason.
+    <style>{`[data-demo-icon-style="${id}"] * { fill: #334155 !important; stroke: #334155 !important; }`}</style>
+  );
   let inlineSvg: ReactNode;
   if (activeGradient) {
     inlineSvg = (
@@ -1047,6 +1160,7 @@ function DemoIconCard({
         style={sizeStyle}
         viewBox={viewBox}
         preserveAspectRatio="xMidYMid meet"
+        data-demo-icon-style={id}
       >
         <defs>
           <linearGradient id={`grad-${id}`} x1="0%" y1="0%" x2="100%" y2="100%">
@@ -1061,25 +1175,21 @@ function DemoIconCard({
         <rect width="100%" height="100%" fill={`url(#grad-${id})`} mask={`url(#mask-${id})`} />
       </svg>
     );
-  } else if (activeCustomColor) {
+  } else {
+    // Solid color (custom or preset) — wrap the icon's inner
+    // markup in a `<g>` and inject a per-icon `<style>` that
+    // forces the active color onto every descendant. The `!important`
+    // is what wins over the children that declare
+    // `fill="black"` (or any other explicit fill) on their paths.
     inlineSvg = (
       <svg
         className="transition-all duration-200"
-        style={{ ...sizeStyle, color: activeCustomColor }}
-        viewBox={viewBox}
-        preserveAspectRatio="xMidYMid meet"
-      >
-        <g dangerouslySetInnerHTML={{ __html: symbolInnerHtml }} />
-      </svg>
-    );
-  } else {
-    inlineSvg = (
-      <svg
-        className={`transition-all duration-200 ${activeColorClass || "text-slate-700"}`}
         style={sizeStyle}
         viewBox={viewBox}
         preserveAspectRatio="xMidYMid meet"
+        data-demo-icon-style={id}
       >
+        {scopedColorStyle}
         <g dangerouslySetInnerHTML={{ __html: symbolInnerHtml }} />
       </svg>
     );
