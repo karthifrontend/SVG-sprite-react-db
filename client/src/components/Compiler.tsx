@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type DragEvent } from "react";
 import { useFileDropzone } from "../hooks/useFileDropzone";
 import { useSpriteCompiler } from "../hooks/useSpriteCompiler";
 import { useLibrary } from "../hooks/useLibrary";
@@ -35,16 +35,85 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   const { currentUser } = useAuth();
   const { showToast } = useToast();
 
+  // Wrap the dropzone so that adding new files after a sprite has
+  // been generated returns the upload section to its initial stage
+  // (clears the result, the hasGenerated flag, and the mode lock).
+  // We also surface a warning toast whenever the user tries to stage
+  // a file whose name+size is already in the list, so they know the
+  // duplicate was intentionally skipped.
+  const baseDropzone = useFileDropzone({
+    onSkipped: (count) => {
+      showToast(
+        count === 1
+          ? "1 duplicate skipped."
+          : `${count} duplicates skipped.`,
+        "warning"
+      );
+    },
+  });
   const {
     files,
     clear: clearFiles,
     removeAt,
-    onDrop,
-    onDragOver,
+    onDragOver: baseOnDragOver,
     openPicker,
-    onFileChange,
     inputRef,
-  } = useFileDropzone();
+  } = baseDropzone;
+
+  // True once the user has generated a sprite in this session.
+  // Drives the "hide staged list / sign-in hint" behaviour and the
+  // tab-lock on the Generate button.
+  const [hasGenerated, setHasGenerated] = useState(false);
+
+  function resetForNewUpload() {
+    // Drop the generated result so the UI looks like a fresh upload
+    // (no sprite panel, staged list and sign-in hint reappear).
+    // `resetSprite` already clears the sprite's error/symbols/url.
+    resetSprite();
+    setSaveStatus(null);
+    setHasGenerated(false);
+    // The tab and base sprite file stay as the user left them. We
+    // intentionally do NOT force a tab switch on upload — the user
+    // expects to remain on whichever tab they were working in.
+    setActiveBundleName("");
+    setLiveDemoSource({ type: "scratch" });
+    setInlineSave({
+      enabled: false,
+      name: "",
+      saveAsNew: false,
+      hasNameConflict: false,
+      isPublic: false,
+    });
+  }
+
+  function handleDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    const incoming = e.dataTransfer?.files ?? null;
+    // If a sprite was already generated, treat the new upload as a
+    // fresh start: clear the staged batch and the generated result.
+    // Otherwise just append the dropped files (original behaviour).
+    if (hasGenerated) {
+      clearFiles();
+      resetForNewUpload();
+      if (incoming) baseDropzone.addFiles(incoming);
+    } else if (incoming) {
+      baseDropzone.addFiles(incoming);
+    }
+  }
+
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const incoming = e.target.files;
+    if (hasGenerated) {
+      clearFiles();
+      resetForNewUpload();
+      if (incoming && incoming.length > 0) baseDropzone.addFiles(incoming);
+    } else if (incoming && incoming.length > 0) {
+      baseDropzone.addFiles(incoming);
+    }
+    // Reset so the same file can be picked again later.
+    e.target.value = "";
+  }
 
   const {
     generating,
@@ -57,6 +126,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     copy,
     loadFromLibrary,
     waitForSprite,
+    reset: resetSprite,
   } = useSpriteCompiler();
 
   const { refetch: refetchLibrary, sprites: librarySprites } = useLibrary(!!currentUser);
@@ -206,6 +276,26 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }
 
     await generate(files, existingContent ? { existingContent } : undefined);
+
+    // Lock the Generate button until new files are uploaded.
+    setHasGenerated(true);
+
+    // Drop the base sprite file (its contents have been consumed by
+    // the generator). This also visually clears the Base Sprite
+    // File section, so the user knows to re-upload one before the
+    // next generation.
+    if (mode === "update") {
+      setBaseSpriteFile(null);
+      setActiveBundleName("");
+      setLiveDemoSource({ type: "scratch" });
+      setInlineSave({
+        enabled: false,
+        name: "",
+        saveAsNew: false,
+        hasNameConflict: false,
+        isPublic: false,
+      });
+    }
 
     if (!inlineSave.enabled) {
       showToast(
@@ -427,6 +517,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                       showToast("Base sprite must be an SVG file.", "error");
                       return;
                     }
+                    // Picking a new base sprite (after a generation)
+                    // should drop the previously generated sprite and
+                    // return the UI to the initial stage so the user
+                    // can generate again from scratch.
+                    if (hasGenerated) {
+                      resetForNewUpload();
+                      clearFiles();
+                    }
                     setBaseSpriteFile(f);
                     setSaveStatus(null);
                     if (!activeBundleName) {
@@ -460,17 +558,19 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
               <FileDropzone
                 inputRef={inputRef}
-                onDrop={onDrop}
-                onDragOver={onDragOver}
+                onDrop={handleDrop}
+                onDragOver={baseOnDragOver}
                 onClickBrowse={openPicker}
-                onFileChange={onFileChange}
+                onFileChange={handleFileChange}
               />
 
-              <StagedFilesList
-                files={files}
-                onClear={handleClearAll}
-                onRemove={removeAt}
-              />
+              {!hasGenerated && (
+                <StagedFilesList
+                  files={files}
+                  onClear={handleClearAll}
+                  onRemove={removeAt}
+                />
+              )}
 
               <div className="my-6 border-t border-slate-100" />
 
@@ -483,16 +583,17 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 onToggle={handleSaveToLibraryToggle}
                 onLibraryNameChange={(next) => setInlineSave(next)}
               />
-              {!currentUser && (
+              {!currentUser && !hasGenerated && (
                 <p className="-mt-3 mb-5 text-center text-[11px] text-slate-500">
                   Sign in to save sprites to your library. Generating still works without an account.
                 </p>
               )}
 
               <GenerateButton
-                disabled={!canGenerate}
+                disabled={!canGenerate || hasGenerated}
                 busy={generating || saving}
                 onClick={() => void handleGenerate()}
+                label={mode === "update" ? "Update Sprite" : "Generate Sprite"}
               />
 
               {error && (
