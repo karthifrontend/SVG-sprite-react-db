@@ -30,7 +30,11 @@ async function main() {
       },
       $setOnInsert: { provider: "google", providerId: SYSTEM_USER_ID },
     },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    {
+      upsert: true,
+      returnDocument: "after",
+      setDefaultsOnInsert: true,
+    }
   );
 
   // Only touch documents that don't have an ownerId set yet.
