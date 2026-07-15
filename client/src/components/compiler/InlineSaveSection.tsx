@@ -71,10 +71,6 @@ function InlineSaveSection({
   const toggleLabel = isUpdateMode
     ? "Save new version to library"
     : "Save to library";
-  const placeholder =
-    isUpdateMode && activeBundleName
-      ? activeBundleName
-      : "New Sprite " + new Date().toLocaleDateString();
   const helperText = isUpdateMode
     ? isActiveBundle
       ? "Saving creates the next version of this bundle automatically."
@@ -182,7 +178,7 @@ function InlineSaveSection({
             type="text"
             value={name}
             onChange={(event) => handleName(event.target.value)}
-            placeholder={placeholder}
+            placeholder={"New Sprite " + new Date().toLocaleDateString()}
             className={`w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 ${
               hasNameConflict
                 ? "border-rose-500 focus:ring-rose-500"

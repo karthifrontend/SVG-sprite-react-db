@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteSprite,
   listSprites,
@@ -41,6 +41,15 @@ type LibraryActions = {
    * name that was removed so callers can react to it.
    */
   deleteBundle: (id: string) => Promise<string>;
+  /**
+   * Set a free-form version label on a single sprite. The label
+   * survives subsequent `refetch` calls because the hook caches
+   * it in a module-level map keyed by sprite id. Used by the
+   * "Save to Organization" flow to remember what the user typed
+   * into the Version Description field (the server doesn't
+   * persist it).
+   */
+  setVersionLabel: (id: string, label: string) => void;
 };
 
 const EMPTY: LibraryState = {
@@ -50,18 +59,56 @@ const EMPTY: LibraryState = {
 };
 
 /**
+ * Module-level label cache shared by every `useLibrary` consumer in
+ * the app. The server doesn't persist version labels, so we keep
+ * them client-side. Storing at module scope (instead of inside a
+ * `useRef`) is important because the Compiler and the
+ * LibraryPanel each create their own `useLibrary` instance — a
+ * per-instance ref would only be visible inside the instance that
+ * set the label, never to the panel that renders the list.
+ */
+const versionLabelCache: Map<string, string> = new Map();
+
+/**
+ * Module-level broadcast channel for "the library changed" events
+ * (new save, delete, rename, paste-into-library). Every
+ * `useLibrary` instance subscribes; the one that initiated the
+ * change is excluded so we don't fire two refetches for the same
+ * write. The Compiler fires this so the LibraryPanel (which has
+ * its own `useLibrary` instance) refetches and shows the new
+ * entry without the user clicking the refresh button.
+ */
+const libraryChangedSubscribers: Set<() => void> = new Set();
+
+/** Fire the "library changed" event. Called from outside the hook. */
+export function notifyLibraryChanged(): void {
+  libraryChangedSubscribers.forEach((fn) => fn());
+}
+
+/**
  * Fetches the list of sprite versions saved in MongoDB Atlas.
  * Exposes a `refetch` action so callers (e.g. after a save) can
  * trigger a reload.
  */
 export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
   const [state, setState] = useState<LibraryState>(EMPTY);
+  // Subscribers listen for cache changes so the panel can re-render
+  // when another instance writes a new label.
+  const subscribersRef = useRef<Set<() => void>>(new Set());
+
+  const applyLabels = useCallback((sprites: SpriteSummary[]): SpriteSummary[] => {
+    if (versionLabelCache.size === 0) return sprites;
+    return sprites.map((sprite) => {
+      const cached = versionLabelCache.get(sprite._id);
+      return cached ? { ...sprite, versionLabel: cached } : sprite;
+    });
+  }, []);
 
   const refetch = useCallback(async () => {
     setState(prev => ({ ...prev, loading: true, error: null }));
     try {
       const sprites = await listSprites();
-      setState({ sprites, loading: false, error: null });
+      setState({ sprites: applyLabels(sprites), loading: false, error: null });
     } catch (err) {
       setState({
         sprites: [],
@@ -69,6 +116,20 @@ export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
         error: err instanceof Error ? err.message : "Failed to load library.",
       });
     }
+  }, [applyLabels]);
+
+  const setVersionLabel = useCallback((id: string, label: string) => {
+    versionLabelCache.set(id, label);
+    setState((prev) => ({
+      ...prev,
+      sprites: prev.sprites.map((s) =>
+        s._id === id ? { ...s, versionLabel: label } : s,
+      ),
+    }));
+    // Notify sibling instances (e.g. LibraryPanel) so they can
+    // re-apply the label onto their own sprites array without
+    // having to refetch from the server.
+    subscribersRef.current.forEach((fn) => fn());
   }, []);
 
   const updateContent = useCallback(
@@ -83,12 +144,19 @@ export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
         symbolIds,
         symbolCount: symbolIds.length,
       });
-      // Optimistically reflect the new metadata in the local list.
+      // Optimistically reflect the new metadata in the local list,
+      // and re-apply any cached label so it survives the rewrite.
+      const cachedLabel = versionLabelCache.get(id);
       setState(prev => ({
         ...prev,
         sprites: prev.sprites.map(s =>
           s._id === id
-            ? { ...s, symbolCount: updated.symbolCount, updatedAt: updated.updatedAt }
+            ? {
+                ...s,
+                symbolCount: updated.symbolCount,
+                updatedAt: updated.updatedAt,
+                versionLabel: cachedLabel ?? s.versionLabel,
+              }
             : s
         ),
       }));
@@ -98,6 +166,7 @@ export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
         bundleName: updated.bundleName,
         version: updated.version,
         symbolCount: updated.symbolCount,
+        versionLabel: cachedLabel,
         updatedAt: updated.updatedAt,
       };
     },
@@ -118,7 +187,11 @@ export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
   const deleteVersion = useCallback(
     async (id: string) => {
       const result = await deleteSprite({ id, scope: "version" });
-      // Optimistically drop the single version from the local list.
+      // Optimistically drop the single version from the local list
+      // and purge its cached label so a future save with the same
+      // id (extremely unlikely, but possible across recreates) won't
+      // pick up a stale value.
+      versionLabelCache.delete(id);
       setState(prev => ({
         ...prev,
         sprites: prev.sprites.filter(s => s._id !== id),
@@ -135,14 +208,19 @@ export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
   const deleteBundle = useCallback(
     async (id: string): Promise<string> => {
       const result = await deleteSprite({ id, scope: "bundle" });
-      // Optimistically drop the deleted bundle from the local list
-      // so the UI updates instantly even before the refetch lands.
-      setState(prev => ({
-        ...prev,
-        sprites: prev.sprites.filter(
-          s => s.bundleName.toLowerCase() !== result.bundleName.toLowerCase()
-        ),
-      }));
+      // Drop the deleted bundle from the local list and purge
+      // every cached label that belonged to it.
+      const removedKey = result.bundleName.trim().toLowerCase();
+      setState(prev => {
+        const survivors = prev.sprites.filter(
+          s => s.bundleName.toLowerCase() !== removedKey,
+        );
+        const survivorIds = new Set(survivors.map((s) => s._id));
+        for (const cachedId of Array.from(versionLabelCache.keys())) {
+          if (!survivorIds.has(cachedId)) versionLabelCache.delete(cachedId);
+        }
+        return { ...prev, sprites: survivors };
+      });
       return result.bundleName;
     },
     []
@@ -154,6 +232,48 @@ export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
     }
   }, [autoLoad, refetch]);
 
+  // Subscribe to the module-level label cache so this instance
+  // picks up labels written by sibling instances. We re-apply the
+  // cached labels onto the local sprites array — no network
+  // request, just a re-render. The dependency on `applyLabels`
+  // keeps the effect stable across renders.
+  useEffect(() => {
+    const subscriber = () => {
+      setState((prev) => {
+        if (versionLabelCache.size === 0) return prev;
+        let changed = false;
+        const next = prev.sprites.map((sprite) => {
+          const cached = versionLabelCache.get(sprite._id);
+          if (cached && cached !== sprite.versionLabel) {
+            changed = true;
+            return { ...sprite, versionLabel: cached };
+          }
+          return sprite;
+        });
+        return changed ? { ...prev, sprites: next } : prev;
+      });
+    };
+    subscribersRef.current.add(subscriber);
+    return () => {
+      subscribersRef.current.delete(subscriber);
+    };
+  }, [applyLabels]);
+
+  // Subscribe to the module-level "library changed" channel. When
+  // the Compiler saves a new sprite, fires this event, and every
+  // other useLibrary instance (e.g. the LibraryPanel's) refetches
+  // so the new entry shows up immediately — no need to click the
+  // refresh button.
+  useEffect(() => {
+    const subscriber = () => {
+      void refetch();
+    };
+    libraryChangedSubscribers.add(subscriber);
+    return () => {
+      libraryChangedSubscribers.delete(subscriber);
+    };
+  }, [refetch]);
+
   return {
     ...state,
     refetch,
@@ -161,6 +281,7 @@ export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
     renameBundle,
     deleteVersion,
     deleteBundle,
+    setVersionLabel,
   };
 }
 

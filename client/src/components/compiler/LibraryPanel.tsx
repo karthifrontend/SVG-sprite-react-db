@@ -564,8 +564,13 @@ function LibraryPanel({
                                       ? "bg-emerald-50 text-emerald-700"
                                       : "bg-slate-100 text-slate-500"
                                   }`}
+                                  title={
+                                    version.summary.versionLabel
+                                      ? `Saved as "${version.summary.versionLabel}" · v${version.version}`
+                                      : undefined
+                                  }
                                 >
-                                  v{version.version}
+                                  {version.summary.versionLabel || `v${version.version}`}
                                 </span>
                               </div>
                               <span className="ml-2 whitespace-nowrap font-mono text-[10px] text-slate-400">

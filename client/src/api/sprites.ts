@@ -48,6 +48,15 @@ export type SpriteSummary = {
    * this to hide rename / delete / load-to-update actions.
    */
   isOwner?: boolean;
+  /**
+   * Free-form version label supplied by the user at save time
+   * (e.g. "v4" or "Added 5 icons"). Stored client-side only — the
+   * server doesn't persist it, so this is `undefined` for sprites
+   * loaded from MongoDB that were saved before this field was
+   * added. The library panel falls back to "v<version>" when the
+   * label is missing.
+   */
+  versionLabel?: string;
   updatedAt?: string;
 };
 

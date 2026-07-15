@@ -7,6 +7,12 @@ type ResultsPanelProps = {
   copied: boolean;
   onCopy: () => void;
   onDemo: () => void;
+  /** Build a zip bundle (sprite + demo.html + preview.png) and
+   *  trigger a browser download. Used for the "Download zip" CTA. */
+  onDownloadZip: () => void;
+  /** Disable the Download zip button while the bundle is being
+   *  generated (e.g. preview.png render in flight). */
+  downloadBusy?: boolean;
 };
 
 function ResultsPanel({
@@ -18,6 +24,8 @@ function ResultsPanel({
   copied,
   onCopy,
   onDemo,
+  onDownloadZip,
+  downloadBusy,
 }: ResultsPanelProps) {
   if (!visible) return null;
 
@@ -38,30 +46,20 @@ function ResultsPanel({
         </div>
       </div>
 
-      {/* Primary actions: download + (disabled) save to library */}
+      {/* Primary actions: download zip */}
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
-        <a
-          href={spriteUrl ?? "#"}
-          download="sprite.svg"
+        <button
+          type="button"
+          onClick={onDownloadZip}
+          disabled={!spriteUrl || downloadBusy}
           className={`flex-1 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-medium py-3 px-4 rounded-xl transition-all duration-150 shadow-md ${
-            spriteUrl ? "" : "pointer-events-none opacity-60"
+            spriteUrl && !downloadBusy ? "" : "pointer-events-none opacity-60"
           }`}
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
-          <span>Download sprite.svg</span>
-        </a>
-        <button
-          type="button"
-          disabled
-          className="flex-1 hidden items-center justify-center gap-2 bg-emerald-600 text-white font-medium py-3 px-4 rounded-xl shadow-md opacity-60 cursor-not-allowed"
-          title="Sign in to save to a library"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-          </svg>
-          <span>Save to Library</span>
+          <span>{downloadBusy ? "Preparing…" : "Download zip"}</span>
         </button>
       </div>
 
