@@ -244,13 +244,6 @@ export default function LiveDemoModal({
     }
   };
   const setIconSize = (n: number) => updateCss({ iconSize: n });
-  const setActiveColorClass = (c: string | null) => updateCss({ activeColorClass: c });
-  const setActiveCustomColor = (c: string | null) => updateCss({ activeCustomColor: c });
-  const setActiveGradient = (g: ActiveGradient | null) => updateCss({ activeGradient: g });
-  const setUseGradient = (b: boolean) => updateCss({ useGradient: b });
-  const setGradientStart = (s: string) => updateCss({ gradientStart: s });
-  const setGradientEnd = (s: string) => updateCss({ gradientEnd: s });
-  const setCustomColor = (c: string) => updateCss({ customColor: c });
   const {
     iconSize,
     activeColorClass,
