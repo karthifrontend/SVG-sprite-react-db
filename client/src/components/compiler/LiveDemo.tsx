@@ -21,13 +21,11 @@ import {
   SadFaceIcon,
 } from "../icons";
 import { useToast } from "../../context/ToastContext";
-import { useLibrary } from "../../hooks/useLibrary";
 import { useAuth } from "../../context/AuthContext";
 import { copyToClipboard } from "../../utils/formatters";
 import { buildDemoHtml } from "../../utils/sprite";
 import { createZip, triggerBrowserDownload } from "../../utils/zipBundle";
 import { renderSpritePreviewPng } from "../../utils/previewPng";
-import PasteIconsModal from "./PasteIconsModal";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -83,26 +81,23 @@ type LiveDemoProps = {
    */
   onCopyIcons?: (icons: CopiedIcon[]) => void;
   /**
+   * Optional callback invoked from inside `handleCopySelected` so
+   * the parent (Compiler) can open the "Paste Icons To..." modal
+   * at its own level. We need the parent to own the modal —
+   * not the LiveDemo — because the LiveDemo auto-closes as
+   * soon as the paste popup opens (per UX request: "when paste
+   * here popup opens close the livedemo popup"). If the modal
+   * were a child of the LiveDemo it would unmount with the
+   * demo. Receives the just-copied icons so the parent can hand
+   * them straight to its own `<PasteIconsModal>`.
+   */
+  onCopySelectedRequest?: (icons: CopiedIcon[]) => void;
+  /**
    * Open the "Save to Organization" modal pre-filled with the supplied
    * name. The parent (Compiler) handles the actual save + library
    * refresh.
    */
   onOpenSaveToLibrary?: (input: { suggestedName: string }) => void;
-  /**
-   * Paste copied icons into a library version. The parent loads the
-   * sprite, merges the symbols, and saves a new version.
-   */
-  onPasteIntoLibraryVersion?: (input: {
-    spriteId: string;
-    bundleName: string;
-    version: number;
-    icons: CopiedIcon[];
-  }) => Promise<void> | void;
-  /**
-   * Paste copied icons into the current workspace (staging area).
-   * When omitted, the modal simply closes.
-   */
-  onPasteIntoWorkspace?: (icons: CopiedIcon[]) => void;
   /**
    * Name to pre-fill in the "Save to Library" modal (e.g. the
    * currently-loaded bundle).
@@ -199,9 +194,8 @@ export default function LiveDemoModal({
   onOpenSaveModal,
   onCopySprite,
   onCopyIcons,
+  onCopySelectedRequest,
   onOpenSaveToLibrary,
-  onPasteIntoLibraryVersion,
-  onPasteIntoWorkspace,
   suggestedBundleName,
   onDownloadBundle,
   bundleFileName,
@@ -210,7 +204,6 @@ export default function LiveDemoModal({
 }: LiveDemoProps) {
   const { showToast } = useToast();
   const { currentUser } = useAuth();
-  const { refetch: refetchLibrary } = useLibrary(!!currentUser);
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [selectMode, setSelectMode] = useState<boolean>(false);
   const [selectedIcons, setSelectedIcons] = useState<Set<string>>(() => new Set());
@@ -257,11 +250,6 @@ export default function LiveDemoModal({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState<string>("");
   const [, setHasChanges] = useState<boolean>(false);
-  // Pending icons waiting to be pasted into a workspace / library
-  // version. The paste modal reads from this state; the footer
-  // button that opens the modal is "Copy N Selected".
-  const [pendingPasteIcons, setPendingPasteIcons] = useState<CopiedIcon[] | null>(null);
-  const [pasteBusy, setPasteBusy] = useState<boolean>(false);
   const [downloadBusy, setDownloadBusy] = useState<boolean>(false);
   const symbolsRef = useRef<Element[]>([]);
 
@@ -396,57 +384,19 @@ export default function LiveDemoModal({
       });
     });
     onCopyIcons?.(copied);
-    // Open the paste modal so the user can pick where to drop the
-    // selected icons (current workspace or any saved library
-    // version). Selection + select mode clear once the modal closes.
+    // Hand the copied icons to the parent (Compiler) so it can
+    // open its own "Paste Icons To..." modal. We close the
+    // LiveDemo right after — per UX request, the LiveDemo
+    // should disappear the moment the paste popup opens so the
+    // user can complete the paste on a clean canvas. The
+    // parent's paste modal lives outside the LiveDemo, so it
+    // survives the close.
     if (copied.length > 0) {
-      setPendingPasteIcons(copied);
+      onCopySelectedRequest?.(copied);
     }
     setSelectedIcons(new Set());
     setSelectMode(false);
-  }
-
-  function closePasteModal(): void {
-    if (pasteBusy) return;
-    setPendingPasteIcons(null);
-    setPasteBusy(false);
-  }
-
-  function handlePasteIntoWorkspace(icons: CopiedIcon[]): void {
-    // The parent (Compiler) is the source of truth for the
-    // workspace paste — it actually injects the icons as staged
-    // files and surfaces its own toast with the post-dedup count.
-    // We only own the modal's spinner / busy state here.
-    setPasteBusy(true);
-    onPasteIntoWorkspace?.(icons);
-    setPendingPasteIcons(null);
-    setPasteBusy(false);
-  }
-
-  async function handlePasteIntoLibraryVersion(input: {
-    spriteId: string;
-    bundleName: string;
-    version: number;
-    icons: CopiedIcon[];
-  }): Promise<void> {
-    if (pasteBusy) return;
-    setPasteBusy(true);
-    try {
-      await onPasteIntoLibraryVersion?.(input);
-      showToast(
-        `Pasted ${input.icons.length} icon${input.icons.length === 1 ? "" : "s"} into ${input.bundleName} v${input.version}.`,
-        "success"
-      );
-      await refetchLibrary();
-      setPendingPasteIcons(null);
-    } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to paste icons into library.",
-        "error"
-      );
-    } finally {
-      setPasteBusy(false);
-    }
+    onClose?.();
   }
 
   function downloadSingleIcon(id: string): void {
@@ -832,7 +782,17 @@ export default function LiveDemoModal({
                       <input
                         type="checkbox"
                         checked={selectMode}
-                        onChange={(event) => setSelectMode(event.target.checked)}
+                        onChange={(event) => {
+                          const next = event.target.checked;
+                          setSelectMode(next);
+                          // Turning select mode off should also drop
+                          // any icons the user previously picked in
+                          // the preview, so nothing carries over
+                          // silently into the next session.
+                          if (!next) {
+                            setSelectedIcons(new Set());
+                          }
+                        }}
                         className="peer sr-only"
                       />
                       <div className="block w-8 h-4 bg-slate-200 rounded-full peer-checked:bg-indigo-500 transition-colors" />
@@ -1033,8 +993,7 @@ export default function LiveDemoModal({
             <button
               type="button"
               onClick={() => void handleCopySprite()}
-              disabled={selectMode}
-              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-semibold border border-indigo-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-semibold border border-indigo-200 transition-all flex items-center gap-1.5"
             >
               <DuplicateIcon className="w-3.5 h-3.5" />
               Copy Sprite
@@ -1063,14 +1022,6 @@ export default function LiveDemoModal({
           </div>
         </div>
       </div>
-      <PasteIconsModal
-        isOpen={!!pendingPasteIcons}
-        icons={pendingPasteIcons ?? []}
-        busy={pasteBusy}
-        onClose={closePasteModal}
-        onPasteIntoWorkspace={handlePasteIntoWorkspace}
-        onPasteIntoLibraryVersion={handlePasteIntoLibraryVersion}
-      />
     </div>
   );
 }

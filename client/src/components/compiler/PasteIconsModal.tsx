@@ -16,12 +16,17 @@ type PasteIconsModalProps = {
   icons: CopiedIcon[];
   busy: boolean;
   onClose: () => void;
-  /** Paste the icons into the compiler's staging area. */
+  /**
+   * Paste the icons into the compiler's staging area. The modal
+   * closes itself immediately after the call returns so the
+   * parent's Preview/Undo toast can appear right away.
+   */
   onPasteIntoWorkspace: (icons: CopiedIcon[]) => void;
   /**
    * Paste the icons into a specific library version. The parent
    * reads the existing sprite, merges the new symbols, and saves
-   * a new version.
+   * a new version. The modal closes itself the moment this is
+   * invoked; the parent surfaces its own toast.
    */
   onPasteIntoLibraryVersion: (input: {
     spriteId: string;
@@ -128,9 +133,14 @@ export default function PasteIconsModal({
 
   function handlePaste(target: Target) {
     if (busy) return;
+    // Close the modal as soon as the user picks a target so the
+    // parent's Preview/Undo toast can appear on a clean canvas.
+    // We snapshot the per-target busy state for visual feedback
+    // while the parent does the actual paste in the background.
     if (target.kind === "workspace") {
       setBusyTarget("workspace");
       onPasteIntoWorkspace(icons);
+      onClose();
       return;
     }
     setBusyTarget(target.id);
@@ -140,6 +150,7 @@ export default function PasteIconsModal({
       version: target.version,
       icons,
     });
+    onClose();
   }
 
   return (
