@@ -607,13 +607,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   const hasFiles = files.length > 0;
   const hasResult = spriteXml !== null;
   const trimmedName = inlineSave.name.trim();
-  const canSave = inlineSave.enabled && trimmedName.length > 0 && !inlineSave.hasNameConflict;
-  const canGenerate =
-    !generating &&
-    !saving &&
-    (hasFiles || (mode === "update" && !!baseSpriteFile)) &&
-    (mode !== "update" || !!baseSpriteFile) &&
-    (!inlineSave.enabled || canSave);
 
   // ── Mode switcher side-effects ─────────────────────────────
   function changeMode(next: CompilerMode) {
