@@ -41,6 +41,7 @@ type ListSpriteItem = {
   symbolCount: number;
   isPublic: boolean;
   ownerId: unknown;
+  createdAt: Date | undefined;
   updatedAt: Date | undefined;
 };
 
@@ -135,6 +136,7 @@ type VersionLike = {
   version: number;
   symbolCount?: number;
   createdAt?: Date;
+  updatedAt?: Date;
 };
 
 type VersionDetailLike = VersionLike & {
@@ -158,6 +160,13 @@ function serializeVersion(
   version: VersionLike,
   isOwner = true
 ) {
+  // `createdAt` / `updatedAt` are taken from the *version* row
+  // (not the bundle) so the library panel can show an accurate
+  // "last touched" timestamp for each individual version. The
+  // bundle's `updatedAt` is also returned as a fallback for
+  // rows that haven't been edited since the schema gained
+  // per-version timestamps (e.g. legacy data inserted before
+  // the migration script ran).
   return {
     id: version._id,
     name: versionDisplayName(bundle.bundleName, version.version),
@@ -167,7 +176,7 @@ function serializeVersion(
     isPublic: !!bundle.isPublic,
     isOwner,
     createdAt: version.createdAt,
-    updatedAt: bundle.updatedAt,
+    updatedAt: version.updatedAt ?? bundle.updatedAt,
   };
 }
 
@@ -271,6 +280,14 @@ router.post("/", requireUser, async (req: Request, res: Response) => {
           version: nextVersion,
           xml,
           symbolIds,
+          // The version doc carries the symbol count as a
+          // denormalised field so the library list can stay
+          // join-free. Without this, a freshly-saved version
+          // would show `symbolCount: 0` until the user edited
+          // it via PUT /:id (which is the only other place we
+          // set the field). The schema defaults it to 0, so
+          // omitting it is a silent UX bug rather than a crash.
+          symbolCount,
         });
         break;
       } catch (err) {
@@ -444,10 +461,13 @@ router.get("/", requireUser, async (req: Request, res: Response) => {
     const bundleIds = visibleBundles.map((b) => b._id);
     // Step 2: pull every version for those bundles in one go and
     // join in app code. Mongoose gives us `lean` objects so this
-    // stays cheap.
+    // stays cheap. We project `updatedAt` (per-version) so the
+    // panel can show when each individual version was last
+    // edited, independent of when the bundle as a whole was
+    // last touched.
     const versions = await SpriteVersion.find(
       { spriteId: { $in: bundleIds } },
-      { spriteId: 1, version: 1, symbolCount: 1, createdAt: 1 }
+      { spriteId: 1, version: 1, symbolCount: 1, createdAt: 1, updatedAt: 1 }
     )
       .sort({ version: -1 })
       .lean();
@@ -477,6 +497,13 @@ router.get("/", requireUser, async (req: Request, res: Response) => {
           ownerId: undefined,
           updatedAt: undefined,
         } satisfies BundleLike);
+      // Prefer the per-version `updatedAt` (precise to the
+      // individual save / edit) and fall back to the bundle's
+      // `updatedAt` for legacy rows that predate the per-version
+      // timestamp migration. We also include `createdAt` so the
+      // client can render "saved on ..." if it ever needs to.
+      const versionUpdatedAt = (v as { updatedAt?: Date }).updatedAt;
+      const effectiveUpdatedAt = versionUpdatedAt ?? safeBundle.updatedAt;
       return {
         _id: v._id,
         name: versionDisplayName(safeBundle.bundleName, v.version),
@@ -485,22 +512,26 @@ router.get("/", requireUser, async (req: Request, res: Response) => {
         symbolCount: v.symbolCount ?? 0,
         isPublic: !!safeBundle.isPublic,
         ownerId: safeBundle.ownerId,
-        updatedAt: safeBundle.updatedAt,
+        createdAt: v.createdAt,
+        updatedAt: effectiveUpdatedAt,
       };
     });
 
     // Newest activity first: a version's relative position is
-    // decided by the bundle's `updatedAt`, which is touched on
-    // every save / edit / rename / delete. We use the max of the
-    // two so a rename of the bundle still bubbles to the top of
-    // the list.
+    // decided by the version's own `updatedAt` (or the bundle's,
+    // for legacy rows). This means editing an older version of a
+    // bundle correctly surfaces that row at the top of the list,
+    // even if the latest version hasn't been touched in a while.
     list.sort((a, b) => {
       const at = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
       const bt = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
       return bt - at;
     });
 
-    // Annotate with the isOwner flag the UI expects.
+    // Annotate with the isOwner flag the UI expects. We forward
+    // both `createdAt` (per-version) and `updatedAt` (per-version
+    // with bundle-level fallback) so the panel can render an
+    // accurate "saved on / last edited" stamp for every row.
     const annotated = list.map((sprite) => {
       const isOwner =
         ownerIdString(sprite.ownerId) === ownerIdString(userId);
@@ -512,6 +543,7 @@ router.get("/", requireUser, async (req: Request, res: Response) => {
         symbolCount: sprite.symbolCount,
         isPublic: !!sprite.isPublic,
         isOwner,
+        createdAt: sprite.createdAt,
         updatedAt: sprite.updatedAt,
       };
     });
@@ -561,14 +593,27 @@ router.put("/:id", requireUser, async (req: Request, res: Response) => {
     // The version doc carries the symbol count as a denormalised
     // field so the library list can stay join-free.
     version.symbolCount = symbolCount;
+    // `version.save()` now refreshes `version.updatedAt` (the
+    // schema has `timestamps: { updatedAt: true }`), so each
+    // version row independently tracks when it was last edited.
     await version.save();
 
     // If this is still the latest version, refresh the bundle's
     // cached symbol count so the library list reflects the edit.
     if (version.version === bundle.currentVersion) {
       bundle.symbolCount = symbolCount;
-      await bundle.save();
     }
+    // Always touch the bundle's `updatedAt` so the "latest
+    // activity" sort in the library list and the per-row date
+    // stamp in the panel stay accurate — even when the user is
+    // editing an older version (e.g. v2 of a 3-version bundle),
+    // which otherwise would not register as a bundle-level
+    // change. Marking the doc dirty via `bundle.markModified`
+    // guarantees Mongoose emits a write even when no other
+    // field changed (e.g. when `version.version !==
+    // bundle.currentVersion`).
+    bundle.markModified("updatedAt");
+    await bundle.save();
 
     return res.json(serializeVersion(bundle, version, true));
   } catch (err) {
@@ -688,13 +733,20 @@ router.delete("/:id", requireUser, async (req: Request, res: Response) => {
     if (!ensureOwner(res, bundle, req.user!)) return;
 
     if (deleteBundle) {
-      const result = await SpriteVersion.deleteMany({
+      // Count the versions before the bundle goes away so the
+      // client gets an accurate "deleted: N" count back. The
+      // cascade-delete hook on the Sprite schema takes care of
+      // removing every `SpriteVersion` whose `spriteId` matches
+      // the bundle, so we only have to delete the bundle itself
+      // here. Any future code path that deletes a bundle doc
+      // gets the same cascade for free.
+      const versionCount = await SpriteVersion.countDocuments({
         spriteId: bundle._id,
       });
       await Sprite.deleteOne({ _id: bundle._id });
       return res.json({
         bundleName: bundle.bundleName,
-        deleted: result.deletedCount ?? 0,
+        deleted: versionCount,
         scope: "bundle",
       });
     }
@@ -705,7 +757,11 @@ router.delete("/:id", requireUser, async (req: Request, res: Response) => {
     });
 
     // If we just removed the last version, drop the empty bundle
-    // doc so the library list doesn't carry a ghost row.
+    // doc so the library list doesn't carry a ghost row. The
+    // Sprite schema's pre-delete hook handles the version-side
+    // cleanup automatically, but in this branch there are no
+    // versions left to cascade — the count is the source of
+    // truth.
     if (remaining === 0) {
       await Sprite.deleteOne({ _id: bundle._id });
     } else if (version.version === bundle.currentVersion) {
@@ -717,8 +773,22 @@ router.delete("/:id", requireUser, async (req: Request, res: Response) => {
       if (newLatest) {
         bundle.currentVersion = newLatest.version;
         bundle.symbolCount = newLatest.symbolCount ?? 0;
-        await bundle.save();
       }
+      // `markModified("updatedAt")` ensures Mongoose emits a
+      // write even when no other field changed (e.g. when the
+      // deleted version was *not* the current one). This keeps
+      // the bundle's "last activity" stamp in sync with any
+      // delete, so the library sort order reflects the user's
+      // most recent action regardless of which version was
+      // removed.
+      bundle.markModified("updatedAt");
+      await bundle.save();
+    } else {
+      // Deleted version was not the current one — no metadata
+      // walk needed, but the bundle's `updatedAt` still needs
+      // to advance so the row re-sorts to the top of the list.
+      bundle.markModified("updatedAt");
+      await bundle.save();
     }
 
     return res.json({
