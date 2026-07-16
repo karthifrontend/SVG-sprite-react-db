@@ -51,7 +51,15 @@ const spriteVersionSchema = new Schema(
     },
   },
   {
-    timestamps: { createdAt: true, updatedAt: false },
+    // Both timestamps are tracked so the client can show "last
+    // edited" per version. `createdAt` is when the version row
+    // was first inserted (i.e. when the user first saved that
+    // particular version of the bundle). `updatedAt` is touched
+    // on every `version.save()` — including the in-place edits
+    // the live-demo editor makes via PUT /:id — so editing an
+    // older version of a bundle still shows an accurate "last
+    // touched" time in the library panel.
+    timestamps: { createdAt: true, updatedAt: true },
     collection: "sprite_versions",
   }
 );
