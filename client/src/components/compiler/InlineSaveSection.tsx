@@ -19,6 +19,20 @@ type InlineSaveValue = {
 type InlineSaveSectionProps = {
   isVisible: boolean;
   isUpdateMode: boolean;
+  /**
+   * True only in update mode AND when the base sprite was loaded
+   * from a saved library version. In that case the panel shows
+   * the two-toggle UI ("Save new version to library" + "Save as
+   * a new library instead") because the user has a known bundle
+   * to attach a new version to. When false — i.e. the user
+   * uploaded a sprite file from their computer in the update
+   * tab — the panel collapses to the single-toggle create-mode
+   * UI (no "Save new version" toggle, no "Save as a new library
+   * instead" sub-toggle, just "Save to library" with
+   * public/private), because an uploaded file has no
+   * pre-existing bundle to version off of.
+   */
+  isLibrarySource?: boolean;
   activeBundleName: string;
   existingLibraryNames: string[];
   value: InlineSaveValue;
@@ -29,6 +43,7 @@ type InlineSaveSectionProps = {
 function InlineSaveSection({
   isVisible,
   isUpdateMode,
+  isLibrarySource,
   activeBundleName,
   existingLibraryNames,
   value,
@@ -70,6 +85,16 @@ function InlineSaveSection({
   // option.
   const masterOn = !!value?.enabled && !value?.saveAsNew;
   const newLibraryOn = !!value?.enabled && !!value?.saveAsNew;
+  // When the user is in the update tab but uploaded a sprite
+  // file from their computer (rather than loading one from the
+  // library), there is no pre-existing bundle to version off
+  // of, so the two-toggle "new version" UI would be confusing.
+  // We collapse the panel to the create-mode UI instead: a
+  // single "Save to library" toggle with name input and a
+  // public/private visibility option. The two-toggle UI is only
+  // shown when we're in update mode AND the base sprite was
+  // loaded from the library.
+  const renderAsCreateMode = !isUpdateMode || isLibrarySource === false;
   // The "Save as a new library instead" toggle is the master
   // switch for both the name input and the public-visibility
   // toggle in update mode:
@@ -80,9 +105,9 @@ function InlineSaveSection({
   //     "new library" branch (you can't change visibility on a
   //     "new version" save — that inherits the active bundle's
   //     visibility).
-  const showNameInput = isUpdateMode ? newLibraryOn : value?.enabled;
-  const showSaveAsNewToggle = isUpdateMode;
-  const showPublicOption = isUpdateMode ? newLibraryOn : !!value?.enabled;
+  const showNameInput = renderAsCreateMode ? value?.enabled : newLibraryOn;
+  const showSaveAsNewToggle = isUpdateMode && isLibrarySource !== false;
+  const showPublicOption = renderAsCreateMode ? !!value?.enabled : newLibraryOn;
   const trimmed = name.trim().toLowerCase();
   const activeKey = activeBundleName.trim().toLowerCase();
   const isActiveBundle = trimmed.length > 0 && trimmed === activeKey;
@@ -90,14 +115,14 @@ function InlineSaveSection({
     trimmed.length > 0 &&
     existingLibraryNames.includes(trimmed) &&
     !isActiveBundle;
-  const toggleLabel = isUpdateMode
-    ? "Save new version to library"
-    : "Save to library";
-  const helperText = isUpdateMode
-    ? isActiveBundle
+  const toggleLabel = renderAsCreateMode
+    ? "Save to library"
+    : "Save new version to library";
+  const helperText = renderAsCreateMode
+    ? "Give this sprite a name so you can find it in the library later."
+    : isActiveBundle
       ? "Saving creates the next version of this bundle automatically."
-      : "Pick the bundle name to attach this save to."
-    : "Give this sprite a name so you can find it in the library later.";
+      : "Pick the bundle name to attach this save to.";
 
   function handleToggle(next: boolean) {
     onToggle?.(next);

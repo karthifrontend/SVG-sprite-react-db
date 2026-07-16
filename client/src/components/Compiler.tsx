@@ -141,6 +141,22 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // ── UI state ────────────────────────────────────────────────
   const [mode, setMode] = useState<CompilerMode>("new");
   const [baseSpriteFile, setBaseSpriteFile] = useState<File | null>(null);
+  // Tracks where the currently-loaded base sprite came from.
+  //   - "library"  : loaded from a saved library version (via the
+  //     library panel's "Load to Update" or eye button). The
+  //     inline-save panel shows the full two-toggle update-mode
+  //     UI ("Save new version to library" + "Save as a new
+  //     library instead") because the user already has a known
+  //     bundle to attach a new version to.
+  //   - "uploaded" : the user picked an `.svg` file from their
+  //     computer in the update tab. The inline-save panel
+  //     collapses to the simpler create-mode UI (single "Save
+  //     to library" toggle with public/private) because there
+  //     is no pre-existing bundle to version off of.
+  //   - null       : no base sprite is loaded yet.
+  const [baseSpriteSource, setBaseSpriteSource] = useState<
+    "library" | "uploaded" | null
+  >(null);
   const [activeBundleName, setActiveBundleName] = useState<string>("");
   const [loadingFromLibrary, setLoadingFromLibrary] = useState(false);
 
@@ -613,63 +629,31 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setMode(next);
     if (next === "new") {
       setBaseSpriteFile(null);
+      setBaseSpriteSource(null);
       setActiveBundleName("");
       setLiveDemoSource({ type: "scratch" });
       // Reset the preview buffer too so the new compile starts
       // from a clean custom-CSS slate, not a stale preview.
       setDemoPreviewCssState(null);
       lastSeededSourceKeyRef.current = null;
-      // Create New Sprite mode always shows the "Save to
-      // library" toggle in its default (OFF) state. If the user
-      // had it ON from a prior session in update mode (or it
-      // was forced ON by some other flow), reset it here so
-      // the toggle doesn't appear pre-enabled without the
-      // user having clicked it. The other inline-save fields
-      // are preserved so re-toggling ON is frictionless.
-      setInlineSave((current) => ({
-        ...current,
-        enabled: false,
-        saveAsNew: false,
-        hasNameConflict: false,
-      }));
     } else if (next === "update" && mode !== "update") {
-      // Entering the "Update Existing Sprite" tab from "Create
-      // New Sprite" — for signed-in users, default the master
-      // "Save new version to library" toggle to ON with the
-      // "Save as a new library instead" sub-toggle OFF, so the
-      // user starts in the most common flow (save a new
-      // version of the bundle they're about to load). For
-      // logged-out users we keep the toggle OFF so the
-      // "Update Sprite" button compiles the sprite in-browser
-      // without opening the login modal. We only seed on the
-      // tab transition itself, not on every render, so a user
-      // who explicitly flips the toggle on/off while in update
-      // mode keeps that choice until they re-enter the tab.
-      if (currentUser) {
-        setInlineSave((current) =>
-          current.enabled
-            ? current
-            : {
-                ...current,
-                enabled: true,
-                saveAsNew: false,
-                hasNameConflict: false,
-              },
-        );
-      } else {
-        setInlineSave((current) => ({
-          ...current,
-          enabled: false,
-          saveAsNew: false,
-          hasNameConflict: false,
-        }));
-      }
+      // Entering the "Update Existing Sprite" tab. The
+      // "Save to library" toggle default is driven entirely by
+      // what the user does next (upload a file → OFF; load from
+      // library → ON) — we deliberately do NOT touch the
+      // toggle state here. Switching tabs is a navigation
+      // action, not a save-intent action, and the user is the
+      // only one who should change the toggle. So whether the
+      // user came from the Create tab (where the toggle was
+      // OFF) or was already toggled ON, we leave `inlineSave`
+      // exactly as it was.
     }
     setSaveStatus(null);
   }
 
   function clearExistingSprite() {
     setBaseSpriteFile(null);
+    setBaseSpriteSource(null);
     setActiveBundleName("");
     setLiveDemoSource({ type: "scratch" });
     setDemoPreviewCssState(null);
@@ -811,17 +795,33 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         : true;
       setSaveStatus({
         kind: "ok",
-        message: isNewBundle
-          ? `Saved "${saved.bundleName}" v${saved.version} to library (${saved.symbolCount} symbol${saved.symbolCount === 1 ? "" : "s"}).`
-          : `Saved "${saved.bundleName}" as v${saved.version} (${saved.symbolCount} symbol${saved.symbolCount === 1 ? "" : "s"}).`,
+        message: "Saved to library successfully!"
       });
+      // Refresh the library list so the new version shows up
+      // immediately in the side panel without the user having to
+      // hit the refresh button. `refetchLibrary` only updates
+      // this Compiler's `useLibrary` instance, so we also fire
+      // the module-level "library changed" broadcast so the
+      // LibraryPanel's separate `useLibrary` instance picks up
+      // the new version too.
       void refetchLibrary();
+      notifyLibraryChanged();
       // Stay in update mode so the user can keep iterating; the
       // next save will create v(n+1) of the same bundle.
       setActiveBundleName(saved.bundleName);
-      if (isNewBundle) {
-        setInlineSave((current) => ({ ...current, saveAsNew: false }));
-      }
+      // Reset the inline-save "Library Name" field so the next
+      // save starts with an empty input. The `InlineSaveSection`
+      // mirrors `value.name` into its local state via a
+      // `useEffect`, so the visible input clears on the next
+      // render too. For a new bundle we also reset `saveAsNew`
+      // so the user isn't pinned to a stale "new library"
+      // branch.
+      setInlineSave((current) => ({
+        ...current,
+        name: "",
+        saveAsNew: isNewBundle ? false : current.saveAsNew,
+        hasNameConflict: false,
+      }));
     } catch (err) {
       setSaveStatus({
         kind: "err",
@@ -839,38 +839,20 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setLiveDemoSource({ type: "scratch" });
     setDemoPreviewCssState(null);
     lastSeededSourceKeyRef.current = null;
-    // The default "Save to library" behaviour differs by mode:
-    //   - Create New Sprite: always default the toggle to OFF
-    //     when staged files are cleared, so the toggle never
-    //     appears pre-enabled without the user having clicked
-    //     it. The other inline-save fields (name, isPublic)
-    //     are also cleared.
-    //   - Update Existing Sprite: keep the master "Save new
-    //     version to library" toggle on (its default in update
-    //     mode) so the user retains the same save intent after
-    //     clearing the staged files. The sub-toggle stays off so
-    //     the user remains in the "new version" branch, and the
-    //     typed name + public flag are cleared because they
-    //     referred to the now-removed staged files.
-    if (mode === "new") {
-      setInlineSave((current) => ({
-        ...current,
-        enabled: false,
-        saveAsNew: false,
-        name: "",
-        hasNameConflict: false,
-        isPublic: false,
-      }));
-    } else {
-      setInlineSave((current) => ({
-        ...current,
-        enabled: true,
-        saveAsNew: false,
-        name: "",
-        hasNameConflict: false,
-        isPublic: false,
-      }));
-    }
+    // Clear the inline-save fields that refer to the now-removed
+    // staged files (typed name, public flag, conflict marker)
+    // without touching the `enabled` toggle. Only the user should
+    // be able to switch the toggle — programmatic auto-flipping
+    // here would override their explicit choice. The sub-toggle
+    // is also reset so the user is no longer pinned to a stale
+    // "new library" branch.
+    setInlineSave((current) => ({
+      ...current,
+      saveAsNew: false,
+      name: "",
+      hasNameConflict: false,
+      isPublic: false,
+    }));
     setSaveStatus(null);
   };
 
@@ -890,6 +872,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       const blob = new Blob([detail.xml], { type: "image/svg+xml" });
       const file = new File([blob], `${bundleName}.svg`, { type: "image/svg+xml" });
       setBaseSpriteFile(file);
+      setBaseSpriteSource("library");
       setActiveBundleName(bundleName);
 
       // The live-demo modal can persist edits directly to this
@@ -929,6 +912,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       // and pre-fill the name so the user can still pick a file.
       setMode("update");
       setActiveBundleName(summary.bundleName || summary.name);
+      setBaseSpriteSource("library");
       const fallbackSource: LiveDemoSource = {
         type: "library",
         id: summary._id,
@@ -996,6 +980,21 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               );
             }
           }}
+          onDownloadBundle={async (summary) => {
+            // Library panel's "Download bundle" button: fetch the
+            // full XML for the requested version, then build the
+            // same zip the Results panel produces (sprite.svg +
+            // demo.html + preview.png). The filename mirrors the
+            // bundle name + version so a multi-version library
+            // produces distinct downloads per row.
+            const detail = await getSpriteById(summary._id);
+            const bundleName = detail.bundleName || detail.name || summary.name;
+            await buildAndDownloadBundle({
+              xml: detail.xml,
+              ids: detail.symbolIds,
+              fileName: `${bundleName}-v${detail.version}`,
+            });
+          }}
           onLibraryDeleted={({ name }) => {
             // If the deleted bundle is the one we have loaded, fall
             // back to scratch mode so the user can't accidentally
@@ -1060,16 +1059,32 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                       clearFiles();
                     }
                     setBaseSpriteFile(f);
+                    // Mark this base sprite as "uploaded" (not
+                    // loaded from the library). The inline-save
+                    // panel reads this to decide whether to show
+                    // the two-toggle update-mode UI or the simpler
+                    // single-toggle create-mode UI, because an
+                    // uploaded file has no pre-existing bundle to
+                    // version off of.
+                    setBaseSpriteSource("uploaded");
                     setSaveStatus(null);
                     if (!activeBundleName) {
                       const fromName = f.name.replace(/\.svg$/i, "");
                       setActiveBundleName(fromName);
-                      setInlineSave((current) => ({
-                        ...current,
-                        enabled: current.enabled,
-                        name: current.enabled ? current.name || fromName : current.name,
-                      }));
                     }
+                    // Reset the inline-save toggle to OFF so the
+                    // user starts in the create-mode default
+                    // (toggle off) rather than the update-mode
+                    // default (toggle on). An uploaded file has
+                    // no pre-existing bundle to auto-version, so
+                    // the "Save new version to library" default
+                    // would be misleading.
+                    setInlineSave((current) => ({
+                      ...current,
+                      enabled: false,
+                      saveAsNew: false,
+                      hasNameConflict: false,
+                    }));
                   }}
                   onClear={clearExistingSprite}
                   onSelectFromLibrary={handleSelectFromLibrary}
@@ -1112,6 +1127,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               <InlineSaveSection
                 isVisible={!!currentUser}
                 isUpdateMode={mode === "update"}
+                // The two-toggle update-mode UI ("Save new version
+                // to library" + "Save as a new library instead")
+                // only makes sense when the base sprite was loaded
+                // from the library — there has to be an existing
+                // bundle to version off of. When the user uploaded
+                // a file from their computer we collapse the panel
+                // to the single-toggle create-mode UI instead.
+                isLibrarySource={baseSpriteSource === "library"}
                 activeBundleName={activeBundleName}
                 existingLibraryNames={existingLibraryNames}
                 value={inlineSave}

@@ -145,3 +145,13 @@ export function ChevronDownIcon({ className = "w-4 h-4", ...rest }: IconProps) {
     </svg>
   );
 }
+
+export function DownloadIcon({ className = "w-4 h-4", ...rest }: IconProps) {
+  return (
+    <svg {...ICON_BASE} className={className} {...rest}>
+      <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1" />
+      <path d="M7 10l5 5 5-5" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
