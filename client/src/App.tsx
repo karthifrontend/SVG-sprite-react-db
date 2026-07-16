@@ -1,8 +1,9 @@
 import "./App.css";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Navbar from "./components/Navbar";
 import LoginModal from "./components/LoginModal";
 import Compiler from "./components/Compiler";
+import { useAuth } from "./context/AuthContext";
 
 function App() {
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -11,6 +12,32 @@ function App() {
   // users can see their sprites. State lives here so the Navbar's
   // expand button and the Compiler stay in sync.
   const [libraryOpen, setLibraryOpen] = useState(true);
+
+  const { currentUser, initializing } = useAuth();
+  // Auto-refresh the page when the user signs in or out. A full
+  // reload is the simplest reliable way to drop all in-memory
+  // state (file staging, draft preview CSS, open modals, etc.)
+  // and re-fetch the library list with the new credential. We
+  // skip the initial rehydration so the page doesn't reload on
+  // first paint.
+  const previousAuthKeyRef = useRef<string | null | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    if (initializing) return;
+    const currentKey = currentUser ? currentUser.id : null;
+    if (previousAuthKeyRef.current === undefined) {
+      previousAuthKeyRef.current = currentKey;
+      return;
+    }
+    if (previousAuthKeyRef.current !== currentKey) {
+      // `window.location.reload()` is safe to call here: by the
+      // time the effect fires, the auth context has already
+      // persisted the new session / cleared localStorage, so the
+      // reloaded app will boot into the correct state.
+      window.location.reload();
+    }
+  }, [currentUser, initializing]);
 
   return (
     <div className="min-h-screen bg-mesh bg-slate-50 font-sans text-slate-800 antialiased selection:bg-indigo-200 selection:text-indigo-900">

@@ -1,18 +1,24 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFileDropzone } from "../hooks/useFileDropzone";
 import { useSpriteCompiler } from "../hooks/useSpriteCompiler";
-import { useLibrary } from "../hooks/useLibrary";
+import { useLibrary, notifyLibraryChanged } from "../hooks/useLibrary";
 import { getSpriteById, saveSprite, type SpriteSummary } from "../api/sprites";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import { buildSpriteXml, extractSymbolsFromSprite } from "../utils/sprite";
+import { copyToClipboard } from "../utils/formatters";
 import CompilerHeader from "./compiler/CompilerHeader";
 import ExistingSpriteSection from "./compiler/ExistingSpriteSection";
 import FileDropzone from "./compiler/FileDropzone";
 import GenerateButton from "./compiler/GenerateButton";
 import InlineSaveSection, { type InlineSaveValue } from "./compiler/InlineSaveSection";
 import LibraryPanel from "./compiler/LibraryPanel";
-import LiveDemoModal, { type CopiedIcon } from "./compiler/LiveDemo";
+import LiveDemoModal, { type CopiedIcon, type LiveDemoCssState } from "./compiler/LiveDemo";
 import type { Source as LiveDemoSource } from "./compiler/LiveDemo";
+import SaveToLibraryModal from "./compiler/SaveToLibraryModal";
+import { buildDemoHtml } from "../utils/sprite";
+import { createZip, triggerBrowserDownload } from "../utils/zipBundle";
+import { renderSpritePreviewPng } from "../utils/previewPng";
 import ModeTabs, { type CompilerMode } from "./compiler/ModeTabs";
 import ResultsPanel from "./compiler/ResultsPanel";
 import StagedFilesList from "./compiler/StagedFilesList";
@@ -56,6 +62,9 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     clear: clearFiles,
     removeAt,
     onDragOver: baseOnDragOver,
+    appendFiles,
+    onDrop,
+    onDragOver,
     openPicker,
     inputRef,
   } = baseDropzone;
@@ -129,7 +138,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     reset: resetSprite,
   } = useSpriteCompiler();
 
-  const { refetch: refetchLibrary, sprites: librarySprites } = useLibrary(!!currentUser);
+  const { refetch: refetchLibrary, sprites: librarySprites, setVersionLabel } = useLibrary(!!currentUser);
 
   // ── UI state ────────────────────────────────────────────────
   const [mode, setMode] = useState<CompilerMode>("new");
@@ -165,8 +174,389 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setDemoSymbolIds(symbolIds);
   }, [spriteXml, symbolIds]);
 
+  // Custom-CSS state shared with the live demo. The state is held
+  // in a single "preview" buffer that mirrors whatever the user
+  // is currently looking at. The buffer is seeded:
+  //   - from the saved library's CSS when the user opens that
+  //     library's preview, or
+  //   - from the default CSS when the user opens a fresh
+  //     scratch compile.
+  // While the user is tweaking the demo, only the preview buffer
+  // is updated — the source library's stored CSS is never
+  // touched. The new CSS is only persisted back to a library key
+  // when the user explicitly clicks Save to Library, at which
+  // point we copy the preview buffer to the newly-created
+  // library's key. The previously-loaded library keeps its
+  // original CSS untouched.
+  const defaultCssState: LiveDemoCssState = {
+    iconSize: 24,
+    activeColorClass: "text-slate-700",
+    activeCustomColor: null,
+    activeGradient: null,
+    useGradient: false,
+    gradientStart: "#f43f5e",
+    gradientEnd: "#fb923c",
+    customColor: "#ff0055",
+  };
+  // The preview buffer the live demo reads from / writes to.
+  // `null` means "not seeded yet" — the consumer falls back to
+  // `defaultCssState` until something populates it.
+  const [demoPreviewCssState, setDemoPreviewCssState] =
+    useState<LiveDemoCssState | null>(null);
+  // Per-library CSS state, keyed by `library:<spriteId>`. The
+  // live demo never writes here directly — only the save flow
+  // does, when the user commits a new library to the server.
+  const [libraryCssState, setLibraryCssState] = useState<
+    Record<string, LiveDemoCssState>
+  >({});
+  // Tracks the source the preview buffer was last seeded from,
+  // so re-opening the same library doesn't blow away the user's
+  // in-progress tweaks. Compared by id+version so a saved update
+  // to the same library (e.g. after refresh) re-seeds correctly.
+  const lastSeededSourceKeyRef = useRef<string | null>(null);
+  // What the live demo currently sees / mutates. Reads from
+  // `demoPreviewCssState` (with a default fallback) so the
+  // tweaks land in the scratch buffer, not in the source
+  // library's record.
+  const activeDemoCssState: LiveDemoCssState =
+    demoPreviewCssState ?? defaultCssState;
+  const setActiveDemoCssState = (next: LiveDemoCssState) => {
+    setDemoPreviewCssState(next);
+  };
+  // Stable key for a source so we can compare it across renders
+  // and dedupe seed calls.
+  function sourceKey(source: LiveDemoSource): string {
+    if (source.type === "library") {
+      return `library:${source.id}:${source.version ?? 0}`;
+    }
+    return "scratch";
+  }
+  // Seed the preview buffer from a library's stored CSS (or
+  // from defaults for a fresh scratch compile). Called by the
+  // LibraryPanel's eye button, the Load-to-Update flow, and the
+  // Results panel's Live Demo button. Re-seeds only when the
+  // source actually changes — re-opening the same library
+  // preserves the user's in-progress tweaks.
+  function seedPreviewFromSource(source: LiveDemoSource) {
+    const key = sourceKey(source);
+    if (lastSeededSourceKeyRef.current === key) return;
+    lastSeededSourceKeyRef.current = key;
+    if (source.type === "library") {
+      const stored = libraryCssState[`library:${source.id}`];
+      setDemoPreviewCssState(stored ?? defaultCssState);
+    } else {
+      setDemoPreviewCssState(defaultCssState);
+    }
+  }
+
   // User guide drawer.
   const [guideOpen, setGuideOpen] = useState(false);
+
+  // "Save to Library" modal (lives at the Compiler level so it can
+  // talk to the live demo + the library list). Opens from the live
+  // demo's "Save to Library" button.
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveModalName, setSaveModalName] = useState<string>("");
+  // The placeholder shown inside the Library Name field when it's
+  // empty. Computed at open time so the user always sees a
+  // date-stamped default like "New sprite 7/15/2026". When the
+  // user submits an empty field we fall back to this value so
+  // the save still succeeds.
+  const [saveModalPlaceholder, setSaveModalPlaceholder] = useState<string>("");
+  const [saveModalNextVersion, setSaveModalNextVersion] = useState<number>(1);
+  // Initial value of the modal's "Make it as public" toggle.
+  // Seeded from the currently-loaded library's `isPublic` flag
+  // when the modal opens, so saving a new version of an
+  // existing bundle keeps the same visibility; falls back to
+  // `false` (private) for new bundles.
+  const [saveModalIsPublic, setSaveModalIsPublic] = useState<boolean>(false);
+  const [saveModalBusy, setSaveModalBusy] = useState(false);
+
+  // Returns the next version the server will assign for a given
+  // bundle name. We scan the in-memory library list (sorted
+  // newest-first by the panel) and add one. If the bundle doesn't
+  // exist yet, this returns 1.
+  function resolveNextVersionFor(name: string): number {
+    const key = name.trim().toLowerCase();
+    if (!key) return 1;
+    const latest = librarySprites
+      .filter(
+        (sprite) => (sprite.bundleName || sprite.name || "").trim().toLowerCase() === key,
+      )
+      .reduce<number>((max, sprite) => Math.max(max, sprite.version ?? 0), 0);
+    return latest + 1;
+  }
+
+  function openSaveToLibraryModal(input: { suggestedName: string }) {
+    // Per UX request, the modal always opens with an EMPTY Library
+    // Name field. We compute a date-stamped default and pass it as
+    // the input placeholder so the user sees a sensible hint
+    // without us actually pre-filling the field. When the user
+    // submits an empty value we fall back to the placeholder so
+    // the save still succeeds.
+    void input;
+    const placeholder = "New sprite " + new Date().toLocaleDateString();
+    setSaveModalName("");
+    setSaveModalPlaceholder(placeholder);
+    setSaveModalNextVersion(1);
+    // Seed the public toggle from the currently-loaded library so
+    // "save v4 of my public library" stays public by default.
+    // For a fresh compile (no active bundle) it stays private.
+    const activeSummary = activeBundleName
+      ? librarySprites.find(
+          (s) =>
+            (s.bundleName || s.name || "").trim().toLowerCase() ===
+            activeBundleName.trim().toLowerCase(),
+        )
+      : undefined;
+    setSaveModalIsPublic(!!activeSummary?.isPublic);
+    // Close the live demo so the user can interact with the
+    // "Save to Organization" form on a clean canvas. The modal
+    // remembers the sprite via `demoSpriteXml`/`demoSymbolIds`,
+    // so re-opening will rehydrate it.
+    setLiveDemoOpen(false);
+    setSaveModalOpen(true);
+  }
+
+  async function handleSaveToLibraryConfirm(input: { name: string; version: string; isPublic: boolean }) {
+    if (saveModalBusy) return;
+    // The bundle name is exactly what the user typed, OR the
+    // placeholder when the field was left empty. The version
+    // description is a human label for this save (e.g. "v3" or
+    // "Added 5 new icons") and is included as the per-sprite
+    // `name`; the server still auto-increments the numeric
+    // version under the same bundle, so each save appears as a
+    // new row in the library panel.
+    const targetBundle = input.name.trim() || saveModalPlaceholder.trim();
+    setSaveModalBusy(true);
+    try {
+      const xml = demoSpriteXml ?? spriteXml;
+      const ids = demoSpriteXml ? demoSymbolIds : symbolIds;
+      if (!xml) {
+        showToast("Nothing to save yet.", "warning");
+        return;
+      }
+      const saved = await saveSprite({
+        // Per-sprite label. The server overrides this with
+        // "<bundle> v<N>", so we fall back to the bundle name when
+        // the description is empty.
+        name: input.version.trim() ? `${targetBundle} ${input.version.trim()}` : targetBundle,
+        bundleName: targetBundle,
+        xml,
+        symbolIds: ids,
+        symbolCount: ids.length,
+        // Visibility is chosen in the modal — `true` makes the new
+        // bundle / version visible to every signed-in user, `false`
+        // keeps it private to the current owner.
+        isPublic: input.isPublic,
+      });
+      setActiveBundleName(saved.bundleName);
+      // Commit the in-progress preview buffer to the newly-saved
+      // library's key. This is the ONLY place a library's stored
+      // CSS is written — the live demo never mutates it directly,
+      // so the previously-loaded library's CSS stays untouched.
+      // When the user later re-opens the new library's preview,
+      // `seedPreviewFromSource` copies this entry back into the
+      // preview buffer.
+      setLibraryCssState((prev) => ({
+        ...prev,
+        [`library:${saved.id}`]: activeDemoCssState,
+      }));
+      // Pin the user-typed version description onto the local
+      // summary so the library panel shows "v4" (or whatever the
+      // user typed) in the version pill, not the server's numeric
+      // "v1". Must be set BEFORE refetchLibrary, because refetch
+      // wipes the local list and the label cache re-applies it.
+      const label = input.version.trim();
+      if (label) {
+        setVersionLabel(saved.id, label);
+      }
+      // Await the refetch so the library list shows the new
+      // version immediately. Without this the user would have to
+      // hit the refresh button to see the saved entry.
+      await refetchLibrary();
+      // Broadcast to every other `useLibrary` instance (e.g. the
+      // LibraryPanel) so they also refetch and show the new entry
+      // without the user clicking the refresh button.
+      notifyLibraryChanged();
+      // Recompute the next version so the modal, if reopened,
+      // defaults to the new "v4" (or whatever).
+      setSaveModalNextVersion(resolveNextVersionFor(saved.bundleName));
+      showToast(
+        `Saved "${saved.bundleName}" v${saved.version} to your library.`,
+        "success"
+      );
+      setSaveModalOpen(false);
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to save sprite.",
+        "error"
+      );
+    } finally {
+      setSaveModalBusy(false);
+    }
+  }
+
+  // Hand the current sprite (or the loaded one) back to the
+  // compiler's staging area. We re-stage by writing the symbols as
+  // individual File objects, then forcing a regen. This is the
+  // simplest way to inject symbols without rewriting the file
+  // dropzone API.
+  //
+  // Each copied icon already carries a full standalone `<svg>`
+  // document (`CopiedIcon.content`) and its source symbol id
+  // (`CopiedIcon.name`). We wrap the SVG text in a `File` so the
+  // existing dropzone / staged-list code path renders it like any
+  // other upload — the user can then either:
+  //   1. Click "Generate" in the main page to compile a new
+  //      sprite from the staged files, OR
+  //   2. Already be in "update" mode against a library, in which
+  //      case the next Generate merges the pasted icons into a
+  //      new version of that library.
+  function handlePasteIntoWorkspace(icons: CopiedIcon[]) {
+    if (!icons || icons.length === 0) return;
+    // De-duplicate by name against the currently-staged files so
+    // the user doesn't end up with two rows for the same icon if
+    // they paste the same selection twice. We compare by basename
+    // (since every File the dropzone stores has its own name) and
+    // by the source symbol id, so a paste that targets the same
+    // icon from a different selection set is treated as a refresh,
+    // not a duplicate.
+    const stagedNames = new Set(files.map((f) => f.name));
+    const newFiles: File[] = [];
+    for (const icon of icons) {
+      const fileName = `${icon.name}.svg`;
+      if (stagedNames.has(fileName)) continue;
+      stagedNames.add(fileName);
+      const file = new File([icon.content], fileName, { type: "image/svg+xml" });
+      newFiles.push(file);
+    }
+    if (newFiles.length === 0) {
+      showToast(
+        `All ${icons.length} icon${icons.length === 1 ? "" : "s"} already staged.`,
+        "warning",
+      );
+      return;
+    }
+    appendFiles(newFiles);
+    showToast(
+      `Pasted ${newFiles.length} icon${newFiles.length === 1 ? "" : "s"} into the workspace.`,
+      "success",
+    );
+  }
+
+  // Paste icons into a specific library version. Loads the
+  // version, merges the new symbols into it (new symbols win on
+  // id collision), and saves as a new version.
+  async function handlePasteIntoLibraryVersion(input: {
+    spriteId: string;
+    bundleName: string;
+    version: number;
+    icons: CopiedIcon[];
+  }) {
+    const detail = await getSpriteById(input.spriteId);
+    const baseSymbols = extractSymbolsFromSprite(detail.xml);
+    const newSymbols = input.icons.map((icon) => {
+      // Re-parse the raw symbol so we get the same SpriteSymbol
+      // shape the compiler uses.
+      const match = icon.rawSymbol.match(
+        /<symbol\s+id="([^"]+)"\s+viewBox="([^"]+)"\s*>([\s\S]*?)<\/symbol>/,
+      );
+      const id = match?.[1] ?? icon.name;
+      const viewBox = match?.[2] ?? "0 0 24 24";
+      const inner = match?.[3] ?? "";
+      return { id, viewBox, inner };
+    });
+    const seen = new Set<string>();
+    const merged = [...baseSymbols, ...newSymbols].filter((s) => {
+      if (seen.has(s.id)) return false;
+      seen.add(s.id);
+      return true;
+    });
+    const xml = buildSpriteXml(merged);
+    await saveSprite({
+      name: detail.bundleName,
+      bundleName: detail.bundleName,
+      xml,
+      symbolIds: merged.map((s) => s.id),
+      symbolCount: merged.length,
+      isPublic: detail.isPublic,
+    });
+    await refetchLibrary();
+    // Broadcast to every other `useLibrary` instance so the
+    // LibraryPanel shows the new pasted-into-library version
+    // without a manual refresh.
+    notifyLibraryChanged();
+  }
+
+  // Build + download an SVG sprite bundle (sprite + demo.html +
+  // preview.png) wrapped in a zip. Used by the Results panel's
+  // "Download zip" button and by the live demo's logged-out
+  // "Save" button — both call the same builder so the bundle
+  // contents are identical regardless of the entry point.
+  const [resultsDownloadBusy, setResultsDownloadBusy] = useState(false);
+  async function buildAndDownloadBundle(input: {
+    xml: string;
+    ids: string[];
+    fileName: string;
+  }): Promise<boolean> {
+    const { xml, ids, fileName } = input;
+    if (!xml) return false;
+    const demoHtml = buildDemoHtml(ids, xml);
+    const previewPng = await renderSpritePreviewPng(xml, ids);
+    const entries: { name: string; data: string | Uint8Array }[] = [
+      { name: `${fileName}.svg`, data: xml },
+      { name: "demo.html", data: demoHtml },
+    ];
+    if (previewPng) {
+      entries.push({
+        name: "preview.png",
+        data: new Uint8Array(await previewPng.arrayBuffer()),
+      });
+    }
+    const blob = createZip(entries);
+    triggerBrowserDownload(blob, `${fileName}-bundle.zip`);
+    showToast("Sprite bundle downloaded.", "success");
+    return true;
+  }
+  async function handleDownloadBundleForResults() {
+    if (resultsDownloadBusy) return;
+    const xml = spriteXml;
+    if (!xml) {
+      showToast("No sprite to export.", "warning");
+      return;
+    }
+    setResultsDownloadBusy(true);
+    try {
+      await buildAndDownloadBundle({
+        xml,
+        ids: symbolIds,
+        fileName: (baseSpriteFile?.name || "sprite").replace(/\.svg$/i, ""),
+      });
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to build bundle.",
+        "error",
+      );
+    } finally {
+      setResultsDownloadBusy(false);
+    }
+  }
+  // Logged-out "Save" inside the live demo modal — uses the
+  // shared builder with the demo's currently-previewed XML (or
+  // the freshly-generated sprite if no preview is open).
+  async function handleDownloadBundleForDemo() {
+    const xml = demoSpriteXml ?? spriteXml;
+    if (!xml) {
+      showToast("No sprite to export.", "warning");
+      return;
+    }
+    await buildAndDownloadBundle({
+      xml,
+      ids: demoSpriteXml ? demoSymbolIds : symbolIds,
+      fileName: (baseSpriteFile?.name || "sprite").replace(/\.svg$/i, ""),
+    });
+  }
 
   // Existing bundle names (lowercased) for the inline save conflict check.
   const existingLibraryNames = useMemo(() => {
@@ -234,6 +624,30 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       setBaseSpriteFile(null);
       setActiveBundleName("");
       setLiveDemoSource({ type: "scratch" });
+      // Reset the preview buffer too so the new compile starts
+      // from a clean custom-CSS slate, not a stale preview.
+      setDemoPreviewCssState(null);
+      lastSeededSourceKeyRef.current = null;
+    } else if (next === "update" && mode !== "update") {
+      // Entering the "Update Existing Sprite" tab from "Create
+      // New Sprite" — default the master "Save new version to
+      // library" toggle to ON, with the "Save as a new library
+      // instead" sub-toggle OFF, so the user starts in the most
+      // common flow (save a new version of the bundle they're
+      // about to load). We only seed on the tab transition
+      // itself, not on every render, so a user who explicitly
+      // flips the toggle off while in update mode keeps that
+      // choice until they re-enter the tab.
+      setInlineSave((current) =>
+        current.enabled
+          ? current
+          : {
+              ...current,
+              enabled: true,
+              saveAsNew: false,
+              hasNameConflict: false,
+            },
+      );
     }
     setSaveStatus(null);
   }
@@ -242,6 +656,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setBaseSpriteFile(null);
     setActiveBundleName("");
     setLiveDemoSource({ type: "scratch" });
+    setDemoPreviewCssState(null);
+    lastSeededSourceKeyRef.current = null;
     setInlineSave((current) => ({
       ...current,
       enabled: false,
@@ -250,6 +666,32 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       hasNameConflict: false,
       isPublic: false,
     }));
+  }
+
+  // Open the Live Demo modal with the currently uploaded base
+  // sprite. Reads the file's text, extracts its symbols, and feeds
+  // them into the modal's sprite/symbolIds state. If the file is
+  // empty or unparseable, the existing `liveDemoSource` is left
+  // untouched so the "Save Changes" flow stays consistent with how
+  // the user originally loaded the sprite.
+  async function handlePreviewBaseSprite() {
+    if (!baseSpriteFile) return;
+    try {
+      const content = await baseSpriteFile.text();
+      const symbols = extractSymbolsFromSprite(content);
+      if (symbols.length === 0) {
+        showToast("This sprite has no symbols to preview.", "warning");
+        return;
+      }
+      setDemoSpriteXml(content);
+      setDemoSymbolIds(symbols.map((s) => s.id));
+      setLiveDemoOpen(true);
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to read the base sprite.",
+        "error"
+      );
+    }
   }
 
   // ── Generate ───────────────────────────────────────────────
@@ -360,13 +802,24 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setBaseSpriteFile(null);
     setActiveBundleName("");
     setLiveDemoSource({ type: "scratch" });
-    setInlineSave({
-      enabled: false,
-      name: "",
+    setDemoPreviewCssState(null);
+    lastSeededSourceKeyRef.current = null;
+    // Drop the staged files but keep the master "Save new version
+    // to library" toggle on (its default in update mode). The
+    // user is still in update mode with the base sprite loaded,
+    // so they should keep the same save intent as before — only
+    // the staged files are gone. We clear the typed name + public
+    // flag since those referred to the now-removed staged files,
+    // but the toggle itself stays on, and the sub-toggle stays
+    // off so the user remains in the "new version" branch.
+    setInlineSave((current) => ({
+      ...current,
+      enabled: true,
       saveAsNew: false,
+      name: "",
       hasNameConflict: false,
       isPublic: false,
-    });
+    }));
     setSaveStatus(null);
   };
 
@@ -390,14 +843,20 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
       // The live-demo modal can persist edits directly to this
       // library version via `useLibrary().updateContent`.
-      setLiveDemoSource({
+      const newSource: LiveDemoSource = {
         type: "library",
         id: detail.id,
         name: bundleName,
         version: detail.version,
         isOwner,
         isPublic: !!detail.isPublic,
-      });
+      };
+      setLiveDemoSource(newSource);
+      // Pre-seed the preview buffer with the loaded library's
+      // CSS so any subsequent demo open starts from that
+      // library's stored customisation rather than from a stale
+      // preview left over from a prior session.
+      seedPreviewFromSource(newSource);
 
       // Only pre-enable the save toggle for the owner of the
       // bundle. Public bundles loaded by non-owners stay
@@ -419,14 +878,16 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       // and pre-fill the name so the user can still pick a file.
       setMode("update");
       setActiveBundleName(summary.bundleName || summary.name);
-      setLiveDemoSource({
+      const fallbackSource: LiveDemoSource = {
         type: "library",
         id: summary._id,
         name: summary.bundleName || summary.name,
         version: summary.version,
         isOwner: summary.isOwner !== false,
         isPublic: !!summary.isPublic,
-      });
+      };
+      setLiveDemoSource(fallbackSource);
+      seedPreviewFromSource(fallbackSource);
       setInlineSave((current) => ({
         ...current,
         enabled: summary.isOwner !== false,
@@ -451,6 +912,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   return (
     <div>
       <div id="appContainer" className="relative flex min-h-screen opacity-100 transition-opacity duration-700 ease-out">
+        {currentUser && (
         <LibraryPanel
           isOpen={libraryOpen}
           onCollapseToggle={() => onLibraryToggle(false)}
@@ -460,6 +922,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
             setDemoSpriteXml(sprite);
             setDemoSymbolIds(symbolIds);
             setLiveDemoSource(source);
+            // Seed the preview buffer from the library's stored
+            // CSS (or defaults for scratch) so the user sees that
+            // library's saved customisation. Tweak the preview
+            // buffer will NOT modify the source library's record.
+            seedPreviewFromSource(source);
             setLiveDemoOpen(true);
           }}
           onLibraryRenamed={({ oldName, newName }) => {
@@ -487,6 +954,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               setBaseSpriteFile(null);
               setActiveBundleName("");
               setLiveDemoSource({ type: "scratch" });
+              setDemoPreviewCssState(null);
+              lastSeededSourceKeyRef.current = null;
               setInlineSave((current) => ({
                 ...current,
                 enabled: false,
@@ -496,8 +965,22 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 isPublic: false,
               }));
             }
+            // Purge any cached CSS for the deleted library so a
+            // future save under the same name starts fresh.
+            setLibraryCssState((prev) => {
+              const next: Record<string, LiveDemoCssState> = {};
+              for (const [key, value] of Object.entries(prev)) {
+                // We don't have the deleted id here, but the
+                // refetch from useLibrary will trim the sprites
+                // array. The label cache is the same shape and
+                // is purged by useLibrary itself.
+                if (key !== `library:${name}`) next[key] = value;
+              }
+              return next;
+            });
           }}
         />
+        )}
 
         <main className="flex min-h-[calc(100vh-57px)] flex-1 justify-center gap-6 px-4 py-10 sm:py-16">
           <div className="w-full max-w-2xl">
@@ -538,8 +1021,9 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                     }
                   }}
                   onClear={clearExistingSprite}
+                  onPreview={() => void handlePreviewBaseSprite()}
                   onSelectFromLibrary={handleSelectFromLibrary}
-                  canSelectFromLibrary
+                  canSelectFromLibrary={!!currentUser}
                 />
               )}
 
@@ -620,6 +1104,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 copied={copied}
                 onCopy={() => void copy()}
                 onDemo={() => setLiveDemoOpen(true)}
+                onDownloadZip={() => void handleDownloadBundleForResults()}
+                downloadBusy={resultsDownloadBusy}
               />
             </main>
           </div>
@@ -667,21 +1153,54 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           setDemoSymbolIds(next.symbolIds);
         }}
         onCopySprite={async () => {
+          // The Live Demo shows `demoSpriteXml` (which reflects any
+          // rename / remove actions the user performed inside the
+          // modal) and only falls back to the compiler's
+          // freshly-generated `spriteXml` when no demo preview has
+          // been opened. Copy whichever the user is actually
+          // looking at — the compiler's `copy()` helper reads
+          // `spriteXml` only, so it can be null (nothing generated
+          // yet, only a demo loaded from the library) or stale
+          // (demo was mutated after the original compile).
+          const xmlToCopy = demoSpriteXml ?? spriteXml;
+          if (!xmlToCopy) return false;
           try {
-            await copy();
+            await copyToClipboard(xmlToCopy);
             return true;
           } catch {
             return false;
           }
         }}
         onCopyIcons={(icons: CopiedIcon[]) => {
-          // For now just toast — a future "paste into this sprite"
-          // flow can consume this payload.
           showToast(
             `Copied ${icons.length} icon${icons.length === 1 ? "" : "s"} to clipboard`,
             "success"
           );
         }}
+        onOpenSaveToLibrary={({ suggestedName }) =>
+          openSaveToLibraryModal({ suggestedName })
+        }
+        onPasteIntoWorkspace={handlePasteIntoWorkspace}
+        onPasteIntoLibraryVersion={handlePasteIntoLibraryVersion}
+        suggestedBundleName={activeBundleName || baseSpriteFile?.name.replace(/\.svg$/i, "")}
+        onDownloadBundle={() => handleDownloadBundleForDemo()}
+        bundleFileName={baseSpriteFile?.name}
+        cssState={activeDemoCssState}
+        onCssStateChange={setActiveDemoCssState}
+      />
+
+      <SaveToLibraryModal
+        isOpen={saveModalOpen}
+        busy={saveModalBusy}
+        existingNames={existingLibraryNames}
+        defaultName={saveModalName}
+        placeholder={saveModalPlaceholder}
+        nextVersion={saveModalNextVersion}
+        initialIsPublic={saveModalIsPublic}
+        onClose={() => {
+          if (!saveModalBusy) setSaveModalOpen(false);
+        }}
+        onSubmit={handleSaveToLibraryConfirm}
       />
     </div>
   );

@@ -22,7 +22,12 @@ import {
 } from "../icons";
 import { useToast } from "../../context/ToastContext";
 import { useLibrary } from "../../hooks/useLibrary";
+import { useAuth } from "../../context/AuthContext";
 import { copyToClipboard } from "../../utils/formatters";
+import { buildDemoHtml } from "../../utils/sprite";
+import { createZip, triggerBrowserDownload } from "../../utils/zipBundle";
+import { renderSpritePreviewPng } from "../../utils/previewPng";
+import PasteIconsModal from "./PasteIconsModal";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -77,12 +82,69 @@ type LiveDemoProps = {
    * Receives the selected icons' raw XML/standalone SVG payloads.
    */
   onCopyIcons?: (icons: CopiedIcon[]) => void;
+  /**
+   * Open the "Save to Organization" modal pre-filled with the supplied
+   * name. The parent (Compiler) handles the actual save + library
+   * refresh.
+   */
+  onOpenSaveToLibrary?: (input: { suggestedName: string }) => void;
+  /**
+   * Paste copied icons into a library version. The parent loads the
+   * sprite, merges the symbols, and saves a new version.
+   */
+  onPasteIntoLibraryVersion?: (input: {
+    spriteId: string;
+    bundleName: string;
+    version: number;
+    icons: CopiedIcon[];
+  }) => Promise<void> | void;
+  /**
+   * Paste copied icons into the current workspace (staging area).
+   * When omitted, the modal simply closes.
+   */
+  onPasteIntoWorkspace?: (icons: CopiedIcon[]) => void;
+  /**
+   * Name to pre-fill in the "Save to Library" modal (e.g. the
+   * currently-loaded bundle).
+   */
+  suggestedBundleName?: string;
+  /**
+   * Optional fallback for the "open the regular save modal" flow.
+   * Kept around for compatibility with the previous implementation.
+   */
+  onDownloadBundle?: () => Promise<void> | void;
+  /**
+   * Filename (without extension) used by the save flow when
+   * generating the bundle on disk. The Compiler passes the base
+   * sprite's filename here.
+   */
+  bundleFileName?: string;
+  /**
+   * Controlled Custom-CSS state (size, color, gradient, custom
+   * color). Lifted to the parent so the values persist when the
+   * user closes & reopens the demo (e.g. via the library's
+   * preview icon).
+   */
+  cssState?: LiveDemoCssState;
+  onCssStateChange?: (next: LiveDemoCssState) => void;
 };
 
 export type CopiedIcon = {
   name: string;
   content: string;
   rawSymbol: string;
+};
+
+/** Custom-CSS state shared between the icons grid and the parent. */
+export type LiveDemoCssState = {
+  iconSize: number;
+  activeColorClass: string | null;
+  activeCustomColor: string | null;
+  activeGradient: { start: string; end: string } | null;
+  useGradient: boolean;
+  gradientStart: string;
+  gradientEnd: string;
+  customColor: string;
 };
 
 const SOLID_PRESETS: SolidPreset[] = [
@@ -137,30 +199,83 @@ export default function LiveDemoModal({
   onOpenSaveModal,
   onCopySprite,
   onCopyIcons,
+  onOpenSaveToLibrary,
+  onPasteIntoLibraryVersion,
+  onPasteIntoWorkspace,
+  suggestedBundleName,
+  onDownloadBundle,
+  bundleFileName,
+  cssState,
+  onCssStateChange,
 }: LiveDemoProps) {
   const { showToast } = useToast();
-  const { updateContent } = useLibrary();
+  const { currentUser } = useAuth();
+  const { refetch: refetchLibrary } = useLibrary(!!currentUser);
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [selectMode, setSelectMode] = useState<boolean>(false);
   const [selectedIcons, setSelectedIcons] = useState<Set<string>>(() => new Set());
   const [displayedSymbolIds, setDisplayedSymbolIds] = useState<string[]>(() => symbolIds ?? []);
   const [activeTab, setActiveTab] = useState<"grid" | "css">("grid");
-  const [iconSize, setIconSize] = useState<number>(24);
-  const [activeColorClass, setActiveColorClass] = useState<string | null>(getDefaultActiveColor);
-  const [activeCustomColor, setActiveCustomColor] = useState<string | null>(null);
-  const [activeGradient, setActiveGradient] = useState<ActiveGradient | null>(null);
-  const [useGradient, setUseGradient] = useState<boolean>(false);
-  const [gradientStart, setGradientStart] = useState<string>(GRADIENT_PRESETS[0].start);
-  const [gradientEnd, setGradientEnd] = useState<string>(GRADIENT_PRESETS[0].end);
-  const [customColor, setCustomColor] = useState<string>("#ff0055");
+  // Custom-CSS state. When the parent supplies `cssState` +
+  // `onCssStateChange`, the values are owned outside the modal so
+  // they survive across opens (e.g. re-opening a saved library
+  // version via the eye icon). When the parent doesn't supply them
+  // we fall back to local state, so the modal still works in
+  // isolation (and in Storybook).
+  const defaultCssState: LiveDemoCssState = {
+    iconSize: 24,
+    activeColorClass: getDefaultActiveColor(),
+    activeCustomColor: null,
+    activeGradient: null,
+    useGradient: false,
+    gradientStart: GRADIENT_PRESETS[0].start,
+    gradientEnd: GRADIENT_PRESETS[0].end,
+    customColor: "#ff0055",
+  };
+  const [internalCssState, setInternalCssState] = useState<LiveDemoCssState>(defaultCssState);
+  const isControlled = cssState !== undefined && onCssStateChange !== undefined;
+  const currentCss: LiveDemoCssState = isControlled ? (cssState as LiveDemoCssState) : internalCssState;
+  const updateCss = (patch: Partial<LiveDemoCssState>) => {
+    const next = { ...currentCss, ...patch };
+    if (isControlled) {
+      onCssStateChange?.(next);
+    } else {
+      setInternalCssState(next);
+    }
+  };
+  const setIconSize = (n: number) => updateCss({ iconSize: n });
+  const setActiveColorClass = (c: string | null) => updateCss({ activeColorClass: c });
+  const setActiveCustomColor = (c: string | null) => updateCss({ activeCustomColor: c });
+  const setActiveGradient = (g: ActiveGradient | null) => updateCss({ activeGradient: g });
+  const setUseGradient = (b: boolean) => updateCss({ useGradient: b });
+  const setGradientStart = (s: string) => updateCss({ gradientStart: s });
+  const setGradientEnd = (s: string) => updateCss({ gradientEnd: s });
+  const setCustomColor = (c: string) => updateCss({ customColor: c });
+  const {
+    iconSize,
+    activeColorClass,
+    activeCustomColor,
+    activeGradient,
+    useGradient,
+    gradientStart,
+    gradientEnd,
+    customColor,
+  } = currentCss;
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState<string>("");
-  const [hasChanges, setHasChanges] = useState<boolean>(false);
-  const [savingChanges, setSavingChanges] = useState<boolean>(false);
+  const [, setHasChanges] = useState<boolean>(false);
+  // Pending icons waiting to be pasted into a workspace / library
+  // version. The paste modal reads from this state; the footer
+  // button that opens the modal is "Copy N Selected".
+  const [pendingPasteIcons, setPendingPasteIcons] = useState<CopiedIcon[] | null>(null);
+  const [pasteBusy, setPasteBusy] = useState<boolean>(false);
+  const [downloadBusy, setDownloadBusy] = useState<boolean>(false);
   const symbolsRef = useRef<Element[]>([]);
 
   // Reset transient state whenever the modal opens or the source
-  // sprite changes.
+  // sprite changes. The custom-CSS state is intentionally left
+  // alone when the parent controls it (we want the user to keep
+  // their CSS customizations across opens).
   useEffect(() => {
     if (!isOpen) return;
     setSearchTerm("");
@@ -169,12 +284,11 @@ export default function LiveDemoModal({
     setActiveTab("grid");
     setHasChanges(false);
     setRenamingId(null);
-    setActiveColorClass(getDefaultActiveColor());
-    setActiveCustomColor(null);
-    setActiveGradient(null);
-    setUseGradient(false);
-    setIconSize(24);
-  }, [isOpen, sprite, symbolIds]);
+    if (!isControlled) {
+      setInternalCssState(defaultCssState);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, sprite, symbolIds, isControlled]);
 
   function syncSymbols(nextSymbols: Element[]): void {
     symbolsRef.current = nextSymbols;
@@ -278,13 +392,68 @@ export default function LiveDemoModal({
       const innerHTML = sym.innerHTML;
       copied.push({
         name: id,
-        content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${innerHTML}</svg>`,
+        // Bake the active size + color/gradient into the
+        // standalone SVG payload so the pasted / downloaded
+        // icon renders with the user's chosen CSS, not the
+        // raw black default. The `rawSymbol` stays plain
+        // because the symbol will be merged into a sprite
+        // that is re-styled by the consumer.
+        content: buildStyledStandaloneSvg(viewBox, innerHTML),
         rawSymbol: `<symbol id="${id}" viewBox="${viewBox}">${innerHTML}</symbol>`,
       });
     });
     onCopyIcons?.(copied);
+    // Open the paste modal so the user can pick where to drop the
+    // selected icons (current workspace or any saved library
+    // version). Selection + select mode clear once the modal closes.
+    if (copied.length > 0) {
+      setPendingPasteIcons(copied);
+    }
     setSelectedIcons(new Set());
     setSelectMode(false);
+  }
+
+  function closePasteModal(): void {
+    if (pasteBusy) return;
+    setPendingPasteIcons(null);
+    setPasteBusy(false);
+  }
+
+  function handlePasteIntoWorkspace(icons: CopiedIcon[]): void {
+    // The parent (Compiler) is the source of truth for the
+    // workspace paste — it actually injects the icons as staged
+    // files and surfaces its own toast with the post-dedup count.
+    // We only own the modal's spinner / busy state here.
+    setPasteBusy(true);
+    onPasteIntoWorkspace?.(icons);
+    setPendingPasteIcons(null);
+    setPasteBusy(false);
+  }
+
+  async function handlePasteIntoLibraryVersion(input: {
+    spriteId: string;
+    bundleName: string;
+    version: number;
+    icons: CopiedIcon[];
+  }): Promise<void> {
+    if (pasteBusy) return;
+    setPasteBusy(true);
+    try {
+      await onPasteIntoLibraryVersion?.(input);
+      showToast(
+        `Pasted ${input.icons.length} icon${input.icons.length === 1 ? "" : "s"} into ${input.bundleName} v${input.version}.`,
+        "success"
+      );
+      await refetchLibrary();
+      setPendingPasteIcons(null);
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to paste icons into library.",
+        "error"
+      );
+    } finally {
+      setPasteBusy(false);
+    }
   }
 
   function downloadSingleIcon(id: string): void {
@@ -309,49 +478,129 @@ export default function LiveDemoModal({
   }
 
   function applyPreset(preset: SolidPreset): void {
-    setActiveColorClass(preset.color);
-    setActiveCustomColor(null);
-    setActiveGradient(null);
-    setUseGradient(false);
+    // Each of these state changes used to be a separate
+    // `updateCss` call. That looked right, but each call
+    // computed `next` from the closure's stale `currentCss`,
+    // so the *last* call in the sequence overwrote every
+    // earlier one (only its patch survived). Result: clicking
+    // a swatch did nothing visible. Fix: compute the full
+    // next state once and write it in a single call.
+    updateCss({
+      activeColorClass: preset.color,
+      activeCustomColor: null,
+      activeGradient: null,
+      useGradient: false,
+    });
   }
 
   function applyCustomColor(hex: string): void {
-    setCustomColor(hex);
-    setActiveCustomColor(hex);
-    setActiveColorClass(null);
-    setActiveGradient(null);
-    setUseGradient(false);
+    updateCss({
+      customColor: hex,
+      activeCustomColor: hex,
+      activeColorClass: null,
+      activeGradient: null,
+      useGradient: false,
+    });
   }
 
   function applyGradientPreset(preset: GradientPreset): void {
-    setGradientStart(preset.start);
-    setGradientEnd(preset.end);
-    setUseGradient(true);
-    setActiveGradient({ start: preset.start, end: preset.end });
-    setActiveColorClass(null);
-    setActiveCustomColor(null);
+    updateCss({
+      gradientStart: preset.start,
+      gradientEnd: preset.end,
+      useGradient: true,
+      activeGradient: { start: preset.start, end: preset.end },
+      activeColorClass: null,
+      activeCustomColor: null,
+    });
   }
 
   function handleGradientToggle(checked: boolean): void {
-    setUseGradient(checked);
     if (checked) {
-      setActiveGradient({ start: gradientStart, end: gradientEnd });
-      setActiveColorClass(null);
-      setActiveCustomColor(null);
+      updateCss({
+        useGradient: true,
+        activeGradient: { start: gradientStart, end: gradientEnd },
+        activeColorClass: null,
+        activeCustomColor: null,
+      });
     } else {
-      setActiveGradient(null);
-      setActiveColorClass(getDefaultActiveColor());
+      updateCss({
+        useGradient: false,
+        activeGradient: null,
+        activeColorClass: getDefaultActiveColor(),
+      });
     }
   }
 
   function handleGradientStart(next: string): void {
-    setGradientStart(next);
-    if (useGradient) setActiveGradient({ start: next, end: gradientEnd });
+    updateCss({
+      gradientStart: next,
+      ...(useGradient
+        ? { activeGradient: { start: next, end: gradientEnd } }
+        : {}),
+    });
   }
 
   function handleGradientEnd(next: string): void {
-    setGradientEnd(next);
-    if (useGradient) setActiveGradient({ start: gradientStart, end: next });
+    updateCss({
+      gradientEnd: next,
+      ...(useGradient
+        ? { activeGradient: { start: gradientStart, end: next } }
+        : {}),
+    });
+  }
+
+  // Resolve the effective color the icon grid is currently
+  // applying. Mirrors the `cssSnippet` formula so a single
+  // source of truth picks the gradient / custom hex / preset
+  // hex in that priority order. Used by the "Copy N Selected"
+  // flow to bake the user's CSS choice into the standalone
+  // `<svg>` payload so the pasted / downloaded icon keeps the
+  // selected color.
+  function resolveActiveColor(): { kind: "gradient"; start: string; end: string } | { kind: "color"; hex: string } | null {
+    if (useGradient && activeGradient) {
+      return { kind: "gradient", start: activeGradient.start, end: activeGradient.end };
+    }
+    if (activeCustomColor) {
+      return { kind: "color", hex: activeCustomColor };
+    }
+    const preset = SOLID_PRESETS.find((p) => p.color === activeColorClass);
+    if (preset) return { kind: "color", hex: preset.hex };
+    return null;
+  }
+
+  // Build a standalone `<svg>` payload that bakes in the
+  // active size + color/gradient. When no color is active,
+  // fall back to the plain black symbol so the payload is
+  // still self-contained.
+  function buildStyledStandaloneSvg(viewBox: string, inner: string): string {
+    const color = resolveActiveColor();
+    const sizeAttrs = `width="${iconSize}" height="${iconSize}"`;
+    if (!color) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}">${inner}</svg>`;
+    }
+    if (color.kind === "color") {
+      return `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}" color="${color.hex}">${inner}</svg>`;
+    }
+    // Gradient: emit an inline <defs> + a per-icon <linearGradient>
+    // and fill the icon via a mask. Keeps the SVG self-contained
+    // so the pasted / downloaded icon renders the gradient
+    // without needing the host page's hidden gradient host.
+    const gradId = `grad-${Math.random().toString(36).slice(2, 9)}`;
+    return (
+      `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}">` +
+      `<defs>` +
+      `<linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">` +
+      `<stop offset="0%" stop-color="${color.start}"/>` +
+      `<stop offset="100%" stop-color="${color.end}"/>` +
+      `</linearGradient>` +
+      `<mask id="mask-${gradId}">` +
+      `<rect width="100%" height="100%" fill="white"/>` +
+      `${inner}` +
+      `</mask>` +
+      `</defs>` +
+      `<rect width="100%" height="100%" fill="url(#${gradId})" mask="url(#mask-${gradId})"/>` +
+      `</svg>`
+    );
   }
 
   // Inject the active gradient definition into a hidden <svg> in the
@@ -457,27 +706,69 @@ export default function LiveDemoModal({
     );
   }
 
-  async function handleSaveChanges(): Promise<void> {
-    if (!source || source.type !== "library") {
-      // Fall back to opening the regular save modal so the user can
-      // either save to library (if signed in) or just download.
+  // Open the "Save to Organization" modal. The parent handles the
+  // actual save + library refetch when the user confirms.
+  function handleOpenSaveToLibrary(): void {
+    if (!currentUser) {
       onOpenSaveModal?.();
       return;
     }
-    if (savingChanges) return;
-    setSavingChanges(true);
+    const fallbackName =
+      suggestedBundleName ||
+      (source && source.type === "library" ? source.name : "") ||
+      bundleFileName?.replace(/\.svg$/i, "") ||
+      `sprite-${new Date().toLocaleDateString()}`;
+    onOpenSaveToLibrary?.({ suggestedName: fallbackName });
+  }
+
+  // Build a zip bundle (sprite + demo.html + preview.png) and
+  // trigger a browser download. Used by the logged-out footer.
+  async function handleDownloadBundle(): Promise<void> {
+    if (downloadBusy) return;
+    if (!sprite) {
+      showToast("No sprite to export.", "error");
+      return;
+    }
+    if (onDownloadBundle) {
+      // Defer to parent (Compiler) when it supplies a richer bundle
+      // builder. The default builder below is the fallback.
+      setDownloadBusy(true);
+      try {
+        await onDownloadBundle();
+      } finally {
+        setDownloadBusy(false);
+      }
+      return;
+    }
+    setDownloadBusy(true);
     try {
-      const updated = serializeLiveSprite(symbolsRef.current);
-      await updateContent(source.id, updated);
-      showToast(`Library "${source.name}" updated successfully!`, "success");
-      setHasChanges(false);
+      const fileName = (bundleFileName || "sprite").replace(/\.svg$/i, "");
+      const spriteXml = serializeLiveSprite(symbolsRef.current);
+      const ids = symbolsRef.current
+        .map((s) => s.getAttribute("id") || "")
+        .filter(Boolean);
+      const demoHtml = buildDemoHtml(ids, spriteXml);
+      const previewPng = await renderSpritePreviewPng(spriteXml, ids);
+      const entries: { name: string; data: string | Uint8Array }[] = [
+        { name: `${fileName}.svg`, data: spriteXml },
+        { name: "demo.html", data: demoHtml },
+      ];
+      if (previewPng) {
+        entries.push({
+          name: "preview.png",
+          data: new Uint8Array(await previewPng.arrayBuffer()),
+        });
+      }
+      const blob = createZip(entries);
+      triggerBrowserDownload(blob, `${fileName}-bundle.zip`);
+      showToast("Sprite bundle downloaded.", "success");
     } catch (err) {
       showToast(
-        "Failed to save changes: " + (err instanceof Error ? err.message : "Unknown error"),
+        err instanceof Error ? err.message : "Failed to build bundle.",
         "error"
       );
     } finally {
-      setSavingChanges(false);
+      setDownloadBusy(false);
     }
   }
 
@@ -542,21 +833,23 @@ export default function LiveDemoModal({
                 />
               </div>
               <div className="flex items-center gap-2">
-                <label className="flex items-center gap-2 cursor-pointer group">
-                  <div className="relative">
-                    <input
-                      type="checkbox"
-                      checked={selectMode}
-                      onChange={(event) => setSelectMode(event.target.checked)}
-                      className="peer sr-only"
-                    />
-                    <div className="block w-8 h-4 bg-slate-200 rounded-full peer-checked:bg-indigo-500 transition-colors" />
-                    <div className="dot absolute left-0.5 top-0.5 bg-white w-3 h-3 rounded-full transition-transform peer-checked:translate-x-4 shadow-sm" />
-                  </div>
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-700 transition-colors">
-                    Select Icons
-                  </span>
-                </label>
+                {currentUser && (
+                  <label className="flex items-center gap-2 cursor-pointer group">
+                    <div className="relative">
+                      <input
+                        type="checkbox"
+                        checked={selectMode}
+                        onChange={(event) => setSelectMode(event.target.checked)}
+                        className="peer sr-only"
+                      />
+                      <div className="block w-8 h-4 bg-slate-200 rounded-full peer-checked:bg-indigo-500 transition-colors" />
+                      <div className="dot absolute left-0.5 top-0.5 bg-white w-3 h-3 rounded-full transition-transform peer-checked:translate-x-4 shadow-sm" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-700 transition-colors">
+                      Select Icons
+                    </span>
+                  </label>
+                )}
               </div>
             </div>
 
@@ -734,7 +1027,7 @@ export default function LiveDemoModal({
         <div className="px-6 py-3 border-t border-slate-100 bg-white flex items-center justify-between text-xs text-slate-400 flex-shrink-0">
           <span>Click to copy usage code · Double-click to download · Hover ✕ to remove</span>
           <div className="flex items-center gap-2">
-            {selectedIconsCount() > 0 && (
+            {currentUser && selectedIconsCount() > 0 && (
               <button
                 type="button"
                 onClick={() => void handleCopySelected()}
@@ -747,25 +1040,44 @@ export default function LiveDemoModal({
             <button
               type="button"
               onClick={() => void handleCopySprite()}
-              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-semibold border border-indigo-200 transition-all flex items-center gap-1.5"
+              disabled={selectMode}
+              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-semibold border border-indigo-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <DuplicateIcon className="w-3.5 h-3.5" />
               Copy Sprite
             </button>
-            {source?.type === "library" && source.isOwner !== false && (
+            {currentUser ? (
               <button
                 type="button"
-                onClick={() => void handleSaveChanges()}
-                disabled={!hasChanges || savingChanges}
+                onClick={() => handleOpenSaveToLibrary()}
+                disabled={selectMode}
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <PlayCircleIcon className="w-3.5 h-3.5" />
-                {savingChanges ? "Saving…" : "Save Changes"}
+                Save to Library
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleDownloadBundle()}
+                disabled={downloadBusy || selectMode}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <PlayCircleIcon className="w-3.5 h-3.5" />
+                {downloadBusy ? "Preparing…" : "Save"}
               </button>
             )}
           </div>
         </div>
       </div>
+      <PasteIconsModal
+        isOpen={!!pendingPasteIcons}
+        icons={pendingPasteIcons ?? []}
+        busy={pasteBusy}
+        onClose={closePasteModal}
+        onPasteIntoWorkspace={handlePasteIntoWorkspace}
+        onPasteIntoLibraryVersion={handlePasteIntoLibraryVersion}
+      />
     </div>
   );
 }
@@ -813,6 +1125,33 @@ function DemoIconCard({
   const sizeStyle = { width: `${iconSize}px`, height: `${iconSize}px` } as const;
   const viewBox = symbol?.getAttribute("viewBox") || "0 0 24 24";
   const symbolInnerHtml = symbol?.innerHTML ?? "";
+  // Resolve the active solid color (gradient is handled in its
+  // own branch).
+  const preset = activeColorClass
+    ? SOLID_PRESETS.find((p) => p.color === activeColorClass)
+    : undefined;
+  const activeHex = activeCustomColor || (preset ? preset.hex : null);
+  // Build a tiny `<style>` block that targets every descendant
+  // of the icon SVG and forces fill + stroke to the active
+  // color, with `!important`. This is the only reliable way to
+  // override the children when they declare an explicit
+  // presentation attribute (e.g. `<path fill="black" .../>`):
+  // a presentation attribute behaves as a low-specificity CSS
+  // rule on the child element, and an `!important` rule on any
+  // selector that matches the child wins per the CSS cascade.
+  // The `*` selector is intentionally broad so it covers any
+  // nested element (path, rect, circle, polyline, g, etc.) the
+  // icon might use. The selector is scoped to this icon via the
+  // unique `data-demo-icon-style` attribute we set on the
+  // wrapping `<svg>`, so two icons side by side can't bleed
+  // styles into each other.
+  const scopedColorStyle: ReactNode = activeHex ? (
+    <style>{`[data-demo-icon-style="${id}"] * { fill: ${activeHex} !important; stroke: ${activeHex} !important; }`}</style>
+  ) : (
+    // No color picked yet — keep the slate-700 default on every
+    // descendant for the same "consistent look" reason.
+    <style>{`[data-demo-icon-style="${id}"] * { fill: #334155 !important; stroke: #334155 !important; }`}</style>
+  );
   let inlineSvg: ReactNode;
   if (activeGradient) {
     inlineSvg = (
@@ -821,6 +1160,7 @@ function DemoIconCard({
         style={sizeStyle}
         viewBox={viewBox}
         preserveAspectRatio="xMidYMid meet"
+        data-demo-icon-style={id}
       >
         <defs>
           <linearGradient id={`grad-${id}`} x1="0%" y1="0%" x2="100%" y2="100%">
@@ -835,25 +1175,21 @@ function DemoIconCard({
         <rect width="100%" height="100%" fill={`url(#grad-${id})`} mask={`url(#mask-${id})`} />
       </svg>
     );
-  } else if (activeCustomColor) {
+  } else {
+    // Solid color (custom or preset) — wrap the icon's inner
+    // markup in a `<g>` and inject a per-icon `<style>` that
+    // forces the active color onto every descendant. The `!important`
+    // is what wins over the children that declare
+    // `fill="black"` (or any other explicit fill) on their paths.
     inlineSvg = (
       <svg
         className="transition-all duration-200"
-        style={{ ...sizeStyle, color: activeCustomColor }}
-        viewBox={viewBox}
-        preserveAspectRatio="xMidYMid meet"
-      >
-        <g dangerouslySetInnerHTML={{ __html: symbolInnerHtml }} />
-      </svg>
-    );
-  } else {
-    inlineSvg = (
-      <svg
-        className={`transition-all duration-200 ${activeColorClass || "text-slate-700"}`}
         style={sizeStyle}
         viewBox={viewBox}
         preserveAspectRatio="xMidYMid meet"
+        data-demo-icon-style={id}
       >
+        {scopedColorStyle}
         <g dangerouslySetInnerHTML={{ __html: symbolInnerHtml }} />
       </svg>
     );
