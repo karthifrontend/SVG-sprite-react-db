@@ -65,6 +65,19 @@ export function useFileDropzone(options?: {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  // Remove a specific set of staged files by reference. Used by
+  // the "Undo paste" flow in the live demo, which needs to take
+  // back the exact files it just appended even if the user
+  // dropped or removed other files in the meantime. We compare
+  // by File identity (the same object reference) so files
+  // pasted earlier with the same name aren't accidentally
+  // pulled out.
+  const removeFiles = useCallback((targets: File[]) => {
+    if (!targets || targets.length === 0) return;
+    const toRemove = new Set(targets);
+    setFiles((prev) => prev.filter((f) => !toRemove.has(f)));
+  }, []);
+
   const onDrop = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
       e.preventDefault();
@@ -98,6 +111,7 @@ export function useFileDropzone(options?: {
     appendFiles,
     clear,
     removeAt,
+    removeFiles,
     onDrop,
     onDragOver,
     openPicker,

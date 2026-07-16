@@ -15,6 +15,7 @@ import InlineSaveSection, { type InlineSaveValue } from "./compiler/InlineSaveSe
 import LibraryPanel from "./compiler/LibraryPanel";
 import LiveDemoModal, { type CopiedIcon, type LiveDemoCssState } from "./compiler/LiveDemo";
 import type { Source as LiveDemoSource } from "./compiler/LiveDemo";
+import PasteIconsModal from "./compiler/PasteIconsModal";
 import SaveToLibraryModal from "./compiler/SaveToLibraryModal";
 import { buildDemoHtml } from "../utils/sprite";
 import { createZip, triggerBrowserDownload } from "../utils/zipBundle";
@@ -61,6 +62,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     files,
     clear: clearFiles,
     removeAt,
+    removeFiles,
     onDragOver: baseOnDragOver,
     appendFiles,
     openPicker,
@@ -136,7 +138,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     reset: resetSprite,
   } = useSpriteCompiler();
 
-  const { refetch: refetchLibrary, sprites: librarySprites, setVersionLabel } = useLibrary(!!currentUser);
+  const { refetch: refetchLibrary, sprites: librarySprites, setVersionLabel, deleteVersion } = useLibrary(!!currentUser);
 
   // ── UI state ────────────────────────────────────────────────
   const [mode, setMode] = useState<CompilerMode>("new");
@@ -187,6 +189,33 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setDemoSpriteXml(spriteXml);
     setDemoSymbolIds(symbolIds);
   }, [spriteXml, symbolIds]);
+
+  // "Paste Icons To..." modal. Lives at the Compiler level (not
+  // inside the LiveDemo) so we can close the LiveDemo the moment
+  // the paste popup opens — per UX request. The LiveDemo's
+  // "Copy N Selected" footer button calls
+  // `onCopySelectedRequest(icons)` to push the payload up here,
+  // and we open the modal on top. When the user picks a target
+  // the modal calls our `handlePasteIntoWorkspace` /
+  // `handlePasteIntoLibraryVersion` (already defined below) and
+  // auto-closes itself.
+  const [pendingPasteIcons, setPendingPasteIcons] =
+    useState<CopiedIcon[] | null>(null);
+  const [pasteBusy, setPasteBusy] = useState<boolean>(false);
+
+  // Open the paste modal at the Compiler level. Called from the
+  // LiveDemo's "Copy N Selected" footer button via
+  // `onCopySelectedRequest`. Closes the live demo so the user
+  // lands on a clean canvas while they pick a paste target.
+  function openPasteModal(icons: CopiedIcon[]): void {
+    setPendingPasteIcons(icons);
+    setLiveDemoOpen(false);
+  }
+
+  function closePasteModal(): void {
+    if (pasteBusy) return;
+    setPendingPasteIcons(null);
+  }
 
   // Custom-CSS state shared with the live demo. The state is held
   // in a single "preview" buffer that mirrors whatever the user
@@ -427,6 +456,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   //   2. Already be in "update" mode against a library, in which
   //      case the next Generate merges the pasted icons into a
   //      new version of that library.
+  //
+  // After the files land in the staging area we surface a
+  // Preview / Undo toast. Undo pulls the same File objects back
+  // out by reference (via `removeFiles`), so it works even if
+  // the user has added or removed other files in the meantime.
   function handlePasteIntoWorkspace(icons: CopiedIcon[]) {
     if (!icons || icons.length === 0) return;
     // De-duplicate by name against the currently-staged files so
@@ -453,15 +487,49 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       return;
     }
     appendFiles(newFiles);
+    // Snapshot the just-pasted files so the Undo action can pull
+    // them back out by reference later, even after the user adds
+    // or removes other files in the staging area.
+    const pastedSnapshot = newFiles.slice();
+    const count = newFiles.length;
     showToast(
-      `Pasted ${newFiles.length} icon${newFiles.length === 1 ? "" : "s"} into the workspace.`,
+      `Pasted ${count} icon${count === 1 ? "" : "s"} into the workspace.`,
       "success",
+      [
+        {
+          label: "Preview",
+          type: "secondary",
+          onClick: () => {
+            // Generate a sprite from the just-pasted files and
+            // open the live demo on it. The user lands on the
+            // same "scratch" view the Results panel uses after a
+            // fresh compile, but pre-loaded with the pasted
+            // icons. The compiler's main `spriteXml` is left
+            // untouched so the Results panel and the existing
+            // library state aren't disturbed.
+            generateFromFiles(pastedSnapshot, { openDemoOnDone: true });
+          },
+        },
+        {
+          label: "Undo",
+          type: "primary",
+          onClick: () => {
+            removeFiles(pastedSnapshot);
+            showToast(
+              `Removed ${count} pasted icon${count === 1 ? "" : "s"} from the workspace.`,
+              "success"
+            );
+          },
+        },
+      ]
     );
   }
 
   // Paste icons into a specific library version. Loads the
   // version, merges the new symbols into it (new symbols win on
-  // id collision), and saves as a new version.
+  // id collision), and saves as a new version. After the save
+  // succeeds we surface a Preview / Undo toast so the user can
+  // roll the paste back if it wasn't what they wanted.
   async function handlePasteIntoLibraryVersion(input: {
     spriteId: string;
     bundleName: string;
@@ -488,7 +556,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       return true;
     });
     const xml = buildSpriteXml(merged);
-    await saveSprite({
+    const saved = await saveSprite({
       name: detail.bundleName,
       bundleName: detail.bundleName,
       xml,
@@ -501,6 +569,143 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     // LibraryPanel shows the new pasted-into-library version
     // without a manual refresh.
     notifyLibraryChanged();
+    // Capture the bundle/version info before the toast is
+    // constructed; `saved` is the new sprite id+version. We
+    // build a Preview / Undo toast so the user can roll the
+    // paste back if it wasn't what they wanted. Undo deletes
+    // the version we just created, leaving the bundle's older
+    // versions intact.
+    const pastedCount = input.icons.length;
+    const newSpriteId = saved.id;
+    const newVersion = saved.version;
+    const bundleName = detail.bundleName;
+    const previewXml = xml;
+    const previewIds = merged.map((s) => s.id);
+    showToast(
+      `Pasted ${pastedCount} icon${pastedCount === 1 ? "" : "s"} into ${bundleName} v${newVersion}.`,
+      "success",
+      [
+        {
+          label: "Preview",
+          type: "secondary",
+          onClick: () => {
+            // Open the live demo loaded with the just-pasted
+            // version so the user can see exactly what they
+            // committed. Seeded as a library source so the
+            // modal's existing UI (Save to Library etc.) lines
+            // up with what they see in the panel.
+            setDemoSpriteXml(previewXml);
+            setDemoSymbolIds(previewIds);
+            setLiveDemoSource({
+              type: "library",
+              id: newSpriteId,
+              name: bundleName,
+              version: newVersion,
+              isOwner: true,
+              isPublic: !!detail.isPublic,
+            });
+            // Force a re-seed of the preview buffer for this
+            // (new) library id so the modal opens with the
+            // right CSS.
+            lastSeededSourceKeyRef.current = null;
+            seedPreviewFromSource({
+              type: "library",
+              id: newSpriteId,
+              name: bundleName,
+              version: newVersion,
+              isOwner: true,
+              isPublic: !!detail.isPublic,
+            });
+            setLiveDemoOpen(true);
+          },
+        },
+        {
+          label: "Undo",
+          type: "primary",
+          onClick: async () => {
+            try {
+              await deleteVersion(newSpriteId);
+              notifyLibraryChanged();
+              showToast(
+                `Removed ${bundleName} v${newVersion}.`,
+                "success"
+              );
+            } catch (err) {
+              showToast(
+                err instanceof Error
+                  ? err.message
+                  : "Failed to undo paste.",
+                "error"
+              );
+            }
+          },
+        },
+      ]
+    );
+  }
+
+  // Build a sprite from a specific list of staged files and
+  // (optionally) open the live demo on the result. Used by the
+  // "Preview" action on the workspace paste toast. We do NOT
+  // push the pasted files into the dropzone first — instead we
+  // build a sprite XML directly from the pasted payload (the
+  // `CopiedIcon.content` is already a self-contained standalone
+  // SVG) so the user can preview without disturbing the
+  // existing staging list. The demo reads `demoSpriteXml` when
+  // it's set, so seeding that with the previewed XML keeps the
+  // compiler's `spriteXml` (and the Results panel) untouched.
+  function generateFromFiles(
+    inputFiles: File[],
+    options: { openDemoOnDone: boolean }
+  ): void {
+    if (inputFiles.length === 0) return;
+    // Read the staged files in parallel so we can assemble a
+    // fresh sprite without round-tripping through the
+    // compiler's `generate()` pipeline (which would overwrite
+    // the existing `spriteXml`).
+    Promise.all(inputFiles.map((f) => f.text()))
+      .then((xmls) => {
+        const parser = new DOMParser();
+        const symbols: { id: string; viewBox: string; inner: string }[] = [];
+        for (const xml of xmls) {
+          const doc = parser.parseFromString(xml, "image/svg+xml");
+          if (doc.querySelector("parsererror")) continue;
+          const svg = doc.querySelector("svg");
+          if (!svg) continue;
+          const viewBox = svg.getAttribute("viewBox") || "0 0 24 24";
+          // Pull every child of the <svg> into a single
+          // <symbol> wrapper. We use the file name (sans
+          // extension) as the symbol id, falling back to a
+          // numeric suffix when two files share a name.
+          const baseName =
+            (svg.getAttribute("id") ||
+              inputFiles[xmls.indexOf(xml)]?.name.replace(/\.svg$/i, "")) ??
+            `icon-${symbols.length + 1}`;
+          const inner = Array.from(svg.childNodes)
+            .map((node) => (node as Element).outerHTML ?? "")
+            .join("");
+          // Skip duplicates by id so the preview sprite
+          // mirrors the dedup behaviour of the actual
+          // paste-into-workspace flow.
+          if (symbols.some((s) => s.id === baseName)) continue;
+          symbols.push({ id: baseName, viewBox, inner });
+        }
+        if (symbols.length === 0) return;
+        const xml = buildSpriteXml(symbols);
+        setDemoSpriteXml(xml);
+        setDemoSymbolIds(symbols.map((s) => s.id));
+        setLiveDemoSource({ type: "scratch" });
+        // Force a re-seed of the preview buffer for scratch
+        // mode so the modal opens with the right CSS.
+        lastSeededSourceKeyRef.current = null;
+        seedPreviewFromSource({ type: "scratch" });
+        if (options.openDemoOnDone) {
+          setLiveDemoOpen(true);
+        }
+      })
+      .catch(() => {
+        showToast("Failed to preview the pasted icons.", "error");
+      });
   }
 
   // Build + download an SVG sprite bundle (sprite + demo.html +
@@ -1250,16 +1455,41 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
             "success"
           );
         }}
+        onCopySelectedRequest={(icons) => openPasteModal(icons)}
         onOpenSaveToLibrary={({ suggestedName }) =>
           openSaveToLibraryModal({ suggestedName })
         }
-        onPasteIntoWorkspace={handlePasteIntoWorkspace}
-        onPasteIntoLibraryVersion={handlePasteIntoLibraryVersion}
         suggestedBundleName={activeBundleName || baseSpriteFile?.name.replace(/\.svg$/i, "")}
         onDownloadBundle={() => handleDownloadBundleForDemo()}
         bundleFileName={baseSpriteFile?.name}
         cssState={activeDemoCssState}
         onCssStateChange={setActiveDemoCssState}
+      />
+
+      <PasteIconsModal
+        isOpen={!!pendingPasteIcons}
+        icons={pendingPasteIcons ?? []}
+        busy={pasteBusy}
+        onClose={closePasteModal}
+        onPasteIntoWorkspace={(icons) => {
+          setPasteBusy(true);
+          try {
+            handlePasteIntoWorkspace(icons);
+          } finally {
+            // Reset on the next tick so the close button is
+            // disabled for the brief moment the modal is still
+            // on-screen during its closing animation.
+            setTimeout(() => setPasteBusy(false), 0);
+          }
+        }}
+        onPasteIntoLibraryVersion={async (input) => {
+          setPasteBusy(true);
+          try {
+            await handlePasteIntoLibraryVersion(input);
+          } finally {
+            setPasteBusy(false);
+          }
+        }}
       />
 
       <SaveToLibraryModal
