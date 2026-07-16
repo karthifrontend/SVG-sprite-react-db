@@ -12,6 +12,7 @@ type ExistingSpriteSectionProps = {
   onClear: () => void;
   onSelectFromLibrary?: () => void;
   canSelectFromLibrary?: boolean;
+  onPreview?: () => void;
 };
 
 function CheckCircleIcon({ className = "w-5 h-5" }: { className?: string }) {
@@ -46,12 +47,22 @@ function FileUploadIcon({ className = "w-6 h-6" }: { className?: string }) {
   );
 }
 
+function PlayCircleIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function ExistingSpriteSection({
   file,
   onFile,
   onClear,
   onSelectFromLibrary,
   canSelectFromLibrary,
+  onPreview,
 }: ExistingSpriteSectionProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isActive, setIsActive] = useState(false);
@@ -147,7 +158,7 @@ function ExistingSpriteSection({
                 onClick={onSelectFromLibrary}
                 className="text-xs font-medium text-indigo-600 underline underline-offset-2 transition-colors hover:text-indigo-700"
               >
-                Or select a sprite from the Organization Library
+                Or select a sprite from the Library
               </button>
             </div>
           )}
@@ -168,6 +179,20 @@ function ExistingSpriteSection({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {onPreview && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onPreview();
+                }}
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-600 shadow-sm transition-colors hover:bg-indigo-100 hover:text-indigo-700"
+                title="Preview this sprite in the Live Demo"
+              >
+                <PlayCircleIcon className="h-3.5 w-3.5" />
+                Preview
+              </button>
+            )}
             <button
               type="button"
               onClick={(event) => {
