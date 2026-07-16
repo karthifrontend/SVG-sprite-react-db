@@ -265,7 +265,7 @@ function InlineSaveSection({
                 role="tooltip"
                 className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-56 -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-center text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/info:opacity-100 group-focus-within/info:opacity-100"
               >
-                dummy
+                Public: all signed-in users can view it. Only you can edit it.
                 <span
                   aria-hidden
                   className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900"

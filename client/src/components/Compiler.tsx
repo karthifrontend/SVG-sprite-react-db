@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useFileDropzone } from "../hooks/useFileDropzone";
 import { useSpriteCompiler } from "../hooks/useSpriteCompiler";
 import { useLibrary, notifyLibraryChanged } from "../hooks/useLibrary";
@@ -63,8 +63,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     removeAt,
     onDragOver: baseOnDragOver,
     appendFiles,
-    onDrop,
-    onDragOver,
     openPicker,
     inputRef,
   } = baseDropzone;
@@ -628,26 +626,51 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       // from a clean custom-CSS slate, not a stale preview.
       setDemoPreviewCssState(null);
       lastSeededSourceKeyRef.current = null;
+      // Create New Sprite mode always shows the "Save to
+      // library" toggle in its default (OFF) state. If the user
+      // had it ON from a prior session in update mode (or it
+      // was forced ON by some other flow), reset it here so
+      // the toggle doesn't appear pre-enabled without the
+      // user having clicked it. The other inline-save fields
+      // are preserved so re-toggling ON is frictionless.
+      setInlineSave((current) => ({
+        ...current,
+        enabled: false,
+        saveAsNew: false,
+        hasNameConflict: false,
+      }));
     } else if (next === "update" && mode !== "update") {
       // Entering the "Update Existing Sprite" tab from "Create
-      // New Sprite" — default the master "Save new version to
-      // library" toggle to ON, with the "Save as a new library
-      // instead" sub-toggle OFF, so the user starts in the most
-      // common flow (save a new version of the bundle they're
-      // about to load). We only seed on the tab transition
-      // itself, not on every render, so a user who explicitly
-      // flips the toggle off while in update mode keeps that
-      // choice until they re-enter the tab.
-      setInlineSave((current) =>
-        current.enabled
-          ? current
-          : {
-              ...current,
-              enabled: true,
-              saveAsNew: false,
-              hasNameConflict: false,
-            },
-      );
+      // New Sprite" — for signed-in users, default the master
+      // "Save new version to library" toggle to ON with the
+      // "Save as a new library instead" sub-toggle OFF, so the
+      // user starts in the most common flow (save a new
+      // version of the bundle they're about to load). For
+      // logged-out users we keep the toggle OFF so the
+      // "Update Sprite" button compiles the sprite in-browser
+      // without opening the login modal. We only seed on the
+      // tab transition itself, not on every render, so a user
+      // who explicitly flips the toggle on/off while in update
+      // mode keeps that choice until they re-enter the tab.
+      if (currentUser) {
+        setInlineSave((current) =>
+          current.enabled
+            ? current
+            : {
+                ...current,
+                enabled: true,
+                saveAsNew: false,
+                hasNameConflict: false,
+              },
+        );
+      } else {
+        setInlineSave((current) => ({
+          ...current,
+          enabled: false,
+          saveAsNew: false,
+          hasNameConflict: false,
+        }));
+      }
     }
     setSaveStatus(null);
   }
@@ -668,28 +691,47 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }));
   }
 
-  // Open the Live Demo modal with the currently uploaded base
-  // sprite. Reads the file's text, extracts its symbols, and feeds
-  // them into the modal's sprite/symbolIds state. If the file is
-  // empty or unparseable, the existing `liveDemoSource` is left
-  // untouched so the "Save Changes" flow stays consistent with how
-  // the user originally loaded the sprite.
+  // Open the Live Demo modal pre-populated with the symbols from
+  // the currently-loaded base sprite file. The user can rename /
+  // delete icons inside the modal just like with a freshly-
+  // generated sprite, but the preview source is a "scratch"
+  // because the base sprite file has not been saved to a library
+  // yet. Existing functionality, data, and DB code are untouched.
   async function handlePreviewBaseSprite() {
-    if (!baseSpriteFile) return;
+    if (!baseSpriteFile) {
+      showToast("Upload a sprite.svg first.", "warning");
+      return;
+    }
     try {
-      const content = await baseSpriteFile.text();
-      const symbols = extractSymbolsFromSprite(content);
+      const xml = await baseSpriteFile.text();
+      const symbols = extractSymbolsFromSprite(xml);
       if (symbols.length === 0) {
-        showToast("This sprite has no symbols to preview.", "warning");
+        showToast(
+          "No <symbol> elements found in this sprite. The Live Demo needs a sprite with at least one symbol.",
+          "warning",
+        );
         return;
       }
-      setDemoSpriteXml(content);
+      // Reuse the demo preview buffer used by the Results panel
+      // so the existing LiveDemoModal renders without any extra
+      // wiring. Treat the base sprite as a scratch source so
+      // "Save Changes" doesn't appear in the modal (we are not
+      // previewing a library version).
+      const demoXml = buildSpriteXml(symbols);
+      setDemoSpriteXml(demoXml);
       setDemoSymbolIds(symbols.map((s) => s.id));
+      setLiveDemoSource({ type: "scratch" });
+      // Re-seed the custom-CSS preview buffer from defaults so
+      // the modal opens with a clean slate, mirroring how the
+      // Results panel's "Live Demo" button behaves after a
+      // fresh compile.
+      lastSeededSourceKeyRef.current = null;
+      setDemoPreviewCssState(null);
       setLiveDemoOpen(true);
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : "Failed to read the base sprite.",
-        "error"
+        "error",
       );
     }
   }
@@ -804,22 +846,38 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setLiveDemoSource({ type: "scratch" });
     setDemoPreviewCssState(null);
     lastSeededSourceKeyRef.current = null;
-    // Drop the staged files but keep the master "Save new version
-    // to library" toggle on (its default in update mode). The
-    // user is still in update mode with the base sprite loaded,
-    // so they should keep the same save intent as before — only
-    // the staged files are gone. We clear the typed name + public
-    // flag since those referred to the now-removed staged files,
-    // but the toggle itself stays on, and the sub-toggle stays
-    // off so the user remains in the "new version" branch.
-    setInlineSave((current) => ({
-      ...current,
-      enabled: true,
-      saveAsNew: false,
-      name: "",
-      hasNameConflict: false,
-      isPublic: false,
-    }));
+    // The default "Save to library" behaviour differs by mode:
+    //   - Create New Sprite: always default the toggle to OFF
+    //     when staged files are cleared, so the toggle never
+    //     appears pre-enabled without the user having clicked
+    //     it. The other inline-save fields (name, isPublic)
+    //     are also cleared.
+    //   - Update Existing Sprite: keep the master "Save new
+    //     version to library" toggle on (its default in update
+    //     mode) so the user retains the same save intent after
+    //     clearing the staged files. The sub-toggle stays off so
+    //     the user remains in the "new version" branch, and the
+    //     typed name + public flag are cleared because they
+    //     referred to the now-removed staged files.
+    if (mode === "new") {
+      setInlineSave((current) => ({
+        ...current,
+        enabled: false,
+        saveAsNew: false,
+        name: "",
+        hasNameConflict: false,
+        isPublic: false,
+      }));
+    } else {
+      setInlineSave((current) => ({
+        ...current,
+        enabled: true,
+        saveAsNew: false,
+        name: "",
+        hasNameConflict: false,
+        isPublic: false,
+      }));
+    }
     setSaveStatus(null);
   };
 
@@ -1021,9 +1079,9 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                     }
                   }}
                   onClear={clearExistingSprite}
-                  onPreview={() => void handlePreviewBaseSprite()}
                   onSelectFromLibrary={handleSelectFromLibrary}
                   canSelectFromLibrary={!!currentUser}
+                  onPreview={handlePreviewBaseSprite}
                 />
               )}
 
@@ -1067,14 +1125,13 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 onToggle={handleSaveToLibraryToggle}
                 onLibraryNameChange={(next) => setInlineSave(next)}
               />
-              {!currentUser && !hasGenerated && (
-                <p className="-mt-3 mb-5 text-center text-[11px] text-slate-500">
-                  Sign in to save sprites to your library. Generating still works without an account.
-                </p>
-              )}
 
               <GenerateButton
-                disabled={!canGenerate || hasGenerated}
+                disabled={
+                  hasGenerated ||
+                  !hasFiles ||
+                  (mode === "update" && !baseSpriteFile)
+                }
                 busy={generating || saving}
                 onClick={() => void handleGenerate()}
                 label={mode === "update" ? "Update Sprite" : "Generate Sprite"}
