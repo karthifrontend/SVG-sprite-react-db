@@ -15,6 +15,7 @@ import {
   TrashIcon,
   EyeIcon,
   DuplicateIcon,
+  DownloadIcon,
 } from "../icons";
 import type { Source as LiveDemoSource } from "./LiveDemo";
 import { useAuth } from "../../context/AuthContext";
@@ -61,6 +62,15 @@ type LibraryPanelProps = {
    * clear any UI that was pointing at the removed bundle.
    */
   onLibraryDeleted?: (info: { name: string }) => void;
+  /**
+   * Fired when the user clicks the "Download bundle" button on a
+   * library version. The parent owns the bundle builder (zip
+   * with sprite.svg + demo.html + preview.png) so the downloaded
+   * contents are identical to the Results panel's "Download zip"
+   * output. Receives the version's summary so the parent can
+   * resolve the full XML via the existing `getSpriteById` call.
+   */
+  onDownloadBundle?: (summary: SpriteSummary) => void;
 };
 
 function LibrarySkeleton() {
@@ -249,6 +259,7 @@ function LibraryPanel({
   onOpenDemo,
   onLibraryRenamed,
   onLibraryDeleted,
+  onDownloadBundle,
 }: LibraryPanelProps) {
   const { currentUser } = useAuth();
   const {
@@ -281,6 +292,11 @@ function LibraryPanel({
     version: number;
   } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+
+  // Per-version "Download bundle" busy state. The parent owns the
+  // zip build (which includes a `preview.png` render), so a single
+  // id is enough to disable just the row that's in flight.
+  const [downloadBusyId, setDownloadBusyId] = useState<string | null>(null);
 
   // Show a brief skeleton only when a refresh is in flight, not on first
   // paint (the panel may render before the user signs in).
@@ -486,6 +502,23 @@ function LibraryPanel({
                       </button>
                       <button
                         type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleDownloadVersion(version);
+                        }}
+                        disabled={downloadBusyId === version.id}
+                        className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                        title={`Download v${version.version} bundle`}
+                        aria-label={`Download ${group.bundleName} v${version.version} bundle`}
+                      >
+                        <DownloadIcon
+                          className={`h-3.5 w-3.5 ${
+                            downloadBusyId === version.id ? "animate-spin" : ""
+                          }`}
+                        />
+                      </button>
+                      <button
+                        type="button"
                         onClick={async (e) => {
                           e.stopPropagation();
                           try {
@@ -551,6 +584,31 @@ function LibraryPanel({
       "success",
     );
   };
+
+  // Per-version bundle download. We delegate the actual zip build
+  // to the parent so the contents (sprite.svg + demo.html +
+  // preview.png) match the Results panel's "Download zip" output
+  // exactly. The library panel only owns the busy flag so the
+  // button reflects the in-flight render and the user can't fire
+  // two downloads against the same version by accident.
+  async function handleDownloadVersion(version: LibraryGroupVersion) {
+    if (downloadBusyId) return;
+    if (!onDownloadBundle) {
+      showToast("Bundle download is not available right now.", "warning");
+      return;
+    }
+    setDownloadBusyId(version.id);
+    try {
+      await Promise.resolve(onDownloadBundle(version.summary));
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to download bundle.",
+        "error",
+      );
+    } finally {
+      setDownloadBusyId(null);
+    }
+  }
 
   // Names of every library used to detect rename collisions while
   // editing. Compared case-insensitively inside the input.
