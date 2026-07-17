@@ -1146,7 +1146,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 disabled={
                   hasGenerated ||
                   !hasFiles ||
-                  (mode === "update" && !baseSpriteFile)
+                  (mode === "update" && !baseSpriteFile) ||
+                  (inlineSave.enabled && trimmedName.length === 0)
                 }
                 busy={generating || saving}
                 onClick={() => void handleGenerate()}
