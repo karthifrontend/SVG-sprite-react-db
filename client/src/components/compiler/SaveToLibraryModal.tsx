@@ -85,10 +85,16 @@ export default function SaveToLibraryModal({
       ),
     [trimmedName, existingNames],
   );
-  // The form is invalid only when the user typed a conflicting
-  // name. An empty field is allowed — the parent will use the
-  // placeholder (or `defaultName`) as the actual bundle name.
-  const isInvalid = isNameConflict || trimmedVersion.length === 0;
+  // The form is invalid when the user typed a conflicting name OR
+  // when either the library name or the version description is
+  // empty. Both fields are required before the Save button can be
+  // clicked — we no longer fall back to the placeholder for an
+  // empty Library Name, so the user must explicitly type both
+  // values to enable the submit action.
+  const isInvalid =
+    isNameConflict ||
+    trimmedName.length === 0 ||
+    trimmedVersion.length === 0;
 
   return (
     <Modal
@@ -109,7 +115,7 @@ export default function SaveToLibraryModal({
               htmlFor="save-library-name"
               className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-slate-500"
             >
-              Library Name
+              Library Name <span className="text-rose-500">*</span>
             </label>
             <input
               id="save-library-name"
@@ -130,16 +136,6 @@ export default function SaveToLibraryModal({
                 to create a new bundle.
               </p>
             )}
-            {!isNameConflict && trimmedName.length === 0 && placeholder && (
-              <p className="mt-1 text-[11px] text-slate-400">
-                Leave empty to use the suggested name “{placeholder}”.
-              </p>
-            )}
-            {!isNameConflict && trimmedName.length > 0 && (
-              <p className="mt-1 text-[11px] text-slate-400">
-                New versions of “{trimmedName}” will be grouped under this name.
-              </p>
-            )}
           </div>
 
           <div>
@@ -147,7 +143,7 @@ export default function SaveToLibraryModal({
               htmlFor="save-version-description"
               className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-slate-500"
             >
-              Version Description
+              Version Description <span className="text-rose-500">*</span>
             </label>
             <input
               id="save-version-description"
