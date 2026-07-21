@@ -8,6 +8,7 @@ import { useLibrary } from "../../hooks/useLibrary";
 import { getSpriteById } from "../../api/sprites";
 import {
   UnlockIcon,
+  LockIcon,
   RefreshIcon,
   ChevronDoubleLeftIcon,
   ChevronDownIcon,
@@ -417,13 +418,17 @@ function LibraryPanel({
                   </h3>
                 </div>
               )}
-              {group.isPublic && (
+              {!group.isPublic && (
                 <span
-                  className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600"
-                  title="Visible to all signed-in users. Only the owner can rename or delete."
+                  className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500"
+                  title={
+                    group.isOwner
+                      ? "Only you can see and access this library."
+                      : "Private — only the owner can access this library."
+                  }
                 >
-                  <EyeIcon className="h-3 w-3" />
-                  Public
+                  <LockIcon className="h-3 w-3" />
+                  Private
                 </span>
               )}
             </div>
@@ -464,7 +469,7 @@ function LibraryPanel({
                           onClick={() => handleLoad(version)}
                           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-100"
                         >
-                          Load to Update
+                          Update
                         </button>
                       )}
                       <button

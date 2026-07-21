@@ -327,43 +327,76 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
             </div>
             <div className="ml-9 space-y-3 text-[13px] leading-relaxed text-slate-600">
               <p>
-                A <strong className="text-slate-700">sprite.svg</strong> file plus a
-                ready-to-use snippet for your favorite framework:
+                A <strong className="text-slate-700">ZIP bundle</strong> containing:
               </p>
-              <div className="flex flex-wrap gap-1.5">
-                {FRAMEWORK_TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    className={`guide-tab ${activeTab === tab.id ? "active" : ""}`}
-                    onClick={() => setActiveTab(tab.id)}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-              {FRAMEWORK_TABS.map((tab) => (
-                <div
-                  key={tab.id}
-                  className={`guide-tab-panel ${activeTab === tab.id ? "active" : ""}`}
-                >
-                  <div className="guide-code-block">
-                    <div className="guide-code-header">
-                      <span>{CODE_SAMPLES[tab.id].file}</span>
-                      <button
-                        type="button"
-                        className={`guide-copy-btn ${copyingTab === tab.id ? "copied" : ""}`}
-                        onClick={() => copyCodeSample(tab.id)}
-                      >
-                        {copyingTab === tab.id ? "Copied!" : "Copy"}
-                      </button>
-                    </div>
-                    <pre>
-                      <code>{CODE_SAMPLES[tab.id].body}</code>
-                    </pre>
-                  </div>
-                </div>
-              ))}
+              <ul className="space-y-2">
+                <li className="flex items-center gap-2.5">
+                  <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-500">
+                    <svg
+                      className="h-3.5 w-3.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
+                    </svg>
+                  </span>
+                  <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[12px] text-indigo-600">
+                    sprite.svg
+                  </code>
+                  <span className="text-slate-500">— Your compiled SVG sprite</span>
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-500">
+                    <svg
+                      className="h-3.5 w-3.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+                      />
+                    </svg>
+                  </span>
+                  <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[12px] text-indigo-600">
+                    demo.html
+                  </code>
+                  <span className="text-slate-500">— Interactive preview page</span>
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md bg-rose-50 text-rose-500">
+                    <svg
+                      className="h-3.5 w-3.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </span>
+                  <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[12px] text-indigo-600">
+                    sprite-preview.png
+                  </code>
+                  <span className="text-slate-500">— Screenshot for docs/sharing</span>
+                </li>
+              </ul>
             </div>
           </section>
 

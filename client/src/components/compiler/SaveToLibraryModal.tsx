@@ -178,8 +178,8 @@ export default function SaveToLibraryModal({
                   className="peer sr-only"
                   aria-label="Make this library public"
                 />
-                <div className="block h-5 w-9 rounded-full bg-slate-200 transition-colors peer-checked:bg-indigo-500 peer-disabled:opacity-60" />
-                <div className="dot absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
+                <div className="block h-6 w-10 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500 peer-disabled:opacity-60" />
+                <div className="dot absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
               </div>
               <span className="text-sm font-semibold text-slate-700 transition-colors group-hover:text-slate-900">
                 Make it as public
