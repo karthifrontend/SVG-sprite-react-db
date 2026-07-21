@@ -407,6 +407,60 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
               <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-extrabold text-violet-600">
                 3
               </span>
+              <h3 className="text-sm font-bold text-slate-800">Use in Your Code</h3>
+            </div>
+            <div className="ml-9 space-y-3 text-[13px] leading-relaxed text-slate-600">
+              <p>
+                Include the sprite in your HTML and reference icons with{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-indigo-600">
+                  &lt;use&gt;
+                </code>
+                .
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {FRAMEWORK_TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`guide-tab ${activeTab === tab.id ? "active" : ""}`}
+                    onClick={() => setActiveTab(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              {FRAMEWORK_TABS.map((tab) => (
+                <div
+                  key={tab.id}
+                  className={`guide-tab-panel ${activeTab === tab.id ? "active" : ""}`}
+                >
+                  <div className="guide-code-block">
+                    <div className="guide-code-header">
+                      <span>{CODE_SAMPLES[tab.id].file}</span>
+                      <button
+                        type="button"
+                        className={`guide-copy-btn ${copyingTab === tab.id ? "copied" : ""}`}
+                        onClick={() => copyCodeSample(tab.id)}
+                      >
+                        {copyingTab === tab.id ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
+                    <pre>
+                      <code>{CODE_SAMPLES[tab.id].body}</code>
+                    </pre>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <hr className="border-slate-100" />
+
+          <section>
+            <div className="mb-3 flex items-center gap-2.5">
+              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-extrabold text-amber-600">
+                4
+              </span>
               <h3 className="text-sm font-bold text-slate-800">Pro Tips</h3>
             </div>
             <div className="ml-9 space-y-2">
