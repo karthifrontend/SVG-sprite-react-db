@@ -718,8 +718,16 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     xml: string;
     ids: string[];
     fileName: string;
+    /**
+     * Optional identifying info for the success toast. When
+     * supplied, the toast tells the user which bundle + version
+     * they just downloaded. Falls back to a generic message
+     * when missing (e.g. an ad-hoc scratch compile).
+     */
+    bundleName?: string;
+    version?: number;
   }): Promise<boolean> {
-    const { xml, ids, fileName } = input;
+    const { xml, ids, fileName, bundleName, version } = input;
     if (!xml) return false;
     const demoHtml = buildDemoHtml(ids, xml);
     const previewPng = await renderSpritePreviewPng(xml, ids);
@@ -735,7 +743,15 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }
     const blob = createZip(entries);
     triggerBrowserDownload(blob, `${fileName}-bundle.zip`);
-    showToast("Sprite bundle downloaded.", "success");
+    // Surface the bundle + version in the success toast so the
+    // user knows exactly what they just downloaded. Uses
+    // template-literal interpolation so the declared
+    // `bundleName` / `version` values are actually rendered
+    // into the toast text.
+    showToast(
+      `Sprite bundle ${bundleName}(v${version}) downloaded successfully.`,
+      "success",
+    );
     return true;
   }
   async function handleDownloadBundleForResults() {
@@ -747,10 +763,23 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }
     setResultsDownloadBusy(true);
     try {
+      // Prefer the live demo's source for a stable bundle +
+      // version when the user is previewing a library version
+      // (the Results panel may not have those values in scope).
+      const sourceBundle =
+        liveDemoSource.type === "library"
+          ? liveDemoSource.name
+          : activeBundleName || undefined;
+      const sourceVersion =
+        liveDemoSource.type === "library"
+          ? liveDemoSource.version
+          : undefined;
       await buildAndDownloadBundle({
         xml,
         ids: symbolIds,
         fileName: (baseSpriteFile?.name || "sprite").replace(/\.svg$/i, ""),
+        bundleName: sourceBundle,
+        version: sourceVersion,
       });
     } catch (err) {
       showToast(
@@ -774,6 +803,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       xml,
       ids: demoSpriteXml ? demoSymbolIds : symbolIds,
       fileName: (baseSpriteFile?.name || "sprite").replace(/\.svg$/i, ""),
+      bundleName:
+        liveDemoSource.type === "library"
+          ? liveDemoSource.name
+          : activeBundleName || undefined,
+      version:
+        liveDemoSource.type === "library"
+          ? liveDemoSource.version
+          : undefined,
     });
   }
 
@@ -1198,6 +1235,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               xml: detail.xml,
               ids: detail.symbolIds,
               fileName: `${bundleName}-v${detail.version}`,
+              bundleName,
+              version: detail.version,
             });
           }}
           onLibraryDeleted={({ name }) => {

@@ -534,7 +534,7 @@ function LibraryPanel({
                               .catch(() => false);
                             showToast(
                               ok
-                                ? `Copied sprite code for ${group.bundleName}`
+                                ? `Copied sprite code for ${group.bundleName}(v${version.version})`
                                 : "Failed to copy sprite",
                               ok ? "success" : "error",
                             );

@@ -9,7 +9,7 @@ import { useLibrary } from "../../hooks/useLibrary";
 import { useAuth } from "../../context/AuthContext";
 import { formatDate } from "../../utils/sprite";
 import type { CopiedIcon } from "./LiveDemo";
-import { EyeIcon } from "../icons";
+import { EyeIcon, LockIcon } from "../icons";
 
 type PasteIconsModalProps = {
   isOpen: boolean;
@@ -263,10 +263,17 @@ export default function PasteIconsModal({
                   {group.isPublic && (
                     <span
                       className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600"
-                      title="Visible to all signed-in users. Only the owner can rename or delete."
                     >
                       <EyeIcon className="h-3 w-3" />
                       Public
+                    </span>
+                  )}
+                  {!group.isPublic && (
+                    <span
+                      className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500"
+                    >
+                      <LockIcon className="h-3 w-3" />
+                      Private
                     </span>
                   )}
                 </div>
