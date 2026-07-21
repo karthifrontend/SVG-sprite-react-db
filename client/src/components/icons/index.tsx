@@ -155,6 +155,14 @@ export function ChevronDownIcon({ className = "w-4 h-4", ...rest }: IconProps) {
   );
 }
 
+export function ChevronUpIcon({ className = "w-4 h-4", ...rest }: IconProps) {
+  return (
+    <svg {...ICON_BASE} className={className} {...rest}>
+      <path d="M6 15l6-6 6 6" />
+    </svg>
+  );
+}
+
 export function DownloadIcon({ className = "w-4 h-4", ...rest }: IconProps) {
   return (
     <svg {...ICON_BASE} className={className} {...rest}>
