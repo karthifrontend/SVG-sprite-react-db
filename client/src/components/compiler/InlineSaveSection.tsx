@@ -272,11 +272,11 @@ function InlineSaveSection({
                 onChange={(event) => handlePublic(event.target.checked)}
                 className="peer sr-only"
               />
-              <div className="block h-5 w-9 rounded-full bg-slate-200 transition-colors peer-checked:bg-indigo-500" />
-              <div className="dot absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
+              <div className="block h-6 w-10 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500" />
+              <div className="dot absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
             </div>
             <span className="text-sm font-semibold text-slate-700 transition-colors group-hover:text-slate-900">
-              Make it as public
+              Make it public
             </span>
             <span
               className="group/info relative inline-flex"
@@ -290,7 +290,7 @@ function InlineSaveSection({
                 role="tooltip"
                 className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-56 -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-center text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/info:opacity-100 group-focus-within/info:opacity-100"
               >
-                Public: all signed-in users can view it. Only you can edit it.
+                If a library is marked as public, it will be visible to all users.
                 <span
                   aria-hidden
                   className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900"

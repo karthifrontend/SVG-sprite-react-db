@@ -53,6 +53,15 @@ export function UnlockIcon({ className = "w-4 h-4", ...rest }: IconProps) {
   );
 }
 
+export function LockIcon({ className = "w-4 h-4", ...rest }: IconProps) {
+  return (
+    <svg {...ICON_BASE} className={className} {...rest}>
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 118 0v4" />
+    </svg>
+  );
+}
+
 export function ChevronDoubleLeftIcon({ className = "w-4 h-4", ...rest }: IconProps) {
   return (
     <svg {...ICON_BASE} className={className} {...rest}>
