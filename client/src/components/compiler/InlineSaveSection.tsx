@@ -240,7 +240,7 @@ function InlineSaveSection({
             htmlFor="library-name"
             className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500"
           >
-            Library Name <span className="text-rose-500">*</span>
+            Library Name <span className="text-rose-500"><sup>*</sup></span>
           </label>
           <input
             id="library-name"

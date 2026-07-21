@@ -609,7 +609,7 @@ function LibraryPanel({
                               .catch(() => false);
                             showToast(
                               ok
-                                ? `Copied sprite code for ${group.bundleName}`
+                                ? `Copied sprite code for ${group.bundleName}(v${version.version})`
                                 : "Failed to copy sprite",
                               ok ? "success" : "error",
                             );
@@ -660,7 +660,7 @@ function LibraryPanel({
   const handleLoad = (version: LibraryGroupVersion) => {
     onLoadToUpdate?.(version.summary);
     showToast(
-      `Loaded ${version.summary.bundleName || version.summary.name} v${version.version}`,
+      `Loaded ${version.summary.bundleName || version.summary.name}(v${version.version})`,
       "success",
     );
   };

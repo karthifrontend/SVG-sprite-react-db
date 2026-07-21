@@ -19,6 +19,7 @@ import {
   PlayCircleIcon,
   PencilIcon,
   SadFaceIcon,
+  FolderIcon,
 } from "../icons";
 import { useToast } from "../../context/ToastContext";
 import { useAuth } from "../../context/AuthContext";
@@ -729,8 +730,22 @@ export default function LiveDemoModal({
       <div className="relative w-full max-w-4xl max-h-[85vh] bg-white rounded-2xl shadow-2xl border border-slate-200/80 flex flex-col overflow-hidden transform transition-all duration-300">
         <div className="flex flex-col border-b border-slate-100 flex-shrink-0">
           <div className="flex items-center justify-between px-6 pt-4 pb-2">
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">Generated Sprite Live Demo</h3>
+            <div className="min-w-0 flex-1 pr-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-lg font-bold text-slate-900">Generated Sprite Live Demo</h3>
+                {source?.type === "library" && (
+                  <span
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700"
+                    title={`Previewing ${source.name} v${source.version ?? 1} from your library`}
+                  >
+                    <FolderIcon className="h-3 w-3 flex-shrink-0 text-indigo-500" />
+                    <span className="truncate">{source.name}</span>
+                    <span className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[10px] text-indigo-600">
+                      v{source.version ?? 1}
+                    </span>
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-400">Preview and test your compiled SVG symbols live</p>
             </div>
             <button

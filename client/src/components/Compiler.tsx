@@ -159,6 +159,13 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   const [baseSpriteSource, setBaseSpriteSource] = useState<
     "library" | "uploaded" | null
   >(null);
+  // Version of the loaded base sprite, when it came from the
+  // library. `null` means "unknown" (uploaded file or no file).
+  // Surfaced in the ExistingSpriteSection so the user can see
+  // which library version they're editing.
+  const [baseSpriteVersion, setBaseSpriteVersion] = useState<
+    number | null
+  >(null);
   const [activeBundleName, setActiveBundleName] = useState<string>("");
   const [loadingFromLibrary, setLoadingFromLibrary] = useState(false);
 
@@ -718,8 +725,16 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     xml: string;
     ids: string[];
     fileName: string;
+    /**
+     * Optional identifying info for the success toast. When
+     * supplied, the toast tells the user which bundle + version
+     * they just downloaded. Falls back to a generic message
+     * when missing (e.g. an ad-hoc scratch compile).
+     */
+    bundleName?: string;
+    version?: number;
   }): Promise<boolean> {
-    const { xml, ids, fileName } = input;
+    const { xml, ids, fileName, bundleName, version } = input;
     if (!xml) return false;
     const demoHtml = buildDemoHtml(ids, xml);
     const previewPng = await renderSpritePreviewPng(xml, ids);
@@ -735,7 +750,15 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }
     const blob = createZip(entries);
     triggerBrowserDownload(blob, `${fileName}-bundle.zip`);
-    showToast("Sprite bundle downloaded.", "success");
+    // Surface the bundle + version in the success toast so the
+    // user knows exactly what they just downloaded. Uses
+    // template-literal interpolation so the declared
+    // `bundleName` / `version` values are actually rendered
+    // into the toast text.
+    showToast(
+      `Sprite bundle ${bundleName}(v${version}) downloaded successfully.`,
+      "success",
+    );
     return true;
   }
   async function handleDownloadBundleForResults() {
@@ -747,10 +770,23 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }
     setResultsDownloadBusy(true);
     try {
+      // Prefer the live demo's source for a stable bundle +
+      // version when the user is previewing a library version
+      // (the Results panel may not have those values in scope).
+      const sourceBundle =
+        liveDemoSource.type === "library"
+          ? liveDemoSource.name
+          : activeBundleName || undefined;
+      const sourceVersion =
+        liveDemoSource.type === "library"
+          ? liveDemoSource.version
+          : undefined;
       await buildAndDownloadBundle({
         xml,
         ids: symbolIds,
         fileName: (baseSpriteFile?.name || "sprite").replace(/\.svg$/i, ""),
+        bundleName: sourceBundle,
+        version: sourceVersion,
       });
     } catch (err) {
       showToast(
@@ -774,6 +810,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       xml,
       ids: demoSpriteXml ? demoSymbolIds : symbolIds,
       fileName: (baseSpriteFile?.name || "sprite").replace(/\.svg$/i, ""),
+      bundleName:
+        liveDemoSource.type === "library"
+          ? liveDemoSource.name
+          : activeBundleName || undefined,
+      version:
+        liveDemoSource.type === "library"
+          ? liveDemoSource.version
+          : undefined,
     });
   }
 
@@ -830,11 +874,25 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   const trimmedName = inlineSave.name.trim();
 
   // ── Mode switcher side-effects ─────────────────────────────
+  // Default toggle state per mode. The "Save to library" toggle
+  // is OFF in both modes — a fresh compile has nothing to save
+  // yet, and entering the Update tab starts the user in the
+  // same "decide later" posture. The user is the only one who
+  // can flip the toggle on; we never auto-enable it on tab
+  // switch. Anything they did before is wiped on mode change.
+  const defaultInlineSave: InlineSaveValue = {
+    enabled: false,
+    name: "",
+    saveAsNew: false,
+    hasNameConflict: false,
+    isPublic: false,
+  };
   function changeMode(next: CompilerMode) {
     setMode(next);
     if (next === "new") {
       setBaseSpriteFile(null);
       setBaseSpriteSource(null);
+      setBaseSpriteVersion(null);
       setActiveBundleName("");
       setLiveDemoSource({ type: "scratch" });
       // Reset the preview buffer too so the new compile starts
@@ -842,23 +900,27 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       setDemoPreviewCssState(null);
       lastSeededSourceKeyRef.current = null;
     } else if (next === "update" && mode !== "update") {
-      // Entering the "Update Existing Sprite" tab. The
-      // "Save to library" toggle default is driven entirely by
-      // what the user does next (upload a file → OFF; load from
-      // library → ON) — we deliberately do NOT touch the
-      // toggle state here. Switching tabs is a navigation
-      // action, not a save-intent action, and the user is the
-      // only one who should change the toggle. So whether the
-      // user came from the Create tab (where the toggle was
-      // OFF) or was already toggled ON, we leave `inlineSave`
-      // exactly as it was.
+      // Entering the "Update Existing Sprite" tab. Reset the
+      // inline-save state to its default so the toggle starts
+      // OFF and the Library Name input starts empty. The user's
+      // explicit choice in the previous tab does not carry
+      // over — switching tabs is a navigation action, and the
+      // "Save to library" intent is something the user should
+      // re-confirm for the new mode.
     }
+    // Always restore the toggle to its per-mode default when
+    // switching tabs. This keeps the "Save to library" toggle
+    // in the OFF position in both Create and Update modes,
+    // and clears the Library Name field so the user starts
+    // from a clean slate.
+    setInlineSave(defaultInlineSave);
     setSaveStatus(null);
   }
 
   function clearExistingSprite() {
     setBaseSpriteFile(null);
     setBaseSpriteSource(null);
+    setBaseSpriteVersion(null);
     setActiveBundleName("");
     setLiveDemoSource({ type: "scratch" });
     setDemoPreviewCssState(null);
@@ -896,13 +958,35 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       }
       // Reuse the demo preview buffer used by the Results panel
       // so the existing LiveDemoModal renders without any extra
-      // wiring. Treat the base sprite as a scratch source so
-      // "Save Changes" doesn't appear in the modal (we are not
-      // previewing a library version).
+      // wiring. When the base sprite was loaded from the
+      // library, tag the demo source as `library` so the modal
+      // shows the bundle name + version chip in its title and
+      // surfaces the right affordances. For uploaded files
+      // (no saved bundle to attach to) we keep the scratch
+      // source — there's no library context to surface.
       const demoXml = buildSpriteXml(symbols);
       setDemoSpriteXml(demoXml);
       setDemoSymbolIds(symbols.map((s) => s.id));
-      setLiveDemoSource({ type: "scratch" });
+      if (baseSpriteSource === "library") {
+        // Reuse the existing liveDemoSource if it's already a
+        // library record (e.g. the user opened the demo for
+        // the same bundle earlier and is now re-opening the
+        // preview from the base-sprite section). Otherwise
+        // synthesise a fresh library source from the active
+        // bundle + version captured when the file was loaded.
+        const existing =
+          liveDemoSource.type === "library" ? liveDemoSource : null;
+        setLiveDemoSource({
+          type: "library",
+          id: existing?.id ?? `preview-${activeBundleName}`,
+          name: existing?.name ?? activeBundleName,
+          version: existing?.version ?? baseSpriteVersion ?? 1,
+          isOwner: existing?.isOwner ?? true,
+          isPublic: existing?.isPublic ?? false,
+        });
+      } else {
+        setLiveDemoSource({ type: "scratch" });
+      }
       // Re-seed the custom-CSS preview buffer from defaults so
       // the modal opens with a clean slate, mirroring how the
       // Results panel's "Live Demo" button behaves after a
@@ -952,6 +1036,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     // next generation.
     if (mode === "update") {
       setBaseSpriteFile(null);
+      setBaseSpriteVersion(null);
       setActiveBundleName("");
       setLiveDemoSource({ type: "scratch" });
       setInlineSave({
@@ -1038,31 +1123,28 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   }
 
   const handleClearAll = () => {
+    // "Clear All" is scoped to the staged-files list only.
+    // Everything else stays put: the user keeps the base
+    // sprite file they uploaded/loaded, the active bundle
+    // name, the live demo source, the preview buffer, the
+    // inline-save fields, etc. We do NOT touch the
+    // `inlineSave.enabled` toggle either — that's a user
+    // choice and shouldn't be flipped by a clear button.
     clearFiles();
-    setBaseSpriteFile(null);
-    setActiveBundleName("");
-    setLiveDemoSource({ type: "scratch" });
-    setDemoPreviewCssState(null);
-    lastSeededSourceKeyRef.current = null;
-    // Clear the inline-save fields that refer to the now-removed
-    // staged files (typed name, public flag, conflict marker)
-    // without touching the `enabled` toggle. Only the user should
-    // be able to switch the toggle — programmatic auto-flipping
-    // here would override their explicit choice. The sub-toggle
-    // is also reset so the user is no longer pinned to a stale
-    // "new library" branch.
-    setInlineSave((current) => ({
-      ...current,
-      saveAsNew: false,
-      name: "",
-      hasNameConflict: false,
-      isPublic: false,
-    }));
-    setSaveStatus(null);
   };
 
   // ── Library → Update flow ──────────────────────────────────
   async function handleLoadFromLibrary(summary: SpriteSummary) {
+    // Drop any in-flight "generated" state from a prior update so
+    // the UI starts at the initial stage when the new library is
+    // loaded: staged files list reappears, Generate button is
+    // unlocked, and the result panel clears. Without this, a
+    // post-update `hasGenerated === true` would keep the Generate
+    // button locked and the staged list hidden until the user
+    // re-uploads files. The library's own XML still gets surfaced
+    // via `setBaseSpriteFile(file)` further down.
+    clearFiles();
+    resetForNewUpload();
     setMode("update");
     setLoadingFromLibrary(true);
     setSaveStatus(null);
@@ -1078,6 +1160,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       const file = new File([blob], `${bundleName}.svg`, { type: "image/svg+xml" });
       setBaseSpriteFile(file);
       setBaseSpriteSource("library");
+      setBaseSpriteVersion(detail.version);
       setActiveBundleName(bundleName);
 
       // The live-demo modal can persist edits directly to this
@@ -1101,9 +1184,15 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       // bundle. Public bundles loaded by non-owners stay
       // read-only on this screen (they can still open the live
       // demo, copy the XML, or load it to a new bundle).
+      // The Library Name input stays empty so the user can see
+      // the active bundle in the update section header but
+      // still has to type a fresh name (or rely on the auto-
+      // version flow) to commit a save. This matches the
+      // default behaviour the user expects when entering
+      // update mode.
       setInlineSave({
         enabled: isOwner,
-        name: bundleName,
+        name: "",
         saveAsNew: false,
         hasNameConflict: false,
         isPublic: !!detail.isPublic,
@@ -1128,14 +1217,13 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       };
       setLiveDemoSource(fallbackSource);
       seedPreviewFromSource(fallbackSource);
-      setInlineSave((current) => ({
-        ...current,
+      setInlineSave({
         enabled: summary.isOwner !== false,
-        name: summary.bundleName || summary.name,
+        name: "",
         saveAsNew: false,
         hasNameConflict: false,
         isPublic: !!summary.isPublic,
-      }));
+      });
     } finally {
       setLoadingFromLibrary(false);
     }
@@ -1198,6 +1286,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               xml: detail.xml,
               ids: detail.symbolIds,
               fileName: `${bundleName}-v${detail.version}`,
+              bundleName,
+              version: detail.version,
             });
           }}
           onLibraryDeleted={({ name }) => {
@@ -1207,6 +1297,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
             if (activeBundleName && activeBundleName.toLowerCase() === name.toLowerCase()) {
               showToast(`The active library “${name}” was deleted.`, "warning");
               setBaseSpriteFile(null);
+              setBaseSpriteVersion(null);
               setActiveBundleName("");
               setLiveDemoSource({ type: "scratch" });
               setDemoPreviewCssState(null);
@@ -1250,6 +1341,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               {mode === "update" && (
                 <ExistingSpriteSection
                   file={baseSpriteFile}
+                  version={baseSpriteVersion}
                   onFile={(f) => {
                     if (f === null) {
                       showToast("Base sprite must be an SVG file.", "error");
@@ -1264,6 +1356,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                       clearFiles();
                     }
                     setBaseSpriteFile(f);
+                    setBaseSpriteVersion(null);
                     // Mark this base sprite as "uploaded" (not
                     // loaded from the library). The inline-save
                     // panel reads this to decide whether to show
@@ -1352,7 +1445,23 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                   hasGenerated ||
                   !hasFiles ||
                   (mode === "update" && !baseSpriteFile) ||
-                  (inlineSave.enabled && trimmedName.length === 0)
+                  // In Create mode the bundle name is the only
+                  // thing that names a new library, so block the
+                  // button when the user enabled "Save to library"
+                  // without typing one. In Update mode the active
+                  // bundle (from a loaded library) is used as the
+                  // target by default, so an empty typed name is
+                  // fine — unless the user has flipped the
+                  // "Save as a new library instead" sub-toggle on,
+                  // in which case the typed name becomes the new
+                  // bundle's identifier and must be present.
+                  (mode !== "update" &&
+                    inlineSave.enabled &&
+                    trimmedName.length === 0) ||
+                  (mode === "update" &&
+                    inlineSave.enabled &&
+                    inlineSave.saveAsNew &&
+                    trimmedName.length === 0)
                 }
                 busy={generating || saving}
                 onClick={() => void handleGenerate()}

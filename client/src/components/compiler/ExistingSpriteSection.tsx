@@ -8,6 +8,12 @@ import { formatSize } from "../../utils/sprite";
 
 type ExistingSpriteSectionProps = {
   file: File | null;
+  /**
+   * Optional version number to surface next to the file name
+   * when the sprite was loaded from the library. Falls back to
+   * `null` (no badge) for uploaded files.
+   */
+  version?: number | null;
   onFile: (file: File | null) => void;
   onClear: () => void;
   onSelectFromLibrary?: () => void;
@@ -58,6 +64,7 @@ function PlayCircleIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
 
 function ExistingSpriteSection({
   file,
+  version,
   onFile,
   onClear,
   onSelectFromLibrary,
@@ -172,9 +179,19 @@ function ExistingSpriteSection({
               <CheckCircleIcon className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-slate-700" title={file.name}>
-                {file.name}
-              </p>
+              <div className="flex items-center gap-1.5">
+                <p className="truncate text-sm font-medium text-slate-700" title={file.name}>
+                  {file.name}
+                </p>
+                {version != null && (
+                  <span
+                    className="inline-flex flex-shrink-0 items-center rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-indigo-600"
+                    title={`Loaded from library version v${version}`}
+                  >
+                    v{version}
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-400">{formatSize(file.size)}</p>
             </div>
           </div>
