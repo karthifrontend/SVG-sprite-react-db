@@ -12,6 +12,7 @@ import {
   RefreshIcon,
   ChevronDoubleLeftIcon,
   ChevronDownIcon,
+  ChevronUpIcon,
   PencilIcon,
   TrashIcon,
   EyeIcon,
@@ -317,6 +318,37 @@ function LibraryPanel({
   const [publicOpen, setPublicOpen] = useState(false);
   const [privateOpen, setPrivateOpen] = useState(true);
 
+  // Per-group "show all versions" toggle. By default each group
+  // displays only the first two (newest) versions; clicking the
+  // chevron in the card header reveals the rest. The set is keyed
+  // by bundleName so collapsing the section / refreshing the list
+  // collapses back to the trimmed view automatically.
+  const [expandedGroupNames, setExpandedGroupNames] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  // Number of versions to show per group when collapsed. Set to 2
+  // so the card never overwhelms the sidebar; clicking the header
+  // chevron expands to the full list.
+  const COLLAPSED_VERSION_COUNT = 2;
+
+  // When the expanded version list grows past this threshold the
+  // inner version stack becomes scrollable instead of stretching
+  // the card (and the rest of the sidebar) to fit every row.
+  const VERSION_SCROLL_THRESHOLD = 5;
+
+  function toggleGroupExpanded(bundleName: string) {
+    setExpandedGroupNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(bundleName)) {
+        next.delete(bundleName);
+      } else {
+        next.add(bundleName);
+      }
+      return next;
+    });
+  }
+
   const groups = useMemo<LibraryGroup[]>(() => {
     const byName = new Map<string, LibraryGroup>();
     for (const sprite of sprites) {
@@ -382,7 +414,7 @@ function LibraryPanel({
             className="animate-fade-in-up mb-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
             style={{ animationDelay: `${groupIdx * 0.05}s` }}
           >
-            <div className="group/header mb-2 flex items-center gap-1.5">
+            <div className="mb-2 flex items-center gap-1.5">
               {renamingName === group.bundleName && renameTarget ? (
                 <InlineRenameInput
                   currentName={renameTarget.currentName}
@@ -396,7 +428,7 @@ function LibraryPanel({
                   type="button"
                   onClick={() => startRename(group)}
                   disabled={renameBusy}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left transition-colors hover:text-indigo-600 disabled:cursor-not-allowed"
+                  className="group flex min-w-0 flex-1 items-center gap-1.5 rounded text-left transition-colors hover:text-indigo-600 disabled:cursor-not-allowed"
                   title="Rename library"
                   aria-label={`Rename ${group.bundleName}`}
                 >
@@ -406,7 +438,7 @@ function LibraryPanel({
                   >
                     {group.bundleName}
                   </h3>
-                  <PencilIcon className="h-3.5 w-3.5 flex-shrink-0 text-slate-400 opacity-0 transition-opacity group-hover/header:opacity-100" />
+                  <PencilIcon className="h-3.5 w-3.5 flex-shrink-0 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100" />
                 </button>
               ) : (
                 <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -431,9 +463,52 @@ function LibraryPanel({
                   Private
                 </span>
               )}
+              {group.versions.length > COLLAPSED_VERSION_COUNT && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleGroupExpanded(group.bundleName);
+                  }}
+                  aria-expanded={expandedGroupNames.has(group.bundleName)}
+                  aria-label={
+                    expandedGroupNames.has(group.bundleName)
+                      ? `Collapse versions of ${group.bundleName}`
+                      : `Show all versions of ${group.bundleName}`
+                  }
+                  title={
+                    expandedGroupNames.has(group.bundleName)
+                      ? "Collapse versions"
+                      : `Show ${
+                          group.versions.length - COLLAPSED_VERSION_COUNT
+                        } more version${
+                          group.versions.length - COLLAPSED_VERSION_COUNT === 1
+                            ? ""
+                            : "s"
+                        }`
+                  }
+                  className="ml-auto inline-flex flex-shrink-0 items-center justify-center rounded p-1 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                >
+                  {expandedGroupNames.has(group.bundleName) ? (
+                    <ChevronUpIcon className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronDownIcon className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              )}
             </div>
-            <div className="space-y-2 pl-2">
-              {group.versions.map((version) => {
+            <div
+              className={`space-y-2 pl-2 ${
+                expandedGroupNames.has(group.bundleName) &&
+                group.versions.length > VERSION_SCROLL_THRESHOLD
+                  ? "custom-scrollbar max-h-72 overflow-y-auto pr-1"
+                  : ""
+              }`}
+            >
+              {(expandedGroupNames.has(group.bundleName)
+                ? group.versions
+                : group.versions.slice(0, COLLAPSED_VERSION_COUNT)
+              ).map((version) => {
                 const isLatest = version === group.versions[0];
                 return (
                   <div
