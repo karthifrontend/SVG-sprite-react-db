@@ -660,7 +660,7 @@ function LibraryPanel({
   const handleLoad = (version: LibraryGroupVersion) => {
     onLoadToUpdate?.(version.summary);
     showToast(
-      `Loaded ${version.summary.bundleName || version.summary.name} v${version.version}`,
+      `Loaded ${version.summary.bundleName || version.summary.name}(v${version.version})`,
       "success",
     );
   };

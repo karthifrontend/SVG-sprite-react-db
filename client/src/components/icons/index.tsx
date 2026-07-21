@@ -172,3 +172,11 @@ export function DownloadIcon({ className = "w-4 h-4", ...rest }: IconProps) {
     </svg>
   );
 }
+
+export function FolderIcon({ className = "w-4 h-4", ...rest }: IconProps) {
+  return (
+    <svg {...ICON_BASE} className={className} {...rest}>
+      <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+    </svg>
+  );
+}
