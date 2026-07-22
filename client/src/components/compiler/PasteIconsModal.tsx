@@ -3,7 +3,7 @@
 // every saved library version. Picking a target hands the pending
 // icons back through `onPasteIntoWorkspace` or
 // `onPasteIntoLibraryVersion`.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import Modal from "../Modal";
 import { useLibrary } from "../../hooks/useLibrary";
 import { useAuth } from "../../context/AuthContext";
@@ -48,7 +48,7 @@ export default function PasteIconsModal({
 }: PasteIconsModalProps) {
   const { currentUser } = useAuth();
   const { sprites, loading, refetch } = useLibrary(!!currentUser);
-  const [busyTarget, setBusyTarget] = useState<string | null>(null);
+  // const [busyTarget, setBusyTarget] = useState<string | null>(null);
 
   // Always re-fetch when the modal opens so the user can paste into
   // a library that was just created in another tab.
@@ -138,12 +138,12 @@ export default function PasteIconsModal({
     // We snapshot the per-target busy state for visual feedback
     // while the parent does the actual paste in the background.
     if (target.kind === "workspace") {
-      setBusyTarget("workspace");
+      //setBusyTarget("workspace");
       onPasteIntoWorkspace(icons);
       onClose();
       return;
     }
-    setBusyTarget(target.id);
+    //setBusyTarget(target.id);
     onPasteIntoLibraryVersion({
       spriteId: target.id,
       bundleName: target.bundleName,
@@ -210,7 +210,7 @@ export default function PasteIconsModal({
         </div>
 
         <div className="custom-scrollbar mt-4 max-h-[60vh] space-y-3 overflow-y-auto pr-1">
-          {/* Current workspace target — always first. */}
+          {/* Current workspace target — always first.
           <button
             type="button"
             onClick={() => handlePaste({ kind: "workspace" })}
@@ -228,7 +228,7 @@ export default function PasteIconsModal({
             <span className="rounded-lg bg-indigo-100 px-3 py-1.5 text-[11px] font-semibold text-indigo-700 transition-colors group-hover:bg-indigo-600 group-hover:text-white">
               {busyTarget === "workspace" ? "Pasting…" : "Paste Here"}
             </span>
-          </button>
+          </button> */}
 
           {!currentUser && (
             <p className="py-3 text-center text-[11px] text-slate-500">
@@ -279,7 +279,6 @@ export default function PasteIconsModal({
                 </div>
                 <div className="mt-2 space-y-2">
                   {group.versions.map((version) => {
-                    const isBusy = busyTarget === version.id;
                     return (
                       <div
                         key={version.id}
@@ -306,7 +305,7 @@ export default function PasteIconsModal({
                           disabled={busy}
                           className="rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-emerald-100 hover:text-emerald-700 disabled:opacity-50"
                         >
-                          {isBusy ? "Pasting…" : "Paste Here"}
+                          {"Paste Here"}
                         </button>
                       </div>
                     );

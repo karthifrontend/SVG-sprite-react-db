@@ -252,13 +252,28 @@ export default function LiveDemoModal({
   const [renameValue, setRenameValue] = useState<string>("");
   const [, setHasChanges] = useState<boolean>(false);
   const [downloadBusy, setDownloadBusy] = useState<boolean>(false);
+  // Independent "Copied" label flip for the demo footer's
+  // "Copy Sprite" button. Local to LiveDemo so the same flag
+  // can't accidentally drive the main ResultsPanel button.
+  const [copySpriteCopied, setCopySpriteCopied] = useState<boolean>(false);
   const symbolsRef = useRef<Element[]>([]);
+  // Debounce timer used by `handleSingleClick` to defer the
+  // copy action. A double-click cancels the pending timer so
+  // the user only gets a download (never a copy) on a dblclick.
+  const clickTimerRef = useRef<number | null>(null);
 
   // Reset transient state whenever the modal opens or the source
   // sprite changes. The custom-CSS state is intentionally left
   // alone when the parent controls it (we want the user to keep
   // their CSS customizations across opens).
   useEffect(() => {
+    // Always clear any pending copy timer so a deferred copy
+    // can't fire after the user closes the demo or swaps the
+    // sprite out from under it.
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
     if (!isOpen) return;
     setSearchTerm("");
     setSelectMode(false);
@@ -353,15 +368,46 @@ export default function LiveDemoModal({
         else next.add(id);
         return next;
       });
-    } else {
-      const usageCode = `<svg class="w-6 h-6"><use href="#${id}"></use></svg>`;
-      void copyToClipboard(usageCode).then((ok) => {
+      return;
+    }
+    // Defer the copy by ~250ms so a quick double-click can
+    // cancel it. Without this delay, every "click" of a
+    // dblclick pair would fire a copy before the download,
+    // which the user explicitly does not want.
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+    }
+    clickTimerRef.current = window.setTimeout(() => {
+      clickTimerRef.current = null;
+      const sym = symbolsRef.current.find((s) => s.getAttribute("id") === id);
+      if (!sym) {
+        showToast("Symbol element not found", "error");
+        return;
+      }
+      const viewBox = sym.getAttribute("viewBox") || "0 0 24 24";
+      const innerHTML = sym.innerHTML;
+      // Copy the actual standalone SVG markup (with the active
+      // color/gradient baked in) so the payload is self-contained
+      // and matches what the "Copy N Selected" flow produces.
+      const svgCode = buildStyledStandaloneSvg(viewBox, innerHTML);
+      void copyToClipboard(svgCode).then((ok) => {
         showToast(
-          ok ? `Copied SVG usage code for #${id}` : "Failed to copy to clipboard",
+          ok ? `Copied SVG code for #${id}` : "Failed to copy to clipboard",
           ok ? "success" : "error"
         );
       });
+    }, 250);
+  }
+
+  function handleIconDoubleClick(id: string): void {
+    // Cancel the pending single-click copy so a true
+    // double-click is "strictly download, never copy".
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
     }
+    // Strictly download — never copy.
+    downloadSingleIcon(id);
   }
 
   async function handleCopySelected(): Promise<void> {
@@ -648,6 +694,13 @@ export default function LiveDemoModal({
       ok ? "Copied to clipboard!" : "Failed to copy to clipboard",
       ok ? "success" : "error"
     );
+    // Mirror the inline button text flip for the demo footer's
+    // "Copy Sprite" button. The main Copy Sprite in ResultsPanel
+    // has its own state — keeping these independent avoids the
+    // two labels falling out of sync when the user copies from
+    // one but not the other.
+    setCopySpriteCopied(true);
+    window.setTimeout(() => setCopySpriteCopied(false), 1500);
   }
 
   // Open the "Save to Organization" modal. The parent handles the
@@ -847,7 +900,7 @@ export default function LiveDemoModal({
                         setRenameValue={setRenameValue}
                         setRenamingId={setRenamingId}
                         onClick={() => handleSingleClick(id)}
-                        onDoubleClick={() => downloadSingleIcon(id)}
+                        onDoubleClick={() => handleIconDoubleClick(id)}
                         onDelete={() => deleteIcon(id)}
                         onRenameCommit={commitRename}
                         onRenameCancel={() => setRenamingId(null)}
@@ -993,7 +1046,7 @@ export default function LiveDemoModal({
         )}
 
         <div className="px-6 py-3 border-t border-slate-100 bg-white flex items-center justify-between text-xs text-slate-400 flex-shrink-0">
-          <span>Click to copy usage code · Double-click to download · Hover ✕ to remove</span>
+          <span>Click to copy SVG · Double-click to download · Hover ✕ to remove</span>
           <div className="flex items-center gap-2">
             {currentUser && selectedIconsCount() > 0 && (
               <button
@@ -1011,7 +1064,7 @@ export default function LiveDemoModal({
               className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-semibold border border-indigo-200 transition-all flex items-center gap-1.5"
             >
               <DuplicateIcon className="w-3.5 h-3.5" />
-              Copy Sprite
+              {copySpriteCopied ? "Copied" : "Copy Sprite"}
             </button>
             {currentUser ? (
               <button
