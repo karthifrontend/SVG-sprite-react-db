@@ -1,4 +1,34 @@
 import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from "react";
+import { isSpriteSvgFile } from "../utils/sprite";
+
+/**
+ * What kind of file a dropzone accepts. A "sprite sheet" is any SVG
+ * whose root <svg> contains at least one <symbol>; a "single icon"
+ * is any other valid SVG.
+ *
+ *   - "icons"  : reject sprite sheets (the icon section shouldn't
+ *                accept a whole sprite file).
+ *   - "sprite" : reject anything that isn't a sprite sheet (the
+ *                existing-sprite section shouldn't accept a single
+ *                icon).
+ */
+export type DropzoneAcceptMode = "icons" | "sprite";
+
+/**
+ * Payload delivered to the `onRejected` callback when a dropped file
+ * doesn't match the dropzone's accept mode.
+ *
+ *   - kind:     "sprite"  — the user dropped a sprite sheet into
+ *               the icon section, OR
+ *               "icon"    — the user dropped a single icon into the
+ *               sprite section.
+ *   - fileName: the offending file's name, so the caller can name
+ *               and shame it in a toast.
+ */
+export type RejectedFile = {
+  kind: "sprite" | "icon";
+  fileName: string;
+};
 
 /**
  * Manages staged SVG files plus the drag/drop + click-to-browse interactions
@@ -8,39 +38,88 @@ import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from 
  * Duplicates (same name + same size) are silently skipped. Callers can
  * receive the number of skipped files via the `onSkipped` callback so they
  * can surface a toast/notice.
+ *
+ * Wrong-type SVG files (sprite dropped into icon section, or icon
+ * dropped into sprite section) are silently filtered out of the
+ * staged list and reported via `onRejected` so the caller can
+ * surface a toast pointing the user at the correct upload target.
  */
 export function useFileDropzone(options?: {
+  /** Default: "icons". */
+  accept?: DropzoneAcceptMode;
   onSkipped?: (count: number) => void;
+  /**
+   * Fired once per file that was filtered out because it didn't
+   * match the dropzone's `accept` mode. Non-SVG files are NOT
+   * reported here — they're silently dropped, since users routinely
+   * drop the wrong thing and we don't want to nag.
+   */
+  onRejected?: (rejected: RejectedFile) => void;
 }) {
+  const acceptMode: DropzoneAcceptMode = options?.accept ?? "icons";
   const [files, setFiles] = useState<File[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Keep the onSkipped callback in a ref so `addFiles` doesn't need to
+  // Keep the option callbacks in refs so `addFiles` doesn't need to
   // re-create itself on every render.
   const onSkippedRef = useRef(options?.onSkipped);
   onSkippedRef.current = options?.onSkipped;
+  const onRejectedRef = useRef(options?.onRejected);
+  onRejectedRef.current = options?.onRejected;
+  const acceptRef = useRef(acceptMode);
+  acceptRef.current = acceptMode;
 
-  const addFiles = useCallback((incoming: FileList | null) => {
+  const addFiles = useCallback(async (incoming: FileList | null) => {
     if (!incoming) return;
     const svgOnly = Array.from(incoming).filter(f => f.type === "image/svg+xml");
     if (svgOnly.length === 0) return;
+    // Classify each SVG against the dropzone's accept mode. We do
+    // this serially because `isSpriteSvgFile` reads the file via
+    // `File.text()` and we want the toasts / order to match what
+    // the user dropped.
+    const mode = acceptRef.current;
+    const classified: Array<{ file: File; isSprite: boolean }> = [];
+    for (const file of svgOnly) {
+      // `isSpriteSvgFile` swallows read/parse errors and returns
+      // `false`, so a corrupt SVG is just treated as "not a
+      // sprite" rather than throwing into the dropzone flow.
+      const isSprite = await isSpriteSvgFile(file);
+      classified.push({ file, isSprite });
+    }
+    const accepted: File[] = [];
+    for (const { file, isSprite } of classified) {
+      // Filter by accept mode. The `kind` we report to the caller
+      // is the kind we REJECTED — the file the user should have
+      // dropped in the OTHER section.
+      const matches =
+        mode === "icons" ? !isSprite : isSprite;
+      if (!matches) {
+        onRejectedRef.current?.({
+          kind: isSprite ? "sprite" : "icon",
+          fileName: file.name,
+        });
+        continue;
+      }
+      accepted.push(file);
+    }
+    if (accepted.length === 0) return;
     setFiles(prev => {
-      // Build a lookup of files already staged. Use name + size as the
-      // dedupe key (size disambiguates identically-named files of
-      // different content).
+      // Build a lookup of files already staged. Use name + size as
+      // the dedupe key (size disambiguates identically-named files
+      // of different content).
       const seen = new Set(prev.map(f => `${f.name.toLowerCase()}|${f.size}`));
-      const accepted: File[] = [];
+      const merged: File[] = [...prev];
       let skipped = 0;
-      for (const file of svgOnly) {
+      for (const file of accepted) {
         const key = `${file.name.toLowerCase()}|${file.size}`;
         if (seen.has(key)) {
           skipped += 1;
           continue;
         }
         seen.add(key);
-        accepted.push(file);
+        merged.push(file);
       }
       if (skipped > 0) onSkippedRef.current?.(skipped);
-      return [...prev, ...accepted];
+      return merged;
     });
   }, []);
 
