@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 type ResultsPanelProps = {
   visible: boolean;
   symbolCount: number;
@@ -25,6 +27,26 @@ function ResultsPanel({
   onDownloadZip,
   downloadBusy,
 }: ResultsPanelProps) {
+  // Independent "Copied" feedback state for the main "Copy Sprite"
+  // button and the inline "Copy" inside the code preview. Each
+  // tracks its own button so clicking one doesn't flip the other's
+  // label (a single shared flag would make both labels change
+  // together, which felt misleading).
+  const [mainCopied, setMainCopied] = useState(false);
+  const [inlineCopied, setInlineCopied] = useState(false);
+
+  async function handleMainCopy() {
+    await onCopy();
+    setMainCopied(true);
+    window.setTimeout(() => setMainCopied(false), 1500);
+  }
+
+  async function handleInlineCopy() {
+    await onCopy();
+    setInlineCopied(true);
+    window.setTimeout(() => setInlineCopied(false), 1500);
+  }
+
   if (!visible) return null;
 
   return (
@@ -65,13 +87,13 @@ function ResultsPanel({
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
         <button
           type="button"
-          onClick={onCopy}
+          onClick={() => void handleMainCopy()}
           className="flex-1 flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 font-medium py-3 px-4 rounded-xl border border-slate-200 hover:border-slate-300 transition-all duration-150"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
             <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
           </svg>
-          <span>Copy Sprite</span>
+          <span>{mainCopied ? "Copied" : "Copy Sprite"}</span>
         </button>
         <button
           type="button"
@@ -111,14 +133,25 @@ function ResultsPanel({
           <span className="text-xs font-medium text-slate-400">sprite.svg</span>
           <button
             type="button"
-            onClick={onCopy}
+            onClick={() => void handleInlineCopy()}
             className="text-xs text-slate-400 hover:text-white font-medium transition-colors flex items-center gap-1"
           >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-            </svg>
-            Copy
+            {inlineCopied ? (
+              <>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Copied
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                </svg>
+                Copy
+              </>
+            )}
           </button>
         </div>
         <div className="max-h-64 overflow-auto custom-scrollbar">
