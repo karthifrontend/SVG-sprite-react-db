@@ -143,9 +143,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     spriteXml,
     symbolIds,
     error,
-    copied,
     generate,
-    copy,
     loadFromLibrary,
     waitForSprite,
     reset: resetSprite,
@@ -180,7 +178,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     number | null
   >(null);
   const [activeBundleName, setActiveBundleName] = useState<string>("");
-  const [loadingFromLibrary, setLoadingFromLibrary] = useState(false);
+  // const [loadingFromLibrary, setLoadingFromLibrary] = useState(false);
 
   const [inlineSave, setInlineSave] = useState<InlineSaveValue>({
     enabled: false,
@@ -696,11 +694,16 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           // Pull every child of the <svg> into a single
           // <symbol> wrapper. We use the file name (sans
           // extension) as the symbol id, falling back to a
-          // numeric suffix when two files share a name.
-          const baseName =
-            (svg.getAttribute("id") ||
-              inputFiles[xmls.indexOf(xml)]?.name.replace(/\.svg$/i, "")) ??
+          // numeric suffix when two files share a name. The
+          // resulting id is always prefixed with `icon-` so
+          // references render as `#icon-<name>`.
+          const rawName =
+            svg.getAttribute("id") ||
+            inputFiles[xmls.indexOf(xml)]?.name.replace(/\.svg$/i, "") ||
             `icon-${symbols.length + 1}`;
+          const baseName = rawName.startsWith("icon-")
+            ? rawName
+            : `icon-${rawName}`;
           const inner = Array.from(svg.childNodes)
             .map((node) => (node as Element).outerHTML ?? "")
             .join("");
@@ -1159,7 +1162,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     clearFiles();
     resetForNewUpload();
     setMode("update");
-    setLoadingFromLibrary(true);
+    // setLoadingFromLibrary(true);
     setSaveStatus(null);
     try {
       const detail = await getSpriteById(summary._id);
@@ -1238,7 +1241,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         isPublic: !!summary.isPublic,
       });
     } finally {
-      setLoadingFromLibrary(false);
+      // setLoadingFromLibrary(false);
     }
   }
 
@@ -1420,11 +1423,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                   <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
                     2. New Icons to Add
                   </h2>
-                  {loadingFromLibrary && (
+                  {/* {loadingFromLibrary && (
                     <span className="text-[10px] font-mono text-indigo-500">
                       Loading…
                     </span>
-                  )}
+                  )} */}
                 </div>
               )}
 
@@ -1513,8 +1516,25 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 spriteUrl={spriteUrl}
                 spriteXml={spriteXml}
                 symbolIds={symbolIds}
-                copied={copied}
-                onCopy={() => void copy()}
+                onCopy={async () => {
+                  // Copy whatever the user is currently looking at
+                  // (the demo's mutated XML when one is open, the
+                  // freshly-generated `spriteXml` otherwise). The
+                  // hook's `copy()` only reads `spriteXml`, so we go
+                  // straight through `copyToClipboard` here and
+                  // surface the result with a toast — no in-place
+                  // "Copied!" label flip on the button anymore.
+                  const xmlToCopy = demoSpriteXml ?? spriteXml;
+                  if (!xmlToCopy) {
+                    showToast("Nothing to copy yet.", "warning");
+                    return;
+                  }
+                  const ok = await copyToClipboard(xmlToCopy);
+                  showToast(
+                    ok ? "Copied to clipboard!" : "Failed to copy to clipboard",
+                    ok ? "success" : "error"
+                  );
+                }}
                 onDemo={() => setLiveDemoOpen(true)}
                 onDownloadZip={() => void handleDownloadBundleForResults()}
                 downloadBusy={resultsDownloadBusy}
@@ -1578,6 +1598,9 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           if (!xmlToCopy) return false;
           try {
             await copyToClipboard(xmlToCopy);
+            // The LiveDemo shows its own success toast via the
+            // boolean return value, so we just signal success here
+            // and let the modal decide what to say.
             return true;
           } catch {
             return false;

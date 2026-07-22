@@ -4,7 +4,6 @@ type ResultsPanelProps = {
   spriteUrl: string | null;
   spriteXml: string | null;
   symbolIds: string[];
-  copied: boolean;
   onCopy: () => void;
   onDemo: () => void;
   /** Build a zip bundle (sprite + demo.html + preview.png) and
@@ -21,7 +20,6 @@ function ResultsPanel({
   spriteUrl,
   spriteXml,
   symbolIds,
-  copied,
   onCopy,
   onDemo,
   onDownloadZip,
@@ -59,7 +57,7 @@ function ResultsPanel({
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
-          <span>{downloadBusy ? "Preparing…" : "Download zip"}</span>
+          <span>{downloadBusy ? "Preparing…" : "Download ZIP"}</span>
         </button>
       </div>
 
@@ -73,7 +71,7 @@ function ResultsPanel({
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
             <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
           </svg>
-          <span>{copied ? "Copied!" : "Copy Sprite"}</span>
+          <span>Copy Sprite</span>
         </button>
         <button
           type="button"
@@ -120,7 +118,7 @@ function ResultsPanel({
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
               <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
             </svg>
-            {copied ? "Copied" : "Copy"}
+            Copy
           </button>
         </div>
         <div className="max-h-64 overflow-auto custom-scrollbar">
