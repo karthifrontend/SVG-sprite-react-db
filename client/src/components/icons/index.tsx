@@ -97,6 +97,20 @@ export function PlayCircleIcon({ className = "w-4 h-4", ...rest }: IconProps) {
   );
 }
 
+export function CheckIcon({ className = "w-4 h-4", ...rest }: IconProps) {
+  // Plain tick / checkmark stroke. Used by the LiveDemo "Save
+  // Changes" button to communicate "commit pending edits"
+  // without leaning on the play-circle metaphor (which conflicts
+  // with the demo / preview intent of the surrounding modal).
+  // Painted via `currentColor` so it inherits the host's text
+  // colour (e.g. white on the emerald-600 "Save Changes" pill).
+  return (
+    <svg {...ICON_BASE} className={className} {...rest}>
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  );
+}
+
 export function EyeIcon({ className = "w-4 h-4", ...rest }: IconProps) {
   return (
     <svg {...ICON_BASE} className={className} {...rest}>

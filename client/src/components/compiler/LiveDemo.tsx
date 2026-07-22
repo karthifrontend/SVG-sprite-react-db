@@ -16,7 +16,7 @@ import {
   SearchIcon,
   DuplicateIcon,
   ClipboardIcon,
-  PlayCircleIcon,
+  CheckIcon,
   DownloadIcon,
   PencilIcon,
   SadFaceIcon,
@@ -65,6 +65,19 @@ type LiveDemoProps = {
   /** Where the sprite came from — controls whether "Save Changes" is shown. */
   source?: Source;
   /**
+   * Which entry point opened the demo. Defaults to "default" so
+   * existing callers (Results panel "Live Demo", the base-sprite
+   * preview, the post-paste preview, the preview action in the
+   * inline paste toast) keep their current behaviour — including
+   * the "Save to Library" footer button. Set to "preview" when
+   * the demo was opened from the library panel's eye icon. In
+   * preview mode the footer replaces "Save to Library" with a
+   * "Save Changes" button (disabled until the user edits) that
+   * persists edits back to the same library version via the
+   * optional `onSave` callback.
+   */
+  mode?: "default" | "preview";
+  /**
    * Fired whenever the user mutates the sprite (rename, delete). The
    * parent is expected to update its own `spriteXml`/`symbolIds`
    * state so the rest of the UI stays in sync.
@@ -72,6 +85,15 @@ type LiveDemoProps = {
   onUpdate?: (next: { sprite: string; symbolIds: string[]; hasChanges: boolean }) => void;
   /** Optional callback for "open the regular save modal" (fallback). */
   onOpenSaveModal?: () => void;
+  /**
+   * Persist the currently-mutated XML back to the library
+   * version the demo was opened from. The parent (Compiler) is
+   * expected to call `useLibrary().updateContent(sourceId, xml)`
+   * and return `true` on success / `false` on failure. Only used
+   * by the eye-icon preview flow (see `mode`); other entry
+   * points keep their existing save affordances untouched.
+   */
+  onSave?: (input: { xml: string; symbolIds: string[] }) => Promise<boolean> | boolean;
   /**
    * Optional callback for "copy the current sprite XML to the
    * clipboard". The parent owns the canonical XML, so we delegate.
@@ -192,8 +214,10 @@ export default function LiveDemoModal({
   sprite,
   symbolIds,
   source,
+  mode,
   onUpdate,
   onOpenSaveModal,
+  onSave,
   onCopySprite,
   onCopyIcons,
   onCopySelectedRequest,
@@ -253,12 +277,35 @@ export default function LiveDemoModal({
   const [renameValue, setRenameValue] = useState<string>("");
   const [, setHasChanges] = useState<boolean>(false);
   const [downloadBusy, setDownloadBusy] = useState<boolean>(false);
+  // Tracks uncommitted edits (rename / delete) since the demo
+  // was last opened or last saved. Drives the "Save Changes"
+  // footer button in preview mode (enabled when true). Reset
+  // on the next open and on a successful save.
+  const [hasPendingChanges, setHasPendingChanges] = useState<boolean>(false);
+  // "Save Changes" button busy state — true while the parent's
+  // `onSave` promise is in-flight. Drives the "Saving…" label
+  // and disables the button so a double-click can't fire two
+  // PUTs against the same library version.
+  const [saveBusy, setSaveBusy] = useState<boolean>(false);
   const symbolsRef = useRef<Element[]>([]);
 
-  // Reset transient state whenever the modal opens or the source
-  // sprite changes. The custom-CSS state is intentionally left
-  // alone when the parent controls it (we want the user to keep
-  // their CSS customizations across opens).
+  // Reset transient state ONLY when the modal opens or closes —
+  // never on `sprite`/`symbolIds` prop changes. Once the user
+  // starts editing, every rename / remove goes through
+  // `rebuildSprite`, which feeds the parent's `onUpdate`. The
+  // parent then writes the mutated XML back into its own state
+  // and re-passes it to this modal as a new `sprite` prop. If we
+  // react to that prop change we'd wipe the just-armed
+  // `hasPendingChanges` flag and the "Save Changes" button would
+  // never enable. Same applies to the `symbolsRef` re-sync below
+  // — running it on every sprite change would clobber the local
+  // symbol edits with the pre-edit prop value.
+  //
+  // Only `isOpen` is in the dep array. The custom-CSS state is
+  // intentionally left alone when the parent controls it (we
+  // want the user to keep their CSS customizations across
+  // opens), and the local placeholder set keeps the modal
+  // working in isolation (and in Storybook).
   useEffect(() => {
     if (!isOpen) return;
     setSearchTerm("");
@@ -266,23 +313,37 @@ export default function LiveDemoModal({
     setSelectedIcons(new Set());
     setActiveTab("grid");
     setHasChanges(false);
+    setHasPendingChanges(false);
+    setSaveBusy(false);
     setRenamingId(null);
     if (!isControlled) {
       setInternalCssState(defaultCssState);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, sprite, symbolIds, isControlled]);
+  }, [isOpen]);
 
   function syncSymbols(nextSymbols: Element[]): void {
     symbolsRef.current = nextSymbols;
     setDisplayedSymbolIds(nextSymbols.map((sym) => sym.getAttribute("id") || "").filter(Boolean));
   }
 
-  // Mirror the latest parsed symbol list so callbacks see fresh data
-  // without re-rendering.
+  // Seed `symbolsRef` only on the initial open (and when the
+  // source itself changes — i.e. the parent swaps it). Edits
+  // made inside the modal flow through `syncSymbols` directly,
+  // so they MUST NOT be overwritten by this effect. We use a
+  // ref to track the last source we seeded against and only
+  // re-seed when it actually changes. The inline-iframe sprite
+  // `<use>` host is the only place we'd actually want to
+  // re-render, and that lives in a separate effect tied to the
+  // raw `sprite` prop.
+  const lastSeededSourceRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isOpen) return;
+    const seedKey = sprite ?? "";
+    if (lastSeededSourceRef.current === seedKey) return;
+    lastSeededSourceRef.current = seedKey;
     syncSymbols(parseSpriteSymbols(sprite));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, sprite]);
 
   const filteredIds = useMemo<string[]>(() => {
@@ -305,6 +366,11 @@ export default function LiveDemoModal({
       hasChanges: true,
     });
     setHasChanges(true);
+    // Arm the "Save Changes" footer button (preview mode only).
+    // Cleared on a successful save and on the next open. Every
+    // rename / remove action goes through `rebuildSprite`, so
+    // the button enables the moment the user makes any edit.
+    setHasPendingChanges(true);
   }
 
   function deleteIcon(iconId: string): void {
@@ -666,6 +732,71 @@ export default function LiveDemoModal({
     onOpenSaveToLibrary?.({ suggestedName: fallbackName });
   }
 
+  // Persist the mutated sprite back to the source library
+  // version. Used by the "Save Changes" footer button in preview
+  // mode (opened from the library panel's eye icon). Without a
+  // library source there is nothing to update in place, so we
+  // bail with a toast instead of silently dropping the change.
+  async function handleSaveChanges(): Promise<void> {
+    if (saveBusy) return;
+    if (!source || source.type !== "library") {
+      showToast("No library source to save to.", "error");
+      return;
+    }
+    if (!onSave) {
+      showToast("Save handler not configured.", "error");
+      return;
+    }
+    if (!hasPendingChanges) {
+      // Defensive — the button is already disabled in this
+      // state, but a keyboard-only user could still trigger
+      // it via Enter on a focused, disabled element.
+      showToast("No changes to save.", "warning");
+      return;
+    }
+    // Build the canonical XML from the in-memory symbol list.
+    // We do NOT read `sprite` directly because the parent may
+    // still hold the pre-edit XML until our `onUpdate` callback
+    // has re-hydrated it; the symbol list is the local source
+    // of truth.
+    const nextIds = symbolsRef.current
+      .map((s) => s.getAttribute("id") || "")
+      .filter(Boolean);
+    const xml = serializeLiveSprite(symbolsRef.current);
+    setSaveBusy(true);
+    try {
+      const ok = await onSave({ xml, symbolIds: nextIds });
+      if (ok === false) {
+        // The parent (Compiler) already surfaces its own
+        // failure toast, so we just exit without touching the
+        // pending flag — the user can retry the save without
+        // re-editing.
+        return;
+      }
+      // Clear the pending flag so the button disables itself
+      // again until the next edit.
+      setHasPendingChanges(false);
+      setHasChanges(false);
+      showToast(
+        `Saved changes to ${source.name} v${source.version ?? 1}.`,
+        "success"
+      );
+      // Close the demo so the user lands back on the library
+      // panel (preview mode flow). Skip the unsaved-changes
+      // guard by calling `onClose` directly — `hasPendingChanges`
+      // is already false at this point and the confirm prompt
+      // would be confusing here.
+      onClose?.();
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Failed to save changes.",
+        "error"
+      );
+    } finally {
+      setSaveBusy(false);
+    }
+  }
+
   // Build a zip bundle (sprite + demo.html + preview.png) and
   // trigger a browser download. Used by the logged-out footer.
   async function handleDownloadBundle(): Promise<void> {
@@ -1015,16 +1146,44 @@ export default function LiveDemoModal({
               Copy Sprite
             </button>
             {currentUser ? (
-              <button
-                type="button"
-                onClick={() => handleOpenSaveToLibrary()}
-                // disabled={selectMode}
-                disabled
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <PlayCircleIcon className="w-3.5 h-3.5" />
-                Save to Library
-              </button>
+              // Preview mode (opened from the library panel's eye
+              // icon) swaps the "Save to Library" affordance for an
+              // in-place "Save Changes" button. The button starts
+              // disabled and is armed the moment the user renames
+              // or removes an icon (via `rebuildSprite`). Clicking
+              // it persists the mutated XML back to the same
+              // library version via the parent's `onSave` callback
+              // and shows a "Saving…" busy label while the parent
+              // is writing. All other LiveDemo entry points
+              // (Results panel, post-paste preview, base-sprite
+              // preview) keep the original "Save to Library" flow
+              // so existing behaviour is untouched.
+              mode === "preview" && source?.type === "library" && onSave ? (
+                <button
+                  type="button"
+                  onClick={() => void handleSaveChanges()}
+                  disabled={!hasPendingChanges || saveBusy || selectMode}
+                  title={
+                    hasPendingChanges
+                      ? "Persist the renamed / removed icons back to this library version."
+                      : "No changes to save yet. Rename or remove an icon to enable this button."
+                  }
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <CheckIcon className="w-3.5 h-3.5" />
+                  {saveBusy ? "Saving…" : "Save Changes"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleOpenSaveToLibrary()}
+                  disabled={selectMode}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <CheckIcon className="w-3.5 h-3.5" />
+                  Save to Library
+                </button>
+              )
             ) : (
               <button
                 type="button"
