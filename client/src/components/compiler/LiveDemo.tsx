@@ -1145,9 +1145,23 @@ function DemoIconCard({
     ? SOLID_PRESETS.find((p) => p.color === activeColorClass)
     : undefined;
   const activeHex = activeCustomColor || (preset ? preset.hex : null);
+  // Detect whether the source symbol actually draws with a
+  // stroke. We scan the inner markup (and the wrapping <symbol>
+  // itself) for any explicit `stroke=...` attribute or any
+  // `stroke="currentColor"` style. If none is present, the
+  // source was rendered as a fill-only icon, and forcing a
+  // stroke on every child makes the icon visibly thicker
+  // because the SVG default `stroke-width: 1` kicks in even
+  // though the user never asked for an outline. Skipping the
+  // stroke override in that case keeps the preview pixel-
+  // faithful to the original.
+  const hasStroke =
+    /\bstroke\s*=\s*"(?!none)[^"]*"/i.test(symbolInnerHtml) ||
+    (symbol ? /\bstroke\s*=\s*"(?!none)[^"]*"/i.test(symbol.outerHTML) : false);
   // Build a tiny `<style>` block that targets every descendant
-  // of the icon SVG and forces fill + stroke to the active
-  // color, with `!important`. This is the only reliable way to
+  // of the icon SVG and forces fill (and stroke, only when the
+  // source actually uses one) to the active color, with
+  // `!important`. `!important` is the only reliable way to
   // override the children when they declare an explicit
   // presentation attribute (e.g. `<path fill="black" .../>`):
   // a presentation attribute behaves as a low-specificity CSS
@@ -1159,12 +1173,19 @@ function DemoIconCard({
   // unique `data-demo-icon-style` attribute we set on the
   // wrapping `<svg>`, so two icons side by side can't bleed
   // styles into each other.
+  const buildColorCss = (hex: string): string => {
+    const fillRule = `fill: ${hex} !important;`;
+    const strokeRule = hasStroke ? ` stroke: ${hex} !important;` : "";
+    return `[data-demo-icon-style="${id}"] * { ${fillRule}${strokeRule} }`;
+  };
   const scopedColorStyle: ReactNode = activeHex ? (
-    <style>{`[data-demo-icon-style="${id}"] * { fill: ${activeHex} !important; stroke: ${activeHex} !important; }`}</style>
+    <style>{buildColorCss(activeHex)}</style>
   ) : (
     // No color picked yet — keep the slate-700 default on every
-    // descendant for the same "consistent look" reason.
-    <style>{`[data-demo-icon-style="${id}"] * { fill: #334155 !important; stroke: #334155 !important; }`}</style>
+    // descendant for the same "consistent look" reason. We
+    // honour the same fill-only vs fill+stroke decision so the
+    // default preview also matches the original thickness.
+    <style>{buildColorCss("#334155")}</style>
   );
   let inlineSvg: ReactNode;
   if (activeGradient) {
