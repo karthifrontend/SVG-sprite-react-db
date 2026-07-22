@@ -18,6 +18,50 @@
   box-sizing: border-box;
 }
 
+/*
+ * Interactive elements should advertise their clickability.
+ *
+ * Browsers don't give `<button>`, `<a>`, or `[role="button"]` a
+ * pointer cursor by default, and the app uses many of them
+ * throughout. A single global rule here is much cheaper than
+ * sprinkling `cursor-pointer` on every component — and it
+ * automatically covers the custom-styled buttons (e.g. the
+ * `ModeTabs` role="tab" buttons) that previously had no cursor
+ * style at all.
+ *
+ * The `not-allowed` rule applies to anything that's been
+ * disabled, so the user gets immediate visual feedback that the
+ * control is not interactive right now. We target both the
+ * native `disabled` attribute and the `aria-disabled` attribute
+ * because the codebase mixes both (e.g. some buttons use
+ * `pointer-events-none opacity-60` instead of a real `disabled`
+ * — those still want `not-allowed`).
+ *
+ * `label` is included because every label in this app wraps an
+ * interactive control (a checkbox, a file input, a toggle, or a
+ * form field). The very rare decorative label can opt out with
+ * a `cursor-default` class.
+ */
+button,
+a,
+label,
+[role="button"],
+[role="tab"],
+[role="switch"],
+[role="checkbox"] {
+  cursor: pointer;
+}
+
+button:disabled,
+a:disabled,
+label[aria-disabled="true"],
+[role="button"][aria-disabled="true"],
+[role="tab"][aria-disabled="true"],
+[role="switch"][aria-disabled="true"],
+[role="checkbox"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
 body {
   margin: 0;
   min-height: 100vh;

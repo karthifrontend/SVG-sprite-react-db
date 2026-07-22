@@ -49,11 +49,24 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // a file whose name+size is already in the list, so they know the
   // duplicate was intentionally skipped.
   const baseDropzone = useFileDropzone({
+    accept: "icons",
     onSkipped: (count) => {
       showToast(
         count === 1
           ? "1 duplicate skipped."
           : `${count} duplicates skipped.`,
+        "warning"
+      );
+    },
+    onRejected: (rejected) => {
+      // Wrong-type SVG: the user dropped a sprite sheet into the
+      // icon upload section. Use warning tone (matches the
+      // duplicate-skip toast colour) and point them at the right
+      // upload target.
+      showToast(
+        rejected.kind === "sprite"
+          ? `${rejected.fileName} is a sprite sheet, drop standalone icons here.`
+          : `${rejected.fileName} is not an SVG file.`,
         "warning"
       );
     },
@@ -1388,6 +1401,17 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                   onSelectFromLibrary={handleSelectFromLibrary}
                   canSelectFromLibrary={!!currentUser}
                   onPreview={handlePreviewBaseSprite}
+                  onRejected={(rejected) => {
+                    // The user dropped a single icon into the
+                    // existing-sprite section. Use error tone to
+                    // match the existing "Base sprite must be an
+                    // SVG file" message style and point the user
+                    // at the icon upload target.
+                    showToast(
+                      `${rejected.fileName} is not a sprite file, drop standalone icons in the icon section above.`,
+                      "error"
+                    );
+                  }}
                 />
               )}
 
