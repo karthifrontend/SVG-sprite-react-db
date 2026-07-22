@@ -12,6 +12,7 @@
 //     server auto-numbers versions per bundle.
 import { useEffect, useMemo, useState } from "react";
 import Modal from "../Modal";
+import { CloseIcon } from "../icons";
 
 type SaveToLibraryModalProps = {
   isOpen: boolean;
@@ -104,10 +105,29 @@ export default function SaveToLibraryModal({
       ariaLabel="Save to organization library"
     >
       <div className="p-6">
-        <h3 className="text-base font-bold text-slate-900">Save to Organization</h3>
-        <p className="mt-1 text-xs text-slate-500">
-          Save this sprite to the shared Syncfusion library.
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">Save to Organization</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Save this sprite to the shared Syncfusion library.
+            </p>
+          </div>
+          {/* Dedicated close (×) affordance in the header so the
+              user can dismiss the modal without scrolling to the
+              bottom Cancel button. Mirrors the close (×) the
+              LiveDemo puts in its own header. Disabled while the
+              save is in-flight so an impatient user can't cancel
+              a request the server has already started. */}
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close save to organization"
+            className="-mr-1 -mt-1 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <CloseIcon className="w-5 h-5" />
+          </button>
+        </div>
 
         <div className="mt-5 space-y-4">
           <div>
