@@ -646,7 +646,7 @@ export default function LiveDemoModal({
     if (!onCopySprite) return;
     const ok = await onCopySprite();
     showToast(
-      ok ? "Sprite SVG code copied to clipboard!" : "Failed to copy code",
+      ok ? "Copied to clipboard!" : "Failed to copy to clipboard",
       ok ? "success" : "error"
     );
   }

@@ -50,6 +50,105 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 /**
+ * Synchronously classify a raw SVG string as either a "sprite sheet" (a
+ * document whose root <svg> contains at least one <symbol>) or a
+ * standalone "single icon". Used by the dropzone hooks to enforce that
+ * each upload section only accepts the right kind of file.
+ */
+export function isSpriteSvgText(text: string): boolean {
+  if (!text) return false;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(text, "image/svg+xml");
+    if (doc.querySelector("parsererror")) return false;
+    const svg = doc.querySelector("svg");
+    if (!svg) return false;
+    return svg.getElementsByTagName("symbol").length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Async variant that reads a `File` and delegates to `isSpriteSvgText`.
+ * Returns `false` for unreadable / non-SVG files so the caller can
+ * treat them as "not a sprite" without a separate try/catch.
+ */
+export async function isSpriteSvgFile(file: File): Promise<boolean> {
+  if (!file) return false;
+  try {
+    const text = await file.text();
+    return isSpriteSvgText(text);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Derive a clean `<symbol id="…">` value from a file name. Used
+ * by the upload flow so every compiled sprite ends up with a
+ * predictable `icon-…` prefix the rest of the app can rely on.
+ *
+ *   - Strips the `.svg` extension and any " (N)" / " - Copy"
+ *     suffixes Windows / macOS append to duplicated files.
+ *   - Replaces every run of non `[a-zA-Z0-9_-]` characters with
+ *     a single dash (spaces, dots, parentheses, etc.).
+ *   - Collapses repeated dashes and trims leading / trailing
+ *     dashes so the id is a well-formed CSS selector.
+ *   - Prefixes with `icon-` if the name doesn't already start
+ *     with that prefix. The check is case-insensitive but the
+ *     canonical prefix is lowercase, so we also normalise the
+ *     leading `ICON-` / `Icon-` to `icon-` instead of leaving
+ *     mixed-case ids in the sprite.
+ *   - Falls back to `icon-<index>` for blank inputs (e.g. a file
+ *     called ` (1).svg`).
+ */
+export function sanitizeSymbolName(
+  rawName: string,
+  fallbackIndex?: number
+): string {
+  let name = (rawName || "").trim();
+  // Drop the extension.
+  name = name.replace(/\.svg$/i, "");
+  // Drop " (N)" / " - Copy" / " - Copy (N)" suffixes that file
+  // managers tack on to duplicates. Each pattern is anchored to
+  // the end of the name and is case-insensitive.
+  name = name.replace(/\s*\(\d+\)\s*$/i, "");
+  name = name.replace(/\s*-\s*copy(\s*\(\d+\))?\s*$/i, "");
+  name = name.replace(/\s+copy(\s*\(\d+\))?\s*$/i, "");
+  // Replace any disallowed char (spaces, dots, parentheses, etc.)
+  // with a dash. Repeat chars collapse on the next pass.
+  name = name.replace(/[^a-zA-Z0-9_-]+/g, "-");
+  name = name.replace(/-+/g, "-");
+  name = name.replace(/^-+|-+$/g, "");
+
+  // Apply the `icon-` prefix only if the name doesn't already
+  // start with it. The leading character group check tolerates
+  // any prefix separator we may have just collapsed (so
+  // `Icon-foo` -> `icon-foo` rather than `icon-icon-foo`).
+  const prefix = "icon-";
+  const lower = name.toLowerCase();
+  if (lower === "icon" || lower === "icons") {
+    // Pure "icon"/"icons" becomes "icon" so the resulting id
+    // is a valid non-empty string and not just the prefix.
+    name = "icon";
+  } else if (lower.startsWith("icon-")) {
+    // Normalise the prefix to lowercase so we never end up with
+    // `Icon-foo` / `ICON-foo` ids in the generated sprite.
+    name = prefix + name.slice(prefix.length);
+  } else if (name.length > 0) {
+    name = prefix + name;
+  }
+
+  if (!name) {
+    return typeof fallbackIndex === "number"
+      ? `${prefix}${fallbackIndex + 1}`
+      : prefix.replace(/-$/, "");
+  }
+  return name;
+}
+
+/**
  * Parse an uploaded SVG file into a symbol description that can be embedded
  * inside a sprite sheet. Symbol IDs are derived from the filename.
  */
@@ -74,10 +173,11 @@ export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
     .join("")
     .trim();
 
-  // Symbol id from filename (without extension), sanitized.
-  const id = file.name
-    .replace(/\.svg$/i, "")
-    .replace(/[^a-zA-Z0-9_-]/g, "-");
+  // Symbol id from filename. The sanitizer is the single source
+  // of truth for id formatting: it strips the extension, drops
+  // copy-suffixes, replaces bad characters, and prefixes `icon-`
+  // when the name doesn't already start with it.
+  const id = sanitizeSymbolName(file.name);
 
   return { id, viewBox, inner };
 }

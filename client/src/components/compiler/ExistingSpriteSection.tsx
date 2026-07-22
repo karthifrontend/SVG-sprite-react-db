@@ -4,7 +4,7 @@
 // and an emerald file card with a Change action row once a
 // sprite is loaded.
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { formatSize } from "../../utils/sprite";
+import { formatSize, isSpriteSvgFile } from "../../utils/sprite";
 
 type ExistingSpriteSectionProps = {
   file: File | null;
@@ -19,6 +19,13 @@ type ExistingSpriteSectionProps = {
   onSelectFromLibrary?: () => void;
   canSelectFromLibrary?: boolean;
   onPreview?: () => void;
+  /**
+   * Fired when the user drops a non-sprite SVG into the
+   * existing-sprite upload section. The parent uses this to
+   * surface a toast pointing the user at the right upload
+   * target.
+   */
+  onRejected?: (rejected: { fileName: string }) => void;
 };
 
 function CheckCircleIcon({ className = "w-5 h-5" }: { className?: string }) {
@@ -53,11 +60,11 @@ function FileUploadIcon({ className = "w-6 h-6" }: { className?: string }) {
   );
 }
 
-function PlayCircleIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
+function EyeIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   );
 }
@@ -70,6 +77,7 @@ function ExistingSpriteSection({
   onSelectFromLibrary,
   canSelectFromLibrary,
   onPreview,
+  onRejected,
 }: ExistingSpriteSectionProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isActive, setIsActive] = useState(false);
@@ -79,10 +87,26 @@ function ExistingSpriteSection({
     inputRef.current?.click();
   }
 
-  function handleFileChosen(picked: File | null | undefined) {
+  async function handleFileChosen(picked: File | null | undefined) {
     if (!picked) return;
     if (!picked.name.toLowerCase().endsWith(".svg")) {
+      // Non-SVG file: the parent treats `onFile(null)` as
+      // "rejection with the generic 'Base sprite must be an SVG
+      // file.' toast". Don't also call `onRejected` here — the
+      // single toast is enough.
       onFile(null);
+      return;
+    }
+    // The "existing sprite" section must only accept sprite
+    // sheets (root <svg> containing at least one <symbol>).
+    // Reject standalone icons so the user gets a clear toast
+    // pointing them at the icon upload section. We ONLY fire
+    // `onRejected` here (no `onFile(null)`), because the parent
+    // would otherwise show its own generic "must be an SVG
+    // file" toast on top of our specific one — producing two
+    // toasts for the same mistake.
+    if (!(await isSpriteSvgFile(picked))) {
+      onRejected?.({ fileName: picked.name });
       return;
     }
     onFile(picked);
@@ -203,10 +227,10 @@ function ExistingSpriteSection({
                   event.stopPropagation();
                   onPreview();
                 }}
-                className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-600 shadow-sm transition-colors hover:bg-indigo-100 hover:text-indigo-700"
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white-50 px-3 py-1.5 text-xs font-semibold text-indigo-600 shadow-sm transition-colors hover:bg-indigo-100 hover:text-indigo-700"
                 title="Preview this sprite in the Live Demo"
               >
-                <PlayCircleIcon className="h-3.5 w-3.5" />
+                <EyeIcon className="h-3.5 w-3.5" />
                 Preview
               </button>
             )}
