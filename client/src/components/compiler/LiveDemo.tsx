@@ -287,7 +287,15 @@ export default function LiveDemoModal({
   // and disables the button so a double-click can't fire two
   // PUTs against the same library version.
   const [saveBusy, setSaveBusy] = useState<boolean>(false);
+  // Independent "Copied" label flip for the demo footer's
+  // "Copy Sprite" button. Local to LiveDemo so the same flag
+  // can't accidentally drive the main ResultsPanel button.
+  const [copySpriteCopied, setCopySpriteCopied] = useState<boolean>(false);
   const symbolsRef = useRef<Element[]>([]);
+  // Debounce timer used by `handleSingleClick` to defer the
+  // copy action. A double-click cancels the pending timer so
+  // the user only gets a download (never a copy) on a dblclick.
+  const clickTimerRef = useRef<number | null>(null);
 
   // Reset transient state ONLY when the modal opens or closes —
   // never on `sprite`/`symbolIds` prop changes. Once the user
@@ -307,6 +315,13 @@ export default function LiveDemoModal({
   // opens), and the local placeholder set keeps the modal
   // working in isolation (and in Storybook).
   useEffect(() => {
+    // Always clear any pending copy timer so a deferred copy
+    // can't fire after the user closes the demo or swaps the
+    // sprite out from under it.
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
     if (!isOpen) return;
     setSearchTerm("");
     setSelectMode(false);
@@ -420,15 +435,46 @@ export default function LiveDemoModal({
         else next.add(id);
         return next;
       });
-    } else {
-      const usageCode = `<svg class="w-6 h-6"><use href="#${id}"></use></svg>`;
-      void copyToClipboard(usageCode).then((ok) => {
+      return;
+    }
+    // Defer the copy by ~250ms so a quick double-click can
+    // cancel it. Without this delay, every "click" of a
+    // dblclick pair would fire a copy before the download,
+    // which the user explicitly does not want.
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+    }
+    clickTimerRef.current = window.setTimeout(() => {
+      clickTimerRef.current = null;
+      const sym = symbolsRef.current.find((s) => s.getAttribute("id") === id);
+      if (!sym) {
+        showToast("Symbol element not found", "error");
+        return;
+      }
+      const viewBox = sym.getAttribute("viewBox") || "0 0 24 24";
+      const innerHTML = sym.innerHTML;
+      // Copy the actual standalone SVG markup (with the active
+      // color/gradient baked in) so the payload is self-contained
+      // and matches what the "Copy N Selected" flow produces.
+      const svgCode = buildStyledStandaloneSvg(viewBox, innerHTML);
+      void copyToClipboard(svgCode).then((ok) => {
         showToast(
-          ok ? `Copied SVG usage code for #${id}` : "Failed to copy to clipboard",
+          ok ? `Copied SVG code for #${id}` : "Failed to copy to clipboard",
           ok ? "success" : "error"
         );
       });
+    }, 250);
+  }
+
+  function handleIconDoubleClick(id: string): void {
+    // Cancel the pending single-click copy so a true
+    // double-click is "strictly download, never copy".
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
     }
+    // Strictly download — never copy.
+    downloadSingleIcon(id);
   }
 
   async function handleCopySelected(): Promise<void> {
@@ -715,6 +761,13 @@ export default function LiveDemoModal({
       ok ? "Copied to clipboard!" : "Failed to copy to clipboard",
       ok ? "success" : "error"
     );
+    // Mirror the inline button text flip for the demo footer's
+    // "Copy Sprite" button. The main Copy Sprite in ResultsPanel
+    // has its own state — keeping these independent avoids the
+    // two labels falling out of sync when the user copies from
+    // one but not the other.
+    setCopySpriteCopied(true);
+    window.setTimeout(() => setCopySpriteCopied(false), 1500);
   }
 
   // Open the "Save to Organization" modal. The parent handles the
@@ -979,7 +1032,7 @@ export default function LiveDemoModal({
                         setRenameValue={setRenameValue}
                         setRenamingId={setRenamingId}
                         onClick={() => handleSingleClick(id)}
-                        onDoubleClick={() => downloadSingleIcon(id)}
+                        onDoubleClick={() => handleIconDoubleClick(id)}
                         onDelete={() => deleteIcon(id)}
                         onRenameCommit={commitRename}
                         onRenameCancel={() => setRenamingId(null)}
@@ -1125,7 +1178,7 @@ export default function LiveDemoModal({
         )}
 
         <div className="px-6 py-3 border-t border-slate-100 bg-white flex items-center justify-between text-xs text-slate-400 flex-shrink-0">
-          <span>Click to copy usage code · Double-click to download · Hover ✕ to remove</span>
+          <span>Click to copy SVG · Double-click to download · Hover ✕ to remove</span>
           <div className="flex items-center gap-2">
             {currentUser && selectedIconsCount() > 0 && (
               <button
@@ -1143,7 +1196,7 @@ export default function LiveDemoModal({
               className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-semibold border border-indigo-200 transition-all flex items-center gap-1.5"
             >
               <DuplicateIcon className="w-3.5 h-3.5" />
-              Copy Sprite
+              {copySpriteCopied ? "Copied" : "Copy Sprite"}
             </button>
             {currentUser ? (
               // Preview mode (opened from the library panel's eye
@@ -1251,9 +1304,23 @@ function DemoIconCard({
     ? SOLID_PRESETS.find((p) => p.color === activeColorClass)
     : undefined;
   const activeHex = activeCustomColor || (preset ? preset.hex : null);
+  // Detect whether the source symbol actually draws with a
+  // stroke. We scan the inner markup (and the wrapping <symbol>
+  // itself) for any explicit `stroke=...` attribute or any
+  // `stroke="currentColor"` style. If none is present, the
+  // source was rendered as a fill-only icon, and forcing a
+  // stroke on every child makes the icon visibly thicker
+  // because the SVG default `stroke-width: 1` kicks in even
+  // though the user never asked for an outline. Skipping the
+  // stroke override in that case keeps the preview pixel-
+  // faithful to the original.
+  const hasStroke =
+    /\bstroke\s*=\s*"(?!none)[^"]*"/i.test(symbolInnerHtml) ||
+    (symbol ? /\bstroke\s*=\s*"(?!none)[^"]*"/i.test(symbol.outerHTML) : false);
   // Build a tiny `<style>` block that targets every descendant
-  // of the icon SVG and forces fill + stroke to the active
-  // color, with `!important`. This is the only reliable way to
+  // of the icon SVG and forces fill (and stroke, only when the
+  // source actually uses one) to the active color, with
+  // `!important`. `!important` is the only reliable way to
   // override the children when they declare an explicit
   // presentation attribute (e.g. `<path fill="black" .../>`):
   // a presentation attribute behaves as a low-specificity CSS
@@ -1265,12 +1332,19 @@ function DemoIconCard({
   // unique `data-demo-icon-style` attribute we set on the
   // wrapping `<svg>`, so two icons side by side can't bleed
   // styles into each other.
+  const buildColorCss = (hex: string): string => {
+    const fillRule = `fill: ${hex} !important;`;
+    const strokeRule = hasStroke ? ` stroke: ${hex} !important;` : "";
+    return `[data-demo-icon-style="${id}"] * { ${fillRule}${strokeRule} }`;
+  };
   const scopedColorStyle: ReactNode = activeHex ? (
-    <style>{`[data-demo-icon-style="${id}"] * { fill: ${activeHex} !important; stroke: ${activeHex} !important; }`}</style>
+    <style>{buildColorCss(activeHex)}</style>
   ) : (
     // No color picked yet — keep the slate-700 default on every
-    // descendant for the same "consistent look" reason.
-    <style>{`[data-demo-icon-style="${id}"] * { fill: #334155 !important; stroke: #334155 !important; }`}</style>
+    // descendant for the same "consistent look" reason. We
+    // honour the same fill-only vs fill+stroke decision so the
+    // default preview also matches the original thickness.
+    <style>{buildColorCss("#334155")}</style>
   );
   let inlineSvg: ReactNode;
   if (activeGradient) {

@@ -3,11 +3,10 @@
 // every saved library version. Picking a target hands the pending
 // icons back through `onPasteIntoWorkspace` or
 // `onPasteIntoLibraryVersion`.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import Modal from "../Modal";
 import { useLibrary } from "../../hooks/useLibrary";
 import { useAuth } from "../../context/AuthContext";
-import { formatDate } from "../../utils/sprite";
 import type { CopiedIcon } from "./LiveDemo";
 import { EyeIcon, LockIcon } from "../icons";
 
@@ -17,26 +16,33 @@ type PasteIconsModalProps = {
   busy: boolean;
   onClose: () => void;
   /**
+   * Optional name of the library the user is currently editing
+   * in the live demo. When set, the bundle with this name is
+   * hidden from the target list so the user can't accidentally
+   * paste the icons back into the very same library and create
+   * a duplicate version of it.
+   */
+  currentBundleName?: string;
+  /**
    * Paste the icons into the compiler's staging area. The modal
    * closes itself immediately after the call returns so the
    * parent's Preview/Undo toast can appear right away.
    */
   onPasteIntoWorkspace: (icons: CopiedIcon[]) => void;
   /**
-   * Paste the icons into a specific library version. The parent
-   * reads the existing sprite, merges the new symbols, and saves
-   * a new version. The modal closes itself the moment this is
-   * invoked; the parent surfaces its own toast.
+   * Paste the icons into a library. The parent reads the
+   * latest version of the bundle, merges the new symbols, and
+   * saves a new version. The modal closes itself the moment
+   * this is invoked; the parent surfaces its own toast.
    */
   onPasteIntoLibraryVersion: (input: {
     spriteId: string;
     bundleName: string;
-    version: number;
     icons: CopiedIcon[];
   }) => void;
 };
 
-type Target = { kind: "workspace" } | { kind: "library"; id: string; bundleName: string; version: number };
+type Target = { kind: "workspace" } | { kind: "library"; id: string; bundleName: string };
 
 export default function PasteIconsModal({
   isOpen,
@@ -45,10 +51,11 @@ export default function PasteIconsModal({
   onClose,
   onPasteIntoWorkspace,
   onPasteIntoLibraryVersion,
+  currentBundleName,
 }: PasteIconsModalProps) {
   const { currentUser } = useAuth();
   const { sprites, loading, refetch } = useLibrary(!!currentUser);
-  const [busyTarget, setBusyTarget] = useState<string | null>(null);
+  // const [busyTarget, setBusyTarget] = useState<string | null>(null);
 
   // Always re-fetch when the modal opens so the user can paste into
   // a library that was just created in another tab.
@@ -58,27 +65,47 @@ export default function PasteIconsModal({
     }
   }, [isOpen, currentUser, refetch]);
 
-  // Group by bundle so the UI can show "Name v1, v2, v3".
-  // Pasting can only target libraries the signed-in user owns
-  // (the library panel only exposes owner-only actions — load,
-  // edit, delete, rename — to non-owners, and the public-by-
-  // someone-else case is read-only). Foreign public libraries
-  // are filtered out here so the popup mirrors the same
-  // "owned only" view the user has in the library panel.
+  // Group by bundle so the UI can show "Name" with a version
+  // count summary. Pasting can only target libraries the
+  // signed-in user owns (the library panel only exposes
+  // owner-only actions — load, edit, delete, rename — to
+  // non-owners, and the public-by-someone-else case is
+  // read-only). Foreign public libraries are filtered out
+  // here so the popup mirrors the same "owned only" view the
+  // user has in the library panel.
   //
-  // Each group carries an `isPublic` flag (OR-reduced across its
-  // versions) so the per-group Public badge only renders for
-  // bundles the owner has actually flipped to public. Private
-  // bundles show no badge — same as the library panel.
+  // The bundle the user is currently editing in the live demo
+  // is also hidden — pasting back into the same library would
+  // just create a duplicate version of the sprite the user is
+  // already looking at, which is never what they want. We
+  // compare by trimmed, case-insensitive name so "Foo" and
+  // "foo" are treated as the same bundle.
+  //
+  // Each group carries an `isPublic` flag (OR-reduced across
+  // its versions) so the per-group Public badge only renders
+  // for bundles the owner has actually flipped to public.
+  // Private bundles show no badge — same as the library panel.
+  //
+  // We also surface the latest version's id so the parent can
+  // load it as the merge base when the user picks this bundle.
   const groups = useMemo(() => {
     const byName = new Map<
       string,
       {
         bundleName: string;
         isPublic: boolean;
+        versionCount: number;
+        latestId: string;
+        latestVersion: number;
         versions: { id: string; version: number; updatedAt?: string; isOwner: boolean; isPublic: boolean }[];
       }
     >();
+    // Normalise the current bundle name once so the per-row
+    // comparison below is cheap. We lowercase + trim so the
+    // match survives incidental whitespace/case differences
+    // between the source label the modal receives and the
+    // bundle names the server returns.
+    const currentKey = currentBundleName?.trim().toLowerCase() || "";
     for (const sprite of sprites) {
       // Skip libraries owned by other users. The server's
       // `listSprites` returns every version of every visible
@@ -87,10 +114,19 @@ export default function PasteIconsModal({
       if (sprite.isOwner === false) continue;
       const key = (sprite.bundleName || sprite.name || "").trim();
       if (!key) continue;
+      // Skip every version of the bundle the user is currently
+      // editing in the live demo. Without this filter the
+      // "Paste Here" button would happily add the same icons
+      // back to the very same sprite and the server would
+      // create yet another version of it.
+      if (currentKey && key.toLowerCase() === currentKey) continue;
       if (!byName.has(key)) {
         byName.set(key, {
           bundleName: sprite.bundleName || sprite.name,
           isPublic: false,
+          versionCount: 0,
+          latestId: "",
+          latestVersion: 0,
           versions: [],
         });
       }
@@ -101,9 +137,10 @@ export default function PasteIconsModal({
       // hide a real Public badge.
       const versionIsPublic = !!sprite.isPublic;
       if (versionIsPublic) group.isPublic = true;
+      const versionNumber = sprite.version ?? 1;
       group.versions.push({
         id: sprite._id,
-        version: sprite.version ?? 1,
+        version: versionNumber,
         updatedAt: sprite.updatedAt,
         // Preserve the original "undefined counts as owned"
         // semantics. After the `isOwner === false` filter above
@@ -113,9 +150,16 @@ export default function PasteIconsModal({
         isOwner: sprite.isOwner ?? true,
         isPublic: versionIsPublic,
       });
+      // Track the latest version so we can use it as the merge
+      // base when the user picks this bundle.
+      if (versionNumber > group.latestVersion) {
+        group.latestVersion = versionNumber;
+        group.latestId = sprite._id;
+      }
     }
     for (const group of byName.values()) {
       group.versions.sort((a, b) => b.version - a.version);
+      group.versionCount = group.versions.length;
     }
     // Order: public bundles first, private bundles second. Within
     // each section the relative order matches the LibraryPanel's
@@ -129,7 +173,7 @@ export default function PasteIconsModal({
       return a.isPublic ? -1 : 1;
     });
     return allGroups;
-  }, [sprites]);
+  }, [sprites, currentBundleName]);
 
   function handlePaste(target: Target) {
     if (busy) return;
@@ -138,16 +182,14 @@ export default function PasteIconsModal({
     // We snapshot the per-target busy state for visual feedback
     // while the parent does the actual paste in the background.
     if (target.kind === "workspace") {
-      setBusyTarget("workspace");
+      //setBusyTarget("workspace");
       onPasteIntoWorkspace(icons);
       onClose();
       return;
     }
-    setBusyTarget(target.id);
     onPasteIntoLibraryVersion({
       spriteId: target.id,
       bundleName: target.bundleName,
-      version: target.version,
       icons,
     });
     onClose();
@@ -210,7 +252,7 @@ export default function PasteIconsModal({
         </div>
 
         <div className="custom-scrollbar mt-4 max-h-[60vh] space-y-3 overflow-y-auto pr-1">
-          {/* Current workspace target — always first. */}
+          {/* Current workspace target — always first.
           <button
             type="button"
             onClick={() => handlePaste({ kind: "workspace" })}
@@ -228,7 +270,7 @@ export default function PasteIconsModal({
             <span className="rounded-lg bg-indigo-100 px-3 py-1.5 text-[11px] font-semibold text-indigo-700 transition-colors group-hover:bg-indigo-600 group-hover:text-white">
               {busyTarget === "workspace" ? "Pasting…" : "Paste Here"}
             </span>
-          </button>
+          </button> */}
 
           {!currentUser && (
             <p className="py-3 text-center text-[11px] text-slate-500">
@@ -246,7 +288,9 @@ export default function PasteIconsModal({
 
           {currentUser && !loading && groups.length === 0 && (
             <p className="py-4 text-center text-[11px] text-slate-500">
-              No saved libraries yet.
+              {currentBundleName?.trim()
+                ? "No other saved libraries to paste into."
+                : "No saved libraries yet."}
             </p>
           )}
 
@@ -254,64 +298,45 @@ export default function PasteIconsModal({
             groups.map((group) => (
               <div
                 key={group.bundleName}
-                className="rounded-xl border border-slate-200 bg-white p-4"
+                className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4"
               >
-                <div className="flex gap-4">
-                  <h4 className="text-sm font-bold text-slate-800">
-                    {group.bundleName}
-                  </h4>
-                  {group.isPublic && (
-                    <span
-                      className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600"
-                    >
-                      <EyeIcon className="h-3 w-3" />
-                      Public
-                    </span>
-                  )}
-                  {!group.isPublic && (
-                    <span
-                      className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500"
-                    >
-                      <LockIcon className="h-3 w-3" />
-                      Private
-                    </span>
-                  )}
+                <div className="min-w-0 flex-1 pr-3">
+                  <div className="flex items-center gap-2">
+                    <h4 className="truncate text-sm font-bold text-slate-800">
+                      {group.bundleName}
+                    </h4>
+                    {group.isPublic && (
+                      <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+                        <EyeIcon className="h-3 w-3" />
+                        Public
+                      </span>
+                    )}
+                    {!group.isPublic && (
+                      <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        <LockIcon className="h-3 w-3" />
+                        Private
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-[11px] font-medium text-slate-400">
+                    {group.versionCount}{" "}
+                    {group.versionCount === 1 ? "version" : "versions"}
+                  </div>
                 </div>
-                <div className="mt-2 space-y-2">
-                  {group.versions.map((version) => {
-                    const isBusy = busyTarget === version.id;
-                    return (
-                      <div
-                        key={version.id}
-                        className="flex items-center justify-between border-l-2 border-indigo-100 pl-3"
-                      >
-                        <div>
-                          <div className="text-xs font-semibold text-slate-700">
-                            v{version.version}
-                          </div>
-                          <div className="text-[10px] font-mono text-slate-400">
-                            {formatDate(version.updatedAt)}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handlePaste({
-                              kind: "library",
-                              id: version.id,
-                              bundleName: group.bundleName,
-                              version: version.version,
-                            })
-                          }
-                          disabled={busy}
-                          className="rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-emerald-100 hover:text-emerald-700 disabled:opacity-50"
-                        >
-                          {isBusy ? "Pasting…" : "Paste Here"}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handlePaste({
+                      kind: "library",
+                      id: group.latestId,
+                      bundleName: group.bundleName,
+                    })
+                  }
+                  disabled={busy}
+                  className="flex-shrink-0 rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-emerald-100 hover:text-emerald-700 disabled:opacity-50"
+                >
+                  Paste Here
+                </button>
               </div>
             ))}
         </div>
