@@ -196,6 +196,14 @@ export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
         ...prev,
         sprites: prev.sprites.filter(s => s._id !== id),
       }));
+      // Notify sibling `useLibrary` instances (e.g. the one
+      // owned by the Compiler, which uses `librarySprites` to
+      // build the "existing library names" conflict list for the
+      // "Save to Library" modal). Without this broadcast the
+      // Compiler would still see the deleted bundle as live and
+      // flag a false-positive name conflict when the user typed
+      // the deleted bundle's name back into the modal.
+      notifyLibraryChanged();
       return {
         bundleName: result.bundleName,
         remaining: result.remaining ?? 0,
@@ -221,6 +229,9 @@ export function useLibrary(autoLoad = true): LibraryState & LibraryActions {
         }
         return { ...prev, sprites: survivors };
       });
+      // Same reason as `deleteVersion` — keep the Compiler's
+      // conflict list in sync with the deletion.
+      notifyLibraryChanged();
       return result.bundleName;
     },
     []

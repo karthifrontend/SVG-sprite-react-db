@@ -386,6 +386,73 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setSaveModalOpen(true);
   }
 
+  // Open the "Save to Organization" modal pre-loaded with a
+  // sprite that contains ONLY the icons the user picked inside
+  // the live demo's select mode. The LiveDemo's "Save N
+  // Selected to Library" footer button hands us the
+  // `CopiedIcon[]` it built for the selection; we re-parse the
+  // raw symbol markup into the same `SpriteSymbol` shape the
+  // compiler uses elsewhere and stitch a fresh sprite XML out
+  // of it. The new XML is written into the demo preview buffer
+  // (`demoSpriteXml` + `demoSymbolIds`) so the existing
+  // `handleSaveToLibraryConfirm` saves the selected-only sprite
+  // verbatim, without disturbing the compiler's main
+  // `spriteXml` (the full sprite is still intact in the
+  // background and can be re-opened by closing the modal).
+  //
+  // We intentionally do NOT re-use `activeBundleName` here:
+  // saving the selected icons as a new version of the
+  // currently-loaded library would be surprising (the rest of
+  // the library's symbols would silently disappear from the
+  // new version). Instead, the modal always opens with an
+  // empty name and the date-stamped placeholder, forcing the
+  // user to type a fresh bundle name so the new entry shows up
+  // as a brand-new library in the panel.
+  function handleOpenSaveSelectedToLibrary(icons: CopiedIcon[]) {
+    if (!icons || icons.length === 0) return;
+    const selectedSymbols = icons
+      .map((icon) => {
+        const match = icon.rawSymbol.match(
+          /<symbol\s+id="([^"]+)"\s+viewBox="([^"]+)"\s*>([\s\S]*?)<\/symbol>/,
+        );
+        const id = match?.[1] ?? icon.name;
+        const viewBox = match?.[2] ?? "0 0 24 24";
+        const inner = match?.[3] ?? "";
+        return { id, viewBox, inner };
+      })
+      // De-duplicate by id (the user could in theory select
+      // the same id twice via the API) so the saved sprite
+      // never contains duplicate symbol definitions.
+      .filter((symbol, index, arr) => arr.findIndex((s) => s.id === symbol.id) === index);
+    if (selectedSymbols.length === 0) {
+      showToast("No icons available to save.", "warning");
+      return;
+    }
+    const xml = buildSpriteXml(selectedSymbols);
+    const ids = selectedSymbols.map((s) => s.id);
+    // Seed the demo preview buffer with the selected-only
+    // sprite. `handleSaveToLibraryConfirm` reads from
+    // `demoSpriteXml` first, so this is what ends up in the
+    // saved library. The compiler's main `spriteXml` and
+    // `symbolIds` stay untouched, so the Results panel and
+    // the staged list are not affected.
+    setDemoSpriteXml(xml);
+    setDemoSymbolIds(ids);
+    const placeholder =
+      `Selected ${ids.length} icon${ids.length === 1 ? "" : "s"} ` +
+      new Date().toLocaleDateString();
+    setSaveModalName("");
+    setSaveModalPlaceholder(placeholder);
+    setSaveModalNextVersion(1);
+    // Selected-only saves always start private — the user
+    // opted into "save selected", not "publish selected", and
+    // the visibility toggle is the only place they can
+    // override that default.
+    setSaveModalIsPublic(false);
+    setLiveDemoOpen(false);
+    setSaveModalOpen(true);
+  }
+
   async function handleSaveToLibraryConfirm(input: { name: string; version: string; isPublic: boolean }) {
     if (saveModalBusy) return;
     // The bundle name is exactly what the user typed, OR the
@@ -1744,6 +1811,9 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         onCopySelectedRequest={(icons) => openPasteModal(icons)}
         onOpenSaveToLibrary={({ suggestedName }) =>
           openSaveToLibraryModal({ suggestedName })
+        }
+        onOpenSaveSelectedToLibrary={(icons) =>
+          handleOpenSaveSelectedToLibrary(icons)
         }
         suggestedBundleName={activeBundleName || baseSpriteFile?.name.replace(/\.svg$/i, "")}
         onDownloadBundle={() => handleDownloadBundleForDemo()}
