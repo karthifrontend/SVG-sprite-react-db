@@ -751,14 +751,18 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     const blob = createZip(entries);
     triggerBrowserDownload(blob, `${fileName}-bundle.zip`);
     // Surface the bundle + version in the success toast so the
-    // user knows exactly what they just downloaded. Uses
-    // template-literal interpolation so the declared
-    // `bundleName` / `version` values are actually rendered
-    // into the toast text.
-    showToast(
-      `Sprite bundle ${bundleName}(v${version}) downloaded successfully.`,
-      "success",
-    );
+    // user knows exactly what they just downloaded. Logged-out
+    // users (or scratch compiles) have no bundle context, so we
+    // fall back to a generic message instead of printing raw
+    // "undefined" tokens.
+    if (bundleName && version != null) {
+      showToast(
+        `Sprite bundle ${bundleName} (v${version}) downloaded successfully.`,
+        "success",
+      );
+    } else {
+      showToast("Sprite bundle downloaded successfully.", "success");
+    }
     return true;
   }
   async function handleDownloadBundleForResults() {
