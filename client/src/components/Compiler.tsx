@@ -148,7 +148,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     reset: resetSprite,
   } = useSpriteCompiler();
 
-  const { refetch: refetchLibrary, sprites: librarySprites, setVersionLabel, deleteVersion } = useLibrary(!!currentUser);
+  const { refetch: refetchLibrary, sprites: librarySprites, setVersionLabel, deleteVersion, updateContent } = useLibrary(!!currentUser);
 
   // ── UI state ────────────────────────────────────────────────
   const [mode, setMode] = useState<CompilerMode>("new");
@@ -197,6 +197,15 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // (only when the sprite came from a library version).
   const [liveDemoOpen, setLiveDemoOpen] = useState(false);
   const [liveDemoSource, setLiveDemoSource] = useState<LiveDemoSource>({ type: "scratch" });
+  // Tracks which entry point opened the LiveDemo. Set to "preview"
+  // when the user clicks the eye icon on a library row — that is
+  // the only flow where the LiveDemo exposes a "Save Changes"
+  // button (which persists edits back to the same library
+  // version) instead of the default "Save to Library" button.
+  // Reset to "default" on close so the next open falls back to
+  // the standard behaviour unless the eye icon was clicked
+  // again.
+  const [liveDemoMode, setLiveDemoMode] = useState<"default" | "preview">("default");
   const [demoSpriteXml, setDemoSpriteXml] = useState<string | null>(null);
   const [demoSymbolIds, setDemoSymbolIds] = useState<string[]>([]);
 
@@ -1291,6 +1300,15 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
             setDemoSpriteXml(sprite);
             setDemoSymbolIds(symbolIds);
             setLiveDemoSource(source);
+            // The eye icon is the only entry point that opens
+            // the demo in "preview" mode — flag it so the modal
+            // shows the in-place "Save Changes" footer button
+            // (and hides the default "Save to Library" button).
+            // All other LiveDemo openers (Results panel,
+            // post-paste preview, base-sprite preview) leave
+            // `liveDemoMode` at its default "default" value so
+            // their existing UX is untouched.
+            setLiveDemoMode("preview");
             // Seed the preview buffer from the library's stored
             // CSS (or defaults for scratch) so the user sees that
             // library's saved customisation. Tweak the preview
@@ -1585,10 +1603,21 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
       <LiveDemoModal
         isOpen={liveDemoOpen}
-        onClose={() => setLiveDemoOpen(false)}
+        onClose={() => {
+          setLiveDemoOpen(false);
+          // Reset the entry-point flag on close so the next open
+          // falls back to the standard behaviour unless the eye
+          // icon was clicked again.
+          setLiveDemoMode("default");
+        }}
         sprite={demoSpriteXml ?? spriteXml}
         symbolIds={demoSpriteXml ? demoSymbolIds : symbolIds}
         source={liveDemoSource}
+        // Toggles the in-place "Save Changes" footer button —
+        // only set when the demo was opened from the library
+        // panel's eye icon. Other entry points keep their
+        // existing "Save to Library" affordance.
+        mode={liveDemoMode}
         onUpdate={(next) => {
           // Re-hydrate the compiler's output with the mutated XML
           // so the result panel (download URL, code preview) stays
@@ -1596,6 +1625,43 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           loadFromLibrary({ xml: next.sprite, symbolIds: next.symbolIds });
           setDemoSpriteXml(next.sprite);
           setDemoSymbolIds(next.symbolIds);
+        }}
+        // Persist the mutated XML back to the source library
+        // version (eye-icon preview only). Uses
+        // `useLibrary().updateContent` for an in-place PUT —
+        // no new version row, no bundle rename. After the save
+        // succeeds we refresh the in-memory preview buffer so
+        // the next edit-save cycle starts from the just-saved
+        // baseline, and broadcast a "library changed" event so
+        // sibling panels (e.g. LibraryPanel) pick up the new
+        // symbol count + updatedAt without a manual refresh.
+        onSave={async ({ xml, symbolIds: saveIds }) => {
+          if (liveDemoSource.type !== "library") {
+            showToast("No library source to save to.", "error");
+            return false;
+          }
+          if (!liveDemoSource.isOwner) {
+            showToast(
+              "Only the owner can save changes to this library version.",
+              "error"
+            );
+            return false;
+          }
+          try {
+            await updateContent(liveDemoSource.id, xml);
+            setDemoSpriteXml(xml);
+            setDemoSymbolIds(saveIds);
+            notifyLibraryChanged();
+            return true;
+          } catch (err) {
+            showToast(
+              err instanceof Error
+                ? err.message
+                : "Failed to save changes.",
+              "error"
+            );
+            return false;
+          }
         }}
         onCopySprite={async () => {
           // The Live Demo shows `demoSpriteXml` (which reflects any

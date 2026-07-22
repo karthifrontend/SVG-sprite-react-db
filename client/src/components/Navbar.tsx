@@ -1,5 +1,4 @@
 import { useAuth } from "../context/AuthContext";
-import { useToast } from "../context/ToastContext";
 import type { ReactNode } from "react";
 
 type NavbarProps = {
@@ -9,15 +8,15 @@ type NavbarProps = {
 
 function Navbar({ onOpenLogin, libraryToggleSlot }: NavbarProps) {
   const { currentUser, logout } = useAuth();
-  const { showToast } = useToast();
 
   async function handleLogout() {
     await logout();
-    showToast("Logged out successfully", "success");
-    // Hard-reload the page so every in-memory state (library cache,
-    // compiler state, file dropzone, etc.) is reset to a clean
-    // signed-out baseline. A soft state reset would risk stale
-    // data leaking from the previous session.
+    // Toast is owned by App — it stages a one-shot marker in
+    // sessionStorage before its auth-change effect calls
+    // `window.location.reload()`, so the "Logged out
+    // successfully" toast re-fires on the freshly-mounted
+    // app. Firing it here would race the reload and the
+    // user would never see it.
     window.location.reload();
   }
 

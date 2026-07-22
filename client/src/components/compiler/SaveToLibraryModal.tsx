@@ -138,7 +138,7 @@ export default function SaveToLibraryModal({
             )}
           </div>
 
-          <div>
+          {/* <div>
             <label
               htmlFor="save-version-description"
               className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-slate-500"
@@ -158,7 +158,7 @@ export default function SaveToLibraryModal({
               A label for this save. The server assigns the numeric version
               automatically.
             </p>
-          </div>
+          </div> */}
 
           {/* "Make it as public" toggle. Mirrors the main page's
               inline-save section so the user gets a consistent

@@ -13,7 +13,6 @@
 import { useState } from "react";
 import Modal from "./Modal";
 import { useAuth } from "../context/AuthContext";
-import { useToast } from "../context/ToastContext";
 
 type LoginModalProps = {
   isOpen: boolean;
@@ -119,7 +118,6 @@ type Provider = "google" | "microsoft" | "demo";
 
 export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
   const { loginWithGoogle, loginWithMicrosoft, loginAsDemo } = useAuth();
-  const { showToast } = useToast();
   const [submittingProvider, setSubmittingProvider] = useState<Provider | null>(
     null
   );
@@ -155,7 +153,13 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
           ? "Microsoft"
           : "Demo";
       setMessage(`Signed in as ${user.email} (${providerLabel})`);
-      showToast(`Welcome, ${user.email}!`, "success");
+      // We don't fire a toast here — App stages a "Logged in
+      // successfully" marker in sessionStorage before its
+      // post-auth `window.location.reload()` lands, and the
+      // freshly-mounted app shows the toast on its own. Firing
+      // one here too would either be invisible (raced by the
+      // reload) or double up on slow networks, so we keep the
+      // success message in the modal and let App own the toast.
       setTimeout(close, 400);
     } catch (err) {
       setError(

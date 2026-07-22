@@ -95,105 +95,110 @@ spriteSchema.index({ ownerId: 1, updatedAt: -1 });
  * rows in `sprite_versions` whose `spriteId` references a document
  * that no longer exists.
  *
+ * The hooks are written as plain async functions and return
+ * promises. Mongoose 9 supports promise-returning hooks natively
+ * and we no longer need to thread Mongoose's `next` callback
+ * through the cascade. The previous `asNext(next)` plumbing
+ * crashed at runtime when Mongoose 9's combined-document-and-query
+ * hook machinery passed a non-function sentinel as `next` (it
+ * expects the hook to be async in that mode); letting the hook
+ * be async and just throwing on error sidesteps the issue
+ * entirely.
+ *
  * We pull the bundle's `_id` from the query filter (or, for
  * `findOneAndDelete`, by materialising the matched doc) and issue
  * a single `SpriteVersion.deleteMany({ spriteId })` before the
- * bundle itself is removed. If the version delete throws, the
- * hook surfaces the error to Mongoose and the bundle delete is
- * aborted, leaving the data in a consistent state.
+ * bundle itself is removed. If the version delete throws, Mongoose
+ * catches the rejection and aborts the bundle delete, leaving the
+ * data in a consistent state.
  */
-type FilterLike = Record<string, unknown> | undefined;
 
+/** Pull the `_id` value out of a Mongoose query filter, if any. */
 function readIdFromFilter(filter: unknown): unknown | undefined {
   if (!filter || typeof filter !== "object") return undefined;
   return (filter as { _id?: unknown })._id;
 }
 
 /**
- * Wrap a Mongoose `next` callback so we can pass it through to a
- * helper. Mongoose 9's `HookDoneFunction` is a discriminated
- * union (function or `Kareem.OverwriteMiddlewareResult`); we
- * always treat it as the function form because the only call
- * style we use is the standard `(err?) => void` callback.
+ * Resolve the bundle `_id` for a hook invocation. For the
+ * document middleware the id lives on `this`; for the query
+ * middleware it lives in `getFilter()`. Returns `undefined`
+ * when neither is available, in which case the caller should
+ * skip the cascade and let the underlying delete proceed.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyNext = (err?: Error) => any;
-
-function asNext(next: unknown): AnyNext {
-  return next as AnyNext;
+function resolveBundleIdFromHook(
+  thisArg: unknown,
+  docArg: unknown
+): unknown | undefined {
+  if (
+    docArg &&
+    typeof docArg === "object" &&
+    "_id" in (docArg as Record<string, unknown>)
+  ) {
+    return (docArg as { _id?: unknown })._id;
+  }
+  const ctx = thisArg as { getFilter?: () => unknown; _id?: unknown };
+  if (ctx && typeof ctx.getFilter === "function") {
+    return readIdFromFilter(ctx.getFilter());
+  }
+  if (ctx && ctx._id !== undefined) {
+    return ctx._id;
+  }
+  return undefined;
 }
 
-function runCascade(bundleId: unknown, next: AnyNext): void {
-  if (bundleId === undefined || bundleId === null) {
-    return next();
-  }
+/**
+ * Issue the version cascade. Throws on failure so Mongoose's
+ * promise hook machinery surfaces the error and aborts the
+ * parent delete.
+ */
+async function runCascade(bundleId: unknown): Promise<void> {
+  if (bundleId === undefined || bundleId === null) return;
   // The `spriteId` filter is strongly typed on the model; we
   // cast through `unknown` because `bundleId` came from the
   // caller's filter and may be a string, ObjectId, or whatever
   // Mongoose has normalised it to.
-  SpriteVersion.deleteMany({ spriteId: bundleId } as Record<string, unknown>)
-    .then(() => asNext(next)())
-    .catch((err: unknown) =>
-      asNext(next)(err instanceof Error ? err : new Error(String(err)))
-    );
+  await SpriteVersion.deleteMany({
+    spriteId: bundleId,
+  } as Record<string, unknown>);
 }
 
 /**
- * Combined document + query hook for `deleteOne`. Mongoose 9's
- * `pre('deleteOne', { document: true, query: true }, fn)` registers
- * the same function in both lists and dispatches based on the
- * call style: `Model.deleteOne(filter)` invokes it with `this`
- * being the Query (and `doc` is not provided), while
- * `doc.deleteOne()` invokes it with `this` and `doc` both being
- * the document. We branch on the presence of `doc` so the same
- * function handles both call sites.
+ * Combined document + query hook for `deleteOne`. Mongoose 9
+ * supports promise-returning middleware, so the hook body just
+ * resolves the bundle id, runs the cascade, and lets thrown
+ * errors propagate. Mongoose aborts the delete on a rejection.
  */
 spriteSchema.pre(
   "deleteOne",
   { document: true, query: true },
-  function preDeleteOneCascade(doc, next) {
-    // Query middleware: Mongoose calls with `(next)`. The Query
-    // is `this`, and the filter is what we'll use as the id
-    // source.
-    // Document middleware: Mongoose calls with `(doc, next)`.
-    // We extract the id from the document and cascade.
-    if (doc && typeof doc === "object" && "_id" in doc) {
-      runCascade((doc as { _id?: unknown })._id, asNext(next));
+  async function preDeleteOneCascade(this: unknown, doc: unknown) {
+    const idField = resolveBundleIdFromHook(this, doc);
+    if (idField === undefined) {
+      // No id in the filter — we can't safely cascade. Let the
+      // delete proceed; the route layer always filters by `_id`.
       return;
     }
-    const ctx = this as unknown as { getFilter?: () => unknown };
-    if (typeof ctx.getFilter === "function") {
-      const idField = readIdFromFilter(ctx.getFilter());
-      if (idField === undefined) {
-        // No id in the filter — we can't safely cascade. Let the
-        // delete proceed; the route layer always filters by `_id`.
-        return asNext(next)();
-      }
-      runCascade(idField, asNext(next));
-      return;
-    }
-    return asNext(next)();
+    await runCascade(idField);
   }
 );
 
-spriteSchema.pre("deleteMany", function preDeleteManyCascade(next) {
-  const ctx = this as unknown as { getFilter?: () => unknown };
-  if (typeof ctx.getFilter !== "function") {
-    return asNext(next)();
-  }
+spriteSchema.pre("deleteMany", async function preDeleteManyCascade(this: unknown) {
+  const ctx = this as { getFilter?: () => unknown };
+  if (typeof ctx.getFilter !== "function") return;
   const idField = readIdFromFilter(ctx.getFilter());
   if (idField === undefined) {
     // No id in the filter — we can't safely cascade. Let the
     // delete proceed; the route layer always filters by `_id`.
-    return asNext(next)();
+    return;
   }
-  runCascade(idField, asNext(next));
+  await runCascade(idField);
 });
 
 spriteSchema.pre(
   "findOneAndDelete",
   { document: true, query: true },
-  function preFindOneAndDeleteCascade(next) {
+  async function preFindOneAndDeleteCascade(this: unknown) {
     // Materialise the about-to-be-removed doc so we have its id;
     // the `findOneAndDelete` filter alone isn't enough because
     // callers may have used anything (`bundleName`, `ownerId`,
@@ -204,19 +209,12 @@ spriteSchema.pre(
       model: Model<{ _id: unknown }>;
     };
     const filter = ctx.getFilter();
-    ctx.model
+    const found = await ctx.model
       .findOne(filter as Record<string, unknown>)
       .select({ _id: 1 })
-      .lean()
-      .then((found) => {
-        if (!found) {
-          return asNext(next)();
-        }
-        runCascade(found._id, asNext(next));
-      })
-      .catch((err: unknown) =>
-        asNext(next)(err instanceof Error ? err : new Error(String(err)))
-      );
+      .lean();
+    if (!found) return;
+    await runCascade(found._id);
   }
 );
 
