@@ -92,7 +92,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     // (no sprite panel, staged list and sign-in hint reappear).
     // `resetSprite` already clears the sprite's error/symbols/url.
     resetSprite();
-    setSaveStatus(null);
     setHasGenerated(false);
     // The tab and base sprite file stay as the user left them. We
     // intentionally do NOT force a tab switch on upload — the user
@@ -189,7 +188,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   });
 
   const [saving, setSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<{ kind: "ok" | "err"; message: string } | null>(null);
 
   // Live demo modal. Opened from the Results panel's "Live Demo"
   // button. When the modal mutates the sprite, it calls `onUpdate`
@@ -543,15 +541,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     );
   }
 
-  // Paste icons into a specific library version. Loads the
-  // version, merges the new symbols into it (new symbols win on
+  // Paste icons into a library. Loads the latest version of the
+  // bundle, merges the new symbols into it (new symbols win on
   // id collision), and saves as a new version. After the save
   // succeeds we surface a Preview / Undo toast so the user can
   // roll the paste back if it wasn't what they wanted.
   async function handlePasteIntoLibraryVersion(input: {
     spriteId: string;
     bundleName: string;
-    version: number;
     icons: CopiedIcon[];
   }) {
     const detail = await getSpriteById(input.spriteId);
@@ -934,7 +931,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     // and clears the Library Name field so the user starts
     // from a clean slate.
     setInlineSave(defaultInlineSave);
-    setSaveStatus(null);
   }
 
   function clearExistingSprite() {
@@ -1024,7 +1020,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
   // ── Generate ───────────────────────────────────────────────
   async function handleGenerate() {
-    setSaveStatus(null);
     if (inlineSave.enabled && !currentUser) {
       showToast("Please sign in to save to a library.", "warning");
       onRequireAuth?.();
@@ -1103,10 +1098,33 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       const isNewBundle = !inlineSave.saveAsNew && activeBundleName
         ? false
         : true;
-      setSaveStatus({
-        kind: "ok",
-        message: "Saved to library successfully!"
-      });
+      // Surface the success as a toast (matches the
+      // "Sprite generated and saved to library!" / "New
+      // version saved to library successfully!" / "New
+      // library saved successfully!" patterns from the
+      // design) instead of the inline status text below the
+      // Generate button. The inline block was removed; the
+      // toast is now the single source of truth for the
+      // user's "did it save?" feedback. The message branches
+      // on the save branch the user picked in the inline
+      // save panel:
+      //   - saveAsNew ON  -> they asked for a brand-new
+      //     library, so the toast says "New library saved
+      //     successfully!".
+      //   - saveAsNew OFF + active bundle -> they asked for
+      //     a new version of the active bundle, so the toast
+      //     says "New version saved to library
+      //     successfully!".
+      //   - create mode (no active bundle) -> they created
+      //     the first version of a brand-new bundle, so the
+      //     toast says "Sprite generated and saved to
+      //     library!".
+      const successMessage = inlineSave.saveAsNew
+        ? "New library saved successfully!"
+        : activeBundleName
+          ? "New version saved to library successfully!"
+          : "Sprite generated and saved to library!";
+      showToast(successMessage, "success");
       // Refresh the library list so the new version shows up
       // immediately in the side panel without the user having to
       // hit the refresh button. `refetchLibrary` only updates
@@ -1133,10 +1151,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         hasNameConflict: false,
       }));
     } catch (err) {
-      setSaveStatus({
-        kind: "err",
-        message: err instanceof Error ? err.message : "Failed to save sprite.",
-      });
+      // Mirror the success path: surface the failure as a
+      // toast rather than the inline status text. The
+      // inline display block below the Generate button is
+      // gone, so the toast is the only feedback channel.
+      showToast(
+        err instanceof Error ? err.message : "Failed to save sprite.",
+        "error"
+      );
     } finally {
       setSaving(false);
     }
@@ -1167,7 +1189,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     resetForNewUpload();
     setMode("update");
     // setLoadingFromLibrary(true);
-    setSaveStatus(null);
     try {
       const detail = await getSpriteById(summary._id);
       const bundleName = detail.bundleName || detail.name;
@@ -1385,7 +1406,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                     // uploaded file has no pre-existing bundle to
                     // version off of.
                     setBaseSpriteSource("uploaded");
-                    setSaveStatus(null);
                     if (!activeBundleName) {
                       const fromName = f.name.replace(/\.svg$/i, "");
                       setActiveBundleName(fromName);
@@ -1501,17 +1521,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
               {error && (
                 <p className="mt-3 text-center text-xs text-rose-500">{error}</p>
-              )}
-
-              {saveStatus && (
-                <p
-                  className={
-                    "mt-3 text-center text-xs " +
-                    (saveStatus.kind === "ok" ? "text-emerald-600" : "text-rose-500")
-                  }
-                >
-                  {saveStatus.message}
-                </p>
               )}
 
               <ResultsPanel
@@ -1632,6 +1641,23 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         icons={pendingPasteIcons ?? []}
         busy={pasteBusy}
         onClose={closePasteModal}
+        currentBundleName={
+          // Hide the bundle the user is already working in
+          // from the paste targets. Two flows can put the
+          // user in that situation:
+          //   1. They opened the live demo from a saved
+          //      library (`liveDemoSource.type === "library"`).
+          //   2. They just enabled "Save to library" in
+          //      the inline-save panel and generated a
+          //      sprite. After that save the bundle they
+          //      saved into is tracked by `activeBundleName`.
+          // Whichever signal is live wins — the live-demo
+          // source is the most-recent user action and takes
+          // precedence over the broader "last saved" hint.
+          liveDemoSource.type === "library"
+            ? liveDemoSource.name
+            : activeBundleName || undefined
+        }
         onPasteIntoWorkspace={(icons) => {
           setPasteBusy(true);
           try {
