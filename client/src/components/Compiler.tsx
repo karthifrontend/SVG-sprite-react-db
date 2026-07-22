@@ -560,9 +560,47 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     bundleName: string;
     icons: CopiedIcon[];
   }) {
+    // De-duplicate the pasted selection against the destination
+    // library BEFORE we load the sprite or save a new version.
+    // The check is by symbol id: if every pasted id already
+    // exists in the destination library we abort entirely (no
+    // new version, no Preview/Undo toast — there's nothing to
+    // undo). If only some ids already exist we paste the rest
+    // and surface a warning so the user knows how many were
+    // dropped. We need the destination's full XML to know the
+    // existing ids, so the duplicate check runs after the
+    // `getSpriteById` fetch below — but BEFORE we call
+    // `saveSprite`, which is the irreversible step.
+    //
+    // To avoid the wasted round-trip in the all-duplicates case
+    // we still need the latest version's symbol list. The
+    // `getSpriteById` call is cheap (single Mongo doc), so we
+    // accept the cost in exchange for the duplicate detection
+    // being authoritative against the server's view of the
+    // bundle. The merge / save is skipped on the all-duplicates
+    // branch, so we never create an empty new version.
     const detail = await getSpriteById(input.spriteId);
     const baseSymbols = extractSymbolsFromSprite(detail.xml);
-    const newSymbols = input.icons.map((icon) => {
+    const baseIds = new Set(baseSymbols.map((s) => s.id));
+    // Split the pasted selection into "already in the
+    // destination" vs "new". The pasted icons keep their
+    // declared order so the resulting toast / Preview / Undo
+    // text still refers to them in the order the user picked
+    // them.
+    const duplicateIcons = input.icons.filter((icon) => baseIds.has(icon.name));
+    const newIcons = input.icons.filter((icon) => !baseIds.has(icon.name));
+    if (newIcons.length === 0) {
+      // Every pasted id already exists in the destination —
+      // bail out without saving a new version. The user gets a
+      // warning toast that names the bundle so they know which
+      // library rejected the paste.
+      showToast(
+        `Selected icon(s) already exist in ${detail.bundleName}, No version created.`,
+        "warning"
+      );
+      return;
+    }
+    const newSymbols = newIcons.map((icon) => {
       // Re-parse the raw symbol so we get the same SpriteSymbol
       // shape the compiler uses.
       const match = icon.rawSymbol.match(
@@ -599,14 +637,26 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     // paste back if it wasn't what they wanted. Undo deletes
     // the version we just created, leaving the bundle's older
     // versions intact.
-    const pastedCount = input.icons.length;
+    //
+    // `pastedCount` reflects the number of icons that actually
+    // landed in the new version (i.e. after the duplicate
+    // filter above), not the original selection size. If the
+    // selection had any duplicates we append a "skipped N
+    // duplicates" note to the toast so the user can see what
+    // was dropped without having to compare icons themselves.
+    const pastedCount = newIcons.length;
+    const duplicateCount = duplicateIcons.length;
     const newSpriteId = saved.id;
     const newVersion = saved.version;
     const bundleName = detail.bundleName;
     const previewXml = xml;
     const previewIds = merged.map((s) => s.id);
+    const successMessage =
+      duplicateCount > 0
+        ? `Pasted ${pastedCount} icon${pastedCount === 1 ? "" : "s"} into ${bundleName} v${newVersion} (skipped ${duplicateCount} duplicate${duplicateCount === 1 ? "" : "s"}).`
+        : `Pasted ${pastedCount} icon${pastedCount === 1 ? "" : "s"} into ${bundleName} v${newVersion}.`;
     showToast(
-      `Pasted ${pastedCount} icon${pastedCount === 1 ? "" : "s"} into ${bundleName} v${newVersion}.`,
+      successMessage,
       "success",
       [
         {
