@@ -100,7 +100,6 @@ export async function renderSpritePreviewPng(
       .trim();
 
     const iconDataUrl = renderSymbolToDataUrl(
-      id,
       viewBox,
       thisInner,
       SYMBOL_PX,
@@ -186,7 +185,6 @@ function roundRect(
  * avoids needing a separate fetch / load step per symbol.
  */
 function renderSymbolToDataUrl(
-  id: string,
   viewBox: string,
   inner: string,
   size: number,
