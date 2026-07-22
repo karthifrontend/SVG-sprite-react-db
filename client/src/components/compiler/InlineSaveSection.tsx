@@ -283,7 +283,7 @@ function InlineSaveSection({
               tabIndex={0}
               aria-label="What does public mean?"
             >
-              <InfoIcon className="h-3.5 w-3.5 cursor-help text-slate-400 transition-colors group-hover/info:text-indigo-500" />
+              <InfoIcon className="h-3.5 w-3.5 cursor-pointer text-slate-400 transition-colors group-hover/info:text-indigo-500" />
               {/* Tooltip — appears on hover/focus so screen readers can
                   discover the explanation via the focusable wrapper. */}
               <span
