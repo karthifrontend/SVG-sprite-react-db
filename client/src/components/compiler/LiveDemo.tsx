@@ -123,6 +123,17 @@ type LiveDemoProps = {
    */
   onOpenSaveToLibrary?: (input: { suggestedName: string }) => void;
   /**
+   * Open the "Save to Organization" modal pre-loaded with a sprite
+   * that contains ONLY the icons the user selected. Wired to the
+   * "Save to Library" footer button when one or more icons are
+   * selected — the parent (Compiler) uses the supplied `CopiedIcon[]`
+   * to build a fresh sprite XML and lets the user save it as a
+   * brand-new library entry. When `onOpenSaveSelectedToLibrary` is
+   * provided, selecting icons enables the "Save to Library" button
+   * (it would otherwise be disabled in select mode).
+   */
+  onOpenSaveSelectedToLibrary?: (icons: CopiedIcon[]) => void;
+  /**
    * Name to pre-fill in the "Save to Library" modal (e.g. the
    * currently-loaded bundle).
    */
@@ -222,6 +233,7 @@ export default function LiveDemoModal({
   onCopyIcons,
   onCopySelectedRequest,
   onOpenSaveToLibrary,
+  onOpenSaveSelectedToLibrary,
   suggestedBundleName,
   onDownloadBundle,
   bundleFileName,
@@ -772,10 +784,40 @@ export default function LiveDemoModal({
 
   // Open the "Save to Organization" modal. The parent handles the
   // actual save + library refetch when the user confirms.
+  // When the user has icons selected, take the "save selected
+  // only" branch instead: build a `CopiedIcon[]` for the
+  // selected symbols and hand it to the parent via
+  // `onOpenSaveSelectedToLibrary`. The parent will compose a
+  // fresh sprite XML containing only the selected icons and
+  // open the same Save to Organization modal pre-loaded with
+  // that XML. We always exit select mode on the way out so the
+  // modal opens on a clean canvas and the icon grid returns to
+  // its default hover/click behaviour.
   function handleOpenSaveToLibrary(): void {
     if (!currentUser) {
       onOpenSaveModal?.();
       return;
+    }
+    if (selectMode && selectedIcons.size > 0 && onOpenSaveSelectedToLibrary) {
+      const copied: CopiedIcon[] = [];
+      selectedIcons.forEach((id) => {
+        const sym = symbolsRef.current.find((s) => s.getAttribute("id") === id);
+        if (!sym) return;
+        const viewBox = sym.getAttribute("viewBox") || "0 0 24 24";
+        const innerHTML = sym.innerHTML;
+        copied.push({
+          name: id,
+          content: buildStyledStandaloneSvg(viewBox, innerHTML),
+          rawSymbol: `<symbol id="${id}" viewBox="${viewBox}">${innerHTML}</symbol>`,
+        });
+      });
+      if (copied.length > 0) {
+        onOpenSaveSelectedToLibrary(copied);
+        setSelectedIcons(new Set());
+        setSelectMode(false);
+        onClose?.();
+        return;
+      }
     }
     const fallbackName =
       suggestedBundleName ||
@@ -1230,11 +1272,28 @@ export default function LiveDemoModal({
                 <button
                   type="button"
                   onClick={() => handleOpenSaveToLibrary()}
-                  disabled={selectMode}
+                  // Stay enabled in select mode so the user can
+                  // save JUST the selected icons as a new
+                  // library. The label flips to "Save N Selected"
+                  // to make the scope obvious. The button only
+                  // becomes useless when both no source and no
+                  // selection exist (nothing to save), which
+                  // can't actually happen inside an open
+                  // LiveDemo, but we keep the disable on
+                  // `downloadBusy` for symmetry with the
+                  // logged-out branch.
+                  disabled={downloadBusy}
+                  title={
+                    selectMode && selectedIconsCount() > 0
+                      ? `Save ${selectedIconsCount()} selected icon${selectedIconsCount() === 1 ? "" : "s"} as a new library.`
+                      : "Save this sprite to the shared Syncfusion library."
+                  }
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <CheckIcon className="w-3.5 h-3.5" />
-                  Save to Library
+                  {selectMode && selectedIconsCount() > 0
+                    ? `Save ${selectedIconsCount()} Selected to Library`
+                    : "Save to Library"}
                 </button>
               )
             ) : (
