@@ -1166,7 +1166,23 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       }
     }
 
-    await generate(files, existingContent ? { existingContent } : undefined);
+    const summary = await generate(files, existingContent ? { existingContent } : undefined);
+
+    // All-duplicates short-circuit: every staged file's symbol id
+    // was already present in the base sprite, so the generator
+    // didn't produce a new output. We bail before any of the
+    // post-generate state changes (which would otherwise drop the
+    // base-sprite file, lock the Generate button, and run the
+    // save flow for a sprite that didn't change). The staged
+    // files are left in place so the user can remove the
+    // duplicates and try again.
+    if (summary.allDuplicates) {
+      showToast(
+        `All ${summary.duplicateCount} icon${summary.duplicateCount === 1 ? "" : "s"} already exist in the base sprite.`,
+        "warning"
+      );
+      return;
+    }
 
     // Lock the Generate button until new files are uploaded.
     setHasGenerated(true);
@@ -1190,12 +1206,18 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }
 
     if (!inlineSave.enabled) {
-      showToast(
-        mode === "update"
-          ? "Sprite updated in your browser!"
-          : "Sprite generated instantly in your browser!",
-        "success"
-      );
+      // In update mode, surface the duplicate-skip count so the
+      // user can see how many of their staged files were dropped.
+      // In new mode there are no existing symbols to collide
+      // with, so `duplicateCount` is always 0 and the message
+      // stays the original.
+      const updatedMessage =
+        mode === "update" && summary.duplicateCount > 0
+          ? `Sprite updated in your browser! (skipped ${summary.duplicateCount} duplicate${summary.duplicateCount === 1 ? "" : "s"})`
+          : mode === "update"
+            ? "Sprite updated in your browser!"
+            : "Sprite generated instantly in your browser!";
+      showToast(updatedMessage, "success");
       return;
     }
 

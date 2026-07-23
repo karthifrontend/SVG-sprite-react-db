@@ -11,12 +11,42 @@ type CompilerState = {
 };
 
 type CompilerActions = {
-  generate: (files: File[], options?: { existingContent?: string }) => Promise<void>;
+  /**
+   * Run the sprite-generation pipeline on the supplied files.
+   * Returns a summary describing what was actually merged into
+   * the output sprite. In update mode (`existingContent`
+   * provided) the summary reports how many of the staged files
+   * produced duplicate symbol ids against the base sprite, so
+   * the caller can surface a "skipped N duplicates" toast. When
+   * every staged file is a duplicate the hook skips the
+   * generation entirely and returns `allDuplicates: true` with
+   * no sprite state changes — the caller should treat that as
+   * a no-op and bail before any save flow runs.
+   */
+  generate: (
+    files: File[],
+    options?: { existingContent?: string }
+  ) => Promise<GenerateSummary>;
   copy: () => Promise<void>;
   openDemo: () => void;
   reset: () => void;
   waitForSprite: () => Promise<{ xml: string; symbolIds: string[] }>;
   loadFromLibrary: (input: { xml: string; symbolIds: string[] }) => void;
+};
+
+/**
+ * Outcome of a `generate()` call. `duplicateCount` is the number
+ * of staged files whose symbol id was already present in the
+ * base sprite (only meaningful in update mode). `newCount` is
+ * the number of staged files that contributed a fresh symbol
+ * to the merged output. `allDuplicates` is the short-circuit
+ * signal: when true, the hook skipped the generation entirely
+ * and the caller should treat the call as a no-op.
+ */
+export type GenerateSummary = {
+  duplicateCount: number;
+  newCount: number;
+  allDuplicates: boolean;
 };
 
 const COPY_FEEDBACK_MS = 1500;
@@ -55,8 +85,13 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
   }, []);
 
   const generate = useCallback(
-    async (files: File[], options?: { existingContent?: string }) => {
-      if (files.length === 0 && !options?.existingContent) return;
+    async (
+      files: File[],
+      options?: { existingContent?: string }
+    ): Promise<GenerateSummary> => {
+      if (files.length === 0 && !options?.existingContent) {
+        return { duplicateCount: 0, newCount: 0, allDuplicates: false };
+      }
       setGenerating(true);
       setError(null);
       setSpriteXml(null);
@@ -73,9 +108,31 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
         const existingSymbols = options?.existingContent
           ? extractSymbolsFromSprite(options.existingContent)
           : [];
+        // Pre-compute the duplicate set against the base sprite so
+        // we can return a summary the caller uses for its toast
+        // copy and to short-circuit the all-duplicates case. We
+        // compare by symbol id (derived from the staged file's
+        // name) — the same id the server-side library merge uses,
+        // so a file dropped here that collides with an existing
+        // library symbol is treated as a duplicate here too.
+        //
+        // The short-circuit (`allDuplicates: true`) means: if
+        // every staged file produced an id that already lives in
+        // the base sprite, we skip the merge / blob / state
+        // updates entirely. The caller (`handleGenerate`) then
+        // bails before touching the base-sprite file, the inline
+        // save state, or the library save flow — there's nothing
+        // to save, and creating a "new version" of the sprite
+        // with zero net new icons would be misleading.
+        const existingIds = new Set(existingSymbols.map((s) => s.id));
+        const duplicateCount = newSymbols.filter((s) => existingIds.has(s.id)).length;
+        const trulyNewSymbols = newSymbols.filter((s) => !existingIds.has(s.id));
+        if (existingSymbols.length > 0 && trulyNewSymbols.length === 0) {
+          return { duplicateCount, newCount: 0, allDuplicates: true };
+        }
         const seen = new Set<string>();
         const merged: SpriteSymbol[] = [];
-        for (const s of [...existingSymbols, ...newSymbols]) {
+        for (const s of [...existingSymbols, ...trulyNewSymbols]) {
           if (seen.has(s.id)) continue;
           seen.add(s.id);
           merged.push(s);
@@ -89,8 +146,10 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
         setSymbolIds(merged.map(s => s.id));
         xmlRef.current = xml;
         symbolIdsRef.current = merged.map(s => s.id);
+        return { duplicateCount, newCount: trulyNewSymbols.length, allDuplicates: false };
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to generate sprite.");
+        return { duplicateCount: 0, newCount: 0, allDuplicates: false };
       } finally {
         setGenerating(false);
       }
