@@ -191,8 +191,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
   // Live demo modal. Opened from the Results panel's "Live Demo"
   // button. When the modal mutates the sprite, it calls `onUpdate`
-  // which we wire to the compiler's `loadFromLibrary` action so the
-  // result panel reflects the changes immediately. The `source`
+  // which we wire to the demo preview buffer (demoSpriteXml /
+  // demoSymbolIds) only — the compiler's main result state
+  // (spriteXml / symbolIds / spriteUrl) is intentionally left
+  // untouched so the Results panel does NOT appear as a side
+  // effect of a preview-only rename / delete. The `source`
   // tells the modal whether the "Save Changes" CTA should appear
   // (only when the sprite came from a library version).
   const [liveDemoOpen, setLiveDemoOpen] = useState(false);
@@ -206,6 +209,19 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // the standard behaviour unless the eye icon was clicked
   // again.
   const [liveDemoMode, setLiveDemoMode] = useState<"default" | "preview">("default");
+  // Marks the base-sprite "Preview" button in
+  // ExistingSpriteSection as the opener's source. Independent
+  // of `liveDemoMode` so the base-sprite preview keeps the
+  // default "Save to Library" CTA (revert from the previous
+  // "Save Changes" experiment) while still preventing its
+  // rename/delete edits from leaking into the compiler's main
+  // result state via `onUpdate`. Only the library panel eye
+  // icon sets `liveDemoMode = "preview"` to expose the
+  // in-place "Save Changes" button; the base-sprite preview
+  // sets ONLY this flag. Both preview entry points are
+  // combined in the `onUpdate` gate below.
+  const [liveDemoIsBaseSpritePreview, setLiveDemoIsBaseSpritePreview] =
+    useState<boolean>(false);
   const [demoSpriteXml, setDemoSpriteXml] = useState<string | null>(null);
   const [demoSymbolIds, setDemoSymbolIds] = useState<string[]>([]);
 
@@ -1106,6 +1122,31 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       // surfaces the right affordances. For uploaded files
       // (no saved bundle to attach to) we keep the scratch
       // source — there's no library context to surface.
+      //
+      // Flag the demo as a base-sprite preview via
+      // `liveDemoIsBaseSpritePreview`. The `onUpdate` callback
+      // below ORs this with `liveDemoMode === "preview"` to
+      // gate the `loadFromLibrary` mirror — without that
+      // guard, a rename or delete inside the demo would
+      // flow into the compiler's main `spriteXml` /
+      // `symbolIds` / `spriteUrl`, flipping `hasResult` to
+      // true and surfacing the entire Results panel as a
+      // side effect of a preview.
+      //
+      // We deliberately do NOT set `liveDemoMode = "preview"`
+      // here. That flag is reserved for the library panel's
+      // eye-icon entry point, where it controls the in-place
+      // "Save Changes" footer button inside LiveDemo. The
+      // base-sprite preview keeps the default
+      // `liveDemoMode = "default"`, so the modal renders the
+      // original "Save to Library" CTA (matching the
+      // pre-experiment behaviour the user asked to revert).
+      // The "Save to Library" button opens the Save to
+      // Organization modal, which works regardless of whether
+      // the base sprite was loaded from the library or
+      // uploaded — there's no special in-place save path for
+      // base-sprite previews.
+      setLiveDemoIsBaseSpritePreview(true);
       const demoXml = buildSpriteXml(symbols);
       setDemoSpriteXml(demoXml);
       setDemoSymbolIds(symbols.map((s) => s.id));
@@ -1748,25 +1789,90 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           // falls back to the standard behaviour unless the eye
           // icon was clicked again.
           setLiveDemoMode("default");
+          // Clear the base-sprite preview flag too so a
+          // subsequent open from a different entry point
+          // (e.g. the Results panel's "Live Demo" button) can
+          // flow its rename/delete edits into the Symbol IDs
+          // list. `handlePreviewBaseSprite` re-sets this on
+          // every open from that entry point.
+          setLiveDemoIsBaseSpritePreview(false);
+          // Clear the demo buffer so a subsequent open from a
+          // different entry point (e.g. the Results panel's
+          // "Live Demo" button) doesn't accidentally render
+          // whatever was last previewed — most notably a saved
+          // library version the user just renamed / deleted
+          // symbols in. Without this reset, the library
+          // preview's mutated XML would persist in
+          // `demoSpriteXml` after close, and because the demo
+          // reads `demoSpriteXml ?? spriteXml` the Results
+          // demo would show the renamed library content
+          // instead of the freshly-generated sprite the user
+          // expects. The user explicitly reported this leak
+          // between the library preview and the Results demo.
+          // Each entry point that needs a non-default demo
+          // buffer re-seeds it on open, so dropping the buffer
+          // here is safe for every flow.
+          setDemoSpriteXml(null);
+          setDemoSymbolIds([]);
+          // Reset the demo source too so a subsequent open
+          // doesn't briefly surface a stale library/version
+          // chip in the modal header before the new entry
+          // point overwrites it.
+          setLiveDemoSource({ type: "scratch" });
         }}
         sprite={demoSpriteXml ?? spriteXml}
         symbolIds={demoSpriteXml ? demoSymbolIds : symbolIds}
         source={liveDemoSource}
         // Toggles the in-place "Save Changes" footer button —
-        // only set when the demo was opened from the library
-        // panel's eye icon. Other entry points keep their
-        // existing "Save to Library" affordance.
+        // set to "preview" ONLY when the demo was opened from
+        // the library panel's eye icon. The base-sprite
+        // "Preview" button in ExistingSpriteSection keeps
+        // `mode = "default"` so the demo renders the original
+        // "Save to Library" CTA (revert from a prior
+        // experiment that exposed "Save Changes" there). The
+        // base-sprite preview is still protected from
+        // polluting the Results section via the
+        // `liveDemoIsBaseSpritePreview` flag, which the
+        // `onUpdate` gate below ORs with `mode === "preview"`.
         mode={liveDemoMode}
         onUpdate={(next) => {
-          // Re-hydrate the compiler's output with the mutated XML
-          // so the result panel (download URL, code preview) stays
-          // in sync with what the modal shows.
-          loadFromLibrary({ xml: next.sprite, symbolIds: next.symbolIds });
+          // Always sync the demo preview buffer so the live
+          // demo re-renders against the user's edits
+          // (rename / delete inside the modal).
           setDemoSpriteXml(next.sprite);
           setDemoSymbolIds(next.symbolIds);
+          // Mirror the demo's edits into the compiler's main
+          // result state via `loadFromLibrary` ONLY when the
+          // demo was NOT opened from a preview-only entry
+          // point. The two preview-only entry points are:
+          //   1. The library panel's eye icon (sets
+          //      `liveDemoMode = "preview"` in
+          //      `LibraryPanel`'s `onOpenDemo`). The "Save
+          //      Changes" footer button appears for this
+          //      entry point, and the in-place library
+          //      update routes through `onSave` below.
+          //   2. The base-sprite "Preview" button in
+          //      ExistingSpriteSection (sets
+          //      `liveDemoIsBaseSpritePreview = true` in
+          //      `handlePreviewBaseSprite`). This entry
+          //      point keeps `mode = "default"` so the demo
+          //      shows the default "Save to Library" CTA,
+          //      and `onUpdate` must still skip the
+          //      `loadFromLibrary` mirror so the demo's
+          //      edits don't surface the Results section.
+          // Every other path (Results panel "Live Demo",
+          // post-paste previews) leaves both flags at their
+          // default (`false` / `"default"`), so the mirror
+          // runs and the Symbol IDs list stays in lock-step
+          // with the demo's icon grid.
+          if (liveDemoMode !== "preview" && !liveDemoIsBaseSpritePreview) {
+            loadFromLibrary({ xml: next.sprite, symbolIds: next.symbolIds });
+          }
         }}
         // Persist the mutated XML back to the source library
-        // version (eye-icon preview only). Uses
+        // version (library panel eye icon only — only entry
+        // point that exposes the "Save Changes" footer
+        // button via `mode === "preview"`). Uses
         // `useLibrary().updateContent` for an in-place PUT —
         // no new version row, no bundle rename. After the save
         // succeeds we refresh the in-memory preview buffer so
@@ -1774,6 +1880,30 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         // baseline, and broadcast a "library changed" event so
         // sibling panels (e.g. LibraryPanel) pick up the new
         // symbol count + updatedAt without a manual refresh.
+        //
+        // The base-sprite "Preview" button in
+        // ExistingSpriteSection was previously also routed
+        // through this `onSave` (via `mode = "preview"`).
+        // Per user request that change has been reverted —
+        // the base-sprite preview now shows the default
+        // "Save to Library" CTA, which routes through
+        // `onOpenSaveToLibrary` instead and lets the user
+        // pick a fresh bundle name.
+        //
+        // The compiler's main result state (`spriteXml` /
+        // `symbolIds` / `spriteUrl`) is intentionally NOT
+        // touched here. The user reported that "Save Changes"
+        // inside a library preview must reflect the rename /
+        // delete ONLY in the library panel, strictly NOT in
+        // the Results section — even when a generated sprite
+        // is currently showing there. The `onUpdate` callback
+        // above gates `loadFromLibrary` on
+        // `liveDemoMode !== "preview" &&
+        // !liveDemoIsBaseSpritePreview`, so the demo buffer
+        // and the result section stay decoupled for every
+        // preview-only entry point; we keep that decoupling
+        // consistent on save by only writing the demo buffer
+        // here.
         onSave={async ({ xml, symbolIds: saveIds }) => {
           if (liveDemoSource.type !== "library") {
             showToast("No library source to save to.", "error");

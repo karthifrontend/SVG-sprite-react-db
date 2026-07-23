@@ -309,6 +309,21 @@ export default function LiveDemoModal({
   // the user only gets a download (never a copy) on a dblclick.
   const clickTimerRef = useRef<number | null>(null);
 
+  // Read-only mode for the icon grid's per-card rename/delete
+  // controls. Triggered ONLY when the demo was opened from a
+  // public library entry that the current user does NOT own
+  // (i.e. an organization-shared library that belongs to
+  // someone else). In that case the user can preview and copy
+  // icons, but cannot rename or remove them because the
+  // changes cannot be persisted back to the source. Private
+  // libraries and public libraries owned by the current user
+  // keep the full edit affordances.
+  const isReadOnly =
+    !!source &&
+    source.type === "library" &&
+    source.isPublic === true &&
+    source.isOwner === false;
+
   // Reset transient state ONLY when the modal opens or closes —
   // never on `sprite`/`symbolIds` prop changes. Once the user
   // starts editing, every rename / remove goes through
@@ -1078,6 +1093,7 @@ export default function LiveDemoModal({
                         onDelete={() => deleteIcon(id)}
                         onRenameCommit={commitRename}
                         onRenameCancel={() => setRenamingId(null)}
+                        isReadOnly={isReadOnly}
                       />
                     );
                   })}
@@ -1332,6 +1348,13 @@ type DemoIconCardProps = {
   onDelete: () => void;
   onRenameCommit: () => void;
   onRenameCancel: () => void;
+  /**
+   * When true, hide the per-card rename and delete controls.
+   * Used for public library entries the current user does not
+   * own — the user can still preview and copy icons, but
+   * cannot mutate them in place.
+   */
+  isReadOnly?: boolean;
 };
 
 function DemoIconCard({
@@ -1352,6 +1375,7 @@ function DemoIconCard({
   onDelete,
   onRenameCommit,
   onRenameCancel,
+  isReadOnly = false,
 }: DemoIconCardProps): ReactNode {
   const isRenaming = renamingId === id;
   const sizeStyle = { width: `${iconSize}px`, height: `${iconSize}px` } as const;
@@ -1467,31 +1491,33 @@ function DemoIconCard({
           </svg>
         </div>
       )}
-      <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-        <button
-          type="button"
-          className="w-6 h-6 rounded-full bg-white border border-slate-200 text-slate-300 hover:text-indigo-500 hover:border-indigo-300 hover:bg-indigo-50 transition-all duration-200 flex items-center justify-center shadow-sm"
-          title="Rename icon"
-          onClick={(event) => {
-            event.stopPropagation();
-            setRenamingId(id);
-            setRenameValue(id);
-          }}
-        >
-          <PencilIcon className="w-3 h-3" />
-        </button>
-        <button
-          type="button"
-          className="w-6 h-6 rounded-full bg-white border border-slate-200 text-slate-300 hover:text-rose-500 hover:border-rose-300 hover:bg-rose-50 transition-all duration-200 flex items-center justify-center shadow-sm"
-          title="Remove icon"
-          onClick={(event) => {
-            event.stopPropagation();
-            onDelete();
-          }}
-        >
-          <CloseIcon className="w-3 h-3" />
-        </button>
-      </div>
+      {!isReadOnly && (
+        <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+          <button
+            type="button"
+            className="w-6 h-6 rounded-full bg-white border border-slate-200 text-slate-300 hover:text-indigo-500 hover:border-indigo-300 hover:bg-indigo-50 transition-all duration-200 flex items-center justify-center shadow-sm"
+            title="Rename icon"
+            onClick={(event) => {
+              event.stopPropagation();
+              setRenamingId(id);
+              setRenameValue(id);
+            }}
+          >
+            <PencilIcon className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            className="w-6 h-6 rounded-full bg-white border border-slate-200 text-slate-300 hover:text-rose-500 hover:border-rose-300 hover:bg-rose-50 transition-all duration-200 flex items-center justify-center shadow-sm"
+            title="Remove icon"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
+          >
+            <CloseIcon className="w-3 h-3" />
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-center bg-slate-50 group-hover:bg-indigo-50/50 rounded-lg transition-colors p-4 mb-2.5 w-full h-[110px]">
         {inlineSvg}
       </div>
