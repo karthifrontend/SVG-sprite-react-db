@@ -12,7 +12,7 @@
 //     server auto-numbers versions per bundle.
 import { useEffect, useMemo, useState } from "react";
 import Modal from "../Modal";
-import { CloseIcon } from "../icons"; 
+import { CloseIcon, InfoIcon } from "../icons"; 
 
 type SaveToLibraryModalProps = {
   isOpen: boolean;
@@ -204,12 +204,26 @@ export default function SaveToLibraryModal({
               <span className="text-sm font-semibold text-slate-700 transition-colors group-hover:text-slate-900">
                 Make it as public
               </span>
+<span
+              className="group/info relative inline-flex"
+              tabIndex={0}
+              aria-label="What does public mean?"
+            >
+              <InfoIcon className="h-3.5 w-3.5 cursor-pointer text-slate-400 transition-colors group-hover/info:text-indigo-500" />
+              {/* Tooltip — appears on hover/focus so screen readers can
+                  discover the explanation via the focusable wrapper. */}
+              <span
+                role="tooltip"
+                className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-56 -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-center text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/info:opacity-100 group-focus-within/info:opacity-100"
+              >
+                If a library is marked as public, it will be visible to all users.
+                <span
+                  aria-hidden
+                  className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900"
+                />
+              </span>
+            </span>
             </label>
-            <p className="mt-1 pl-[44px] text-[11px] text-slate-400">
-              {isPublic
-                ? "Visible to every signed-in user. Only you can rename or delete it."
-                : "Only you can see and access this library."}
-            </p>
           </div>
         </div>
 
@@ -226,7 +240,7 @@ export default function SaveToLibraryModal({
             type="button"
             onClick={() => onSubmit({ name: trimmedName, version: trimmedVersion, isPublic })}
             disabled={busy || isInvalid}
-            className="rounded-lg bg-emerald-600 px-6 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+            className="rounded-lg bg-emerald-600 px-6 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? "Saving…" : "Save"}
           </button>
