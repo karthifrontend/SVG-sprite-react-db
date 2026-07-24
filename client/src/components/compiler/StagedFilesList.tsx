@@ -95,7 +95,7 @@ function StagedFilesList({
             data-index={index}
           >
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-50">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50">
                 <ImageIcon className="h-8 w-8 text-indigo-500" />
               </div>
               <div className="min-w-0">

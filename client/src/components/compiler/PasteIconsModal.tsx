@@ -306,13 +306,13 @@ export default function PasteIconsModal({
                       {group.bundleName}
                     </h4>
                     {group.isPublic && (
-                      <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600">
                         <EyeIcon className="h-3 w-3" />
                         Public
                       </span>
                     )}
                     {!group.isPublic && (
-                      <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                         <LockIcon className="h-3 w-3" />
                         Private
                       </span>
@@ -333,7 +333,7 @@ export default function PasteIconsModal({
                     })
                   }
                   disabled={busy}
-                  className="flex-shrink-0 rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-emerald-100 hover:text-emerald-700 disabled:opacity-50"
+                  className="shrink-0 rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-emerald-100 hover:text-emerald-700 disabled:opacity-50"
                 >
                   Paste Here
                 </button>

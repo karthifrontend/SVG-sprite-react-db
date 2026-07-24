@@ -438,7 +438,7 @@ function LibraryPanel({
                   >
                     {group.bundleName}
                   </h3>
-                  <PencilIcon className="h-3.5 w-3.5 flex-shrink-0 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100" />
+                  <PencilIcon className="h-3.5 w-3.5 shrink-0 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100" />
                 </button>
               ) : (
                 <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -452,7 +452,7 @@ function LibraryPanel({
               )}
               {!group.isPublic && (
                 <span
-                  className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500"
                   title={
                     group.isOwner
                       ? "Only you can see and access this library."
@@ -487,7 +487,7 @@ function LibraryPanel({
                             : "s"
                         }`
                   }
-                  className="ml-auto inline-flex flex-shrink-0 items-center justify-center rounded p-1 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                  className="ml-auto inline-flex shrink-0 items-center justify-center rounded p-1 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
                 >
                   {expandedGroupNames.has(group.bundleName) ? (
                     <ChevronUpIcon className="h-3.5 w-3.5" />
@@ -791,7 +791,7 @@ function LibraryPanel({
           className="flex w-full items-center gap-1.5 rounded px-1 py-1.5 text-left transition-colors hover:bg-slate-200/60"
         >
           <ChevronDownIcon
-            className={`h-3.5 w-3.5 flex-shrink-0 text-slate-500 transition-transform duration-200 ${
+            className={`h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200 ${
               open ? "" : "-rotate-90"
             }`}
           />
@@ -819,9 +819,9 @@ function LibraryPanel({
       aria-label="Organization Library"
       className={`${
         isOpen ? "w-80 flex" : "w-0 hidden"
-      } sticky top-[57px] z-30 h-[calc(100vh-57px)] max-h-[calc(100vh-57px)] flex-col border-r border-slate-200 bg-slate-50 shadow-[4px_0_15px_-3px_rgba(0,0,0,0.05)] transition-all duration-300 ease-out`}
+      } sticky top-14.25 z-30 h-[calc(100vh-57px)] max-h-[calc(100vh-57px)] flex-col border-r border-slate-200 bg-slate-50 shadow-[4px_0_15px_-3px_rgba(0,0,0,0.05)] transition-all duration-300 ease-out`}
     >
-      <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
         <div className="flex items-center gap-2.5">
           <h2 className="text-sm font-bold text-slate-900">Library</h2>
         </div>

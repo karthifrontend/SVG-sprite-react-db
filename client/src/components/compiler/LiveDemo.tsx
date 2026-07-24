@@ -962,7 +962,7 @@ export default function LiveDemoModal({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-all duration-300"
+      className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-all duration-300"
       role="dialog"
       aria-modal="true"
       onMouseDown={(event: MouseEvent<HTMLDivElement>) => {
@@ -970,7 +970,7 @@ export default function LiveDemoModal({
       }}
     >
       <div className="relative w-full max-w-4xl max-h-[85vh] bg-white rounded-2xl shadow-2xl border border-slate-200/80 flex flex-col overflow-hidden transform transition-all duration-300">
-        <div className="flex flex-col border-b border-slate-100 flex-shrink-0">
+        <div className="flex flex-col border-b border-slate-100 shrink-0">
           <div className="flex items-center justify-between px-6 pt-4 pb-2">
             <div className="min-w-0 flex-1 pr-4">
               <div className="flex flex-wrap items-center gap-2">
@@ -980,7 +980,7 @@ export default function LiveDemoModal({
                     className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700"
                     title={`Previewing ${source.name} v${source.version ?? 1} from your library`}
                   >
-                    <FolderIcon className="h-3 w-3 flex-shrink-0 text-indigo-500" />
+                    <FolderIcon className="h-3 w-3 shrink-0 text-indigo-500" />
                     <span className="truncate">{source.name}</span>
                     <span className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[10px] text-indigo-600">
                       v{source.version ?? 1}
@@ -1019,7 +1019,7 @@ export default function LiveDemoModal({
 
         {activeTab === "grid" && (
           <div className="flex flex-col flex-1 overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 py-3.5 bg-slate-50 border-b border-slate-100 text-sm flex-shrink-0">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 py-3.5 bg-slate-50 border-b border-slate-100 text-sm shrink-0">
               <div className="flex-1 relative max-w-md">
                 <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                   <SearchIcon className="w-4 h-4" />
@@ -1235,7 +1235,7 @@ export default function LiveDemoModal({
           </div>
         )}
 
-        <div className="px-6 py-3 border-t border-slate-100 bg-white flex items-center justify-between text-xs text-slate-400 flex-shrink-0">
+        <div className="px-6 py-3 border-t border-slate-100 bg-white flex items-center justify-between text-xs text-slate-400 shrink-0">
           <span>Click to copy SVG · Double-click to download · Hover ✕ to remove</span>
           <div className="flex items-center gap-2">
             {currentUser && selectedIconsCount() > 0 && (
@@ -1269,7 +1269,7 @@ export default function LiveDemoModal({
               // (Results panel, post-paste preview, base-sprite
               // preview) keep the original "Save to Library" flow
               // so existing behaviour is untouched.
-              mode === "preview" && source?.type === "library" && onSave ? (
+              mode === "preview" && source?.type === "library" && onSave ? source.isOwner !==false && (
                 <button
                   type="button"
                   onClick={() => void handleSaveChanges()}
@@ -1518,7 +1518,7 @@ function DemoIconCard({
           </button>
         </div>
       )}
-      <div className="flex items-center justify-center bg-slate-50 group-hover:bg-indigo-50/50 rounded-lg transition-colors p-4 mb-2.5 w-full h-[110px]">
+      <div className="flex items-center justify-center bg-slate-50 group-hover:bg-indigo-50/50 rounded-lg transition-colors p-4 mb-2.5 w-full h-27.5">
         {inlineSvg}
       </div>
       {isRenaming ? (
