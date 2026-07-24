@@ -98,6 +98,9 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     // expects to remain on whichever tab they were working in.
     setActiveBundleName("");
     setLiveDemoSource({ type: "scratch" });
+    // A fresh upload has no source library to hide from the
+    // paste popup, so drop the hint.
+    setPasteExcludeBundleName("");
     setInlineSave({
       enabled: false,
       name: "",
@@ -177,6 +180,20 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     number | null
   >(null);
   const [activeBundleName, setActiveBundleName] = useState<string>("");
+  // Source-bundle hint for the PasteIconsModal. The modal hides
+  // any bundle whose name matches this string from its target
+  // list, so the user can't accidentally paste the icons back
+  // into the very library they just copied them from. We track
+  // it as a separate piece of state (instead of reusing
+  // `activeBundleName` or `liveDemoSource.name`) because the
+  // update-mode `generate()` reset wipes both of those — but the
+  // icons in the freshly-generated demo still conceptually came
+  // from the loaded library, so the paste popup needs to keep
+  // excluding it. Cleared when the user explicitly switches
+  // context (loads a different library, uploads a new base
+  // sprite from disk, etc.).
+  const [pasteExcludeBundleName, setPasteExcludeBundleName] =
+    useState<string>("");
   // const [loadingFromLibrary, setLoadingFromLibrary] = useState(false);
 
   const [inlineSave, setInlineSave] = useState<InlineSaveValue>({
@@ -502,6 +519,12 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         isPublic: input.isPublic,
       });
       setActiveBundleName(saved.bundleName);
+      // Track the freshly-saved bundle as the paste-exclude
+      // hint so a copy-from-demo on this generated sprite
+      // hides the just-saved library from the paste popup.
+      if (saved.bundleName) {
+        setPasteExcludeBundleName(saved.bundleName);
+      }
       // Commit the in-progress preview buffer to the newly-saved
       // library's key. This is the ONLY place a library's stored
       // CSS is written — the live demo never mutates it directly,
@@ -1054,6 +1077,9 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       setBaseSpriteVersion(null);
       setActiveBundleName("");
       setLiveDemoSource({ type: "scratch" });
+      // The "new" tab starts with no source library, so the
+      // paste popup shouldn't be hiding any bundle.
+      setPasteExcludeBundleName("");
       // Reset the preview buffer too so the new compile starts
       // from a clean custom-CSS slate, not a stale preview.
       setDemoPreviewCssState(null);
@@ -1081,6 +1107,9 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setBaseSpriteVersion(null);
     setActiveBundleName("");
     setLiveDemoSource({ type: "scratch" });
+    // No base sprite means no source bundle to hide from the
+    // paste popup either.
+    setPasteExcludeBundleName("");
     setDemoPreviewCssState(null);
     lastSeededSourceKeyRef.current = null;
     setInlineSave((current) => ({
@@ -1159,16 +1188,27 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         // bundle + version captured when the file was loaded.
         const existing =
           liveDemoSource.type === "library" ? liveDemoSource : null;
+        const resolvedName = existing?.name ?? activeBundleName;
         setLiveDemoSource({
           type: "library",
           id: existing?.id ?? `preview-${activeBundleName}`,
-          name: existing?.name ?? activeBundleName,
+          name: resolvedName,
           version: existing?.version ?? baseSpriteVersion ?? 1,
           isOwner: existing?.isOwner ?? true,
           isPublic: existing?.isPublic ?? false,
         });
+        // Remember the source bundle so the paste popup can
+        // hide it. Without this, copying from a previewed
+        // base sprite that was loaded from a library would
+        // still show that library as a paste target.
+        if (resolvedName) {
+          setPasteExcludeBundleName(resolvedName);
+        }
       } else {
         setLiveDemoSource({ type: "scratch" });
+        // Uploaded (non-library) base sprite: no bundle to
+        // exclude from the paste popup.
+        setPasteExcludeBundleName("");
       }
       // Re-seed the custom-CSS preview buffer from defaults so
       // the modal opens with a clean slate, mirroring how the
@@ -1233,6 +1273,17 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     // File section, so the user knows to re-upload one before the
     // next generation.
     if (mode === "update") {
+      // Snapshot the loaded bundle BEFORE we clear it below —
+      // the freshly-generated demo's icons still came from this
+      // library, so the paste popup needs to keep excluding it
+      // even though `activeBundleName` and `liveDemoSource` are
+      // about to be reset to "no source".
+      const sourceBundle =
+        activeBundleName ||
+        (liveDemoSource.type === "library" ? liveDemoSource.name : "");
+      if (sourceBundle) {
+        setPasteExcludeBundleName(sourceBundle);
+      }
       setBaseSpriteFile(null);
       setBaseSpriteVersion(null);
       setActiveBundleName("");
@@ -1326,6 +1377,12 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       // Stay in update mode so the user can keep iterating; the
       // next save will create v(n+1) of the same bundle.
       setActiveBundleName(saved.bundleName);
+      // Track the freshly-saved bundle as the paste-exclude
+      // hint so a copy-from-demo on this generated sprite
+      // hides the just-saved library from the paste popup.
+      if (saved.bundleName) {
+        setPasteExcludeBundleName(saved.bundleName);
+      }
       // Reset the inline-save "Library Name" field so the next
       // save starts with an empty input. The `InlineSaveSection`
       // mirrors `value.name` into its local state via a
@@ -1392,6 +1449,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       setBaseSpriteSource("library");
       setBaseSpriteVersion(detail.version);
       setActiveBundleName(bundleName);
+      // Refresh the paste-exclude hint so a copy-from-demo on
+      // this newly-loaded library hides this library from the
+      // paste popup. `resetForNewUpload()` above just cleared
+      // it, so we re-seed it here.
+      setPasteExcludeBundleName(bundleName);
 
       // The live-demo modal can persist edits directly to this
       // library version via `useLibrary().updateContent`.
@@ -1435,12 +1497,18 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       // Fall back to the previous (partial) behaviour: switch mode
       // and pre-fill the name so the user can still pick a file.
       setMode("update");
-      setActiveBundleName(summary.bundleName || summary.name);
+      const fallbackBundleName = summary.bundleName || summary.name;
+      setActiveBundleName(fallbackBundleName);
+      // Mirror the success-path hint so the paste popup hides
+      // this library even when the full detail fetch failed.
+      if (fallbackBundleName) {
+        setPasteExcludeBundleName(fallbackBundleName);
+      }
       setBaseSpriteSource("library");
       const fallbackSource: LiveDemoSource = {
         type: "library",
         id: summary._id,
-        name: summary.bundleName || summary.name,
+        name: fallbackBundleName,
         version: summary.version,
         isOwner: summary.isOwner !== false,
         isPublic: !!summary.isPublic,
@@ -1480,6 +1548,17 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
             setDemoSpriteXml(sprite);
             setDemoSymbolIds(symbolIds);
             setLiveDemoSource(source);
+            // Remember the source bundle so the paste popup can
+            // hide it from its target list. The user is about
+            // to copy icons out of this library; we never want
+            // the paste popup to suggest the same library as a
+            // destination (it would just create a duplicate
+            // version of what they're looking at).
+            if (source.type === "library") {
+              setPasteExcludeBundleName(source.name);
+            } else {
+              setPasteExcludeBundleName("");
+            }
             // The eye icon is the only entry point that opens
             // the demo in "preview" mode — flag it so the modal
             // shows the in-place "Save Changes" footer button
@@ -1504,6 +1583,12 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               setActiveBundleName(newName);
               if (liveDemoSource.type === "library") {
                 setLiveDemoSource({ ...liveDemoSource, name: newName });
+              }
+              // Keep the paste-exclude hint in sync too — the
+              // modal matches by name, so a renamed bundle
+              // would otherwise leak back into the paste list.
+              if (pasteExcludeBundleName && pasteExcludeBundleName.toLowerCase() === oldName.toLowerCase()) {
+                setPasteExcludeBundleName(newName);
               }
               setInlineSave((current) =>
                 current.name.trim().toLowerCase() === oldName.toLowerCase()
@@ -1539,6 +1624,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               setBaseSpriteVersion(null);
               setActiveBundleName("");
               setLiveDemoSource({ type: "scratch" });
+              // Drop the paste-exclude hint too — the bundle
+              // is gone, so there's nothing left to hide.
+              if (pasteExcludeBundleName && pasteExcludeBundleName.toLowerCase() === name.toLowerCase()) {
+                setPasteExcludeBundleName("");
+              }
               setDemoPreviewCssState(null);
               lastSeededSourceKeyRef.current = null;
               setInlineSave((current) => ({
@@ -1604,6 +1694,15 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                     // uploaded file has no pre-existing bundle to
                     // version off of.
                     setBaseSpriteSource("uploaded");
+                    // An uploaded file has no library to hide from
+                    // the paste popup. `resetForNewUpload()` above
+                    // already cleared the hint in the post-generate
+                    // branch; clear it here too when we're not in
+                    // that branch (e.g. the user picked a file
+                    // before generating anything).
+                    if (!hasGenerated) {
+                      setPasteExcludeBundleName("");
+                    }
                     if (!activeBundleName) {
                       const fromName = f.name.replace(/\.svg$/i, "");
                       setActiveBundleName(fromName);
@@ -1759,7 +1858,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       <button
         type="button"
         onClick={() => setGuideOpen(true)}
-        className="group fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-300/40 transition-all duration-200 hover:scale-110 active:scale-95 animate-pulse-ring"
+        className="group fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-300/40 transition-all duration-200 hover:scale-110 active:scale-95 animate-pulse-ring"
         title="User Guide"
         aria-label="Open user guide"
       >
@@ -1980,21 +2079,20 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         busy={pasteBusy}
         onClose={closePasteModal}
         currentBundleName={
-          // Hide the bundle the user is already working in
-          // from the paste targets. Two flows can put the
-          // user in that situation:
-          //   1. They opened the live demo from a saved
-          //      library (`liveDemoSource.type === "library"`).
-          //   2. They just enabled "Save to library" in
-          //      the inline-save panel and generated a
-          //      sprite. After that save the bundle they
-          //      saved into is tracked by `activeBundleName`.
-          // Whichever signal is live wins — the live-demo
-          // source is the most-recent user action and takes
-          // precedence over the broader "last saved" hint.
-          liveDemoSource.type === "library"
-            ? liveDemoSource.name
-            : activeBundleName || undefined
+          // Hide the bundle the user just copied icons FROM
+          // from the paste targets. We prefer the explicit
+          // `pasteExcludeBundleName` hint because it survives
+          // the update-mode `generate()` reset that wipes
+          // `activeBundleName` and `liveDemoSource` — the
+          // freshly-generated demo's icons still came from
+          // the loaded library, so the paste popup must keep
+          // excluding it. Falls back to the live demo source
+          // (eye icon flow) or the active bundle name when no
+          // explicit hint is set.
+          pasteExcludeBundleName ||
+            (liveDemoSource.type === "library"
+              ? liveDemoSource.name
+              : activeBundleName || undefined)
         }
         onPasteIntoWorkspace={(icons) => {
           setPasteBusy(true);

@@ -199,7 +199,7 @@ function ExistingSpriteSection({
       {file && (
         <div className="mt-2 flex items-center justify-between rounded-xl border border-emerald-200 bg-white p-3 text-left shadow-sm">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-500">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-500">
               <CheckCircleIcon className="h-5 w-5" />
             </div>
             <div className="min-w-0">
@@ -209,7 +209,7 @@ function ExistingSpriteSection({
                 </p>
                 {version != null && (
                   <span
-                    className="inline-flex flex-shrink-0 items-center rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-indigo-600"
+                    className="inline-flex shrink-0 items-center rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-indigo-600"
                     title={`Loaded from library version v${version}`}
                   >
                     v{version}

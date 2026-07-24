@@ -101,7 +101,7 @@ function ToastViewport({
 }) {
   if (toasts.length === 0) return null;
   return (
-    <div className="fixed top-5 right-5 z-[80] flex flex-col gap-3 pointer-events-none">
+    <div className="fixed top-5 right-5 z-80 flex flex-col gap-3 pointer-events-none">
       {toasts.map((toast) => (
         <ToastCard key={toast.id} toast={toast} onDismiss={onDismiss} />
       ))}
@@ -121,10 +121,10 @@ function ToastCard({
     <div
       role="alert"
       aria-live="polite"
-      className={`${cfg.bg} text-white px-5 py-3.5 rounded-xl toast-shadow flex items-center min-w-[260px] pointer-events-auto animate-slide-in`}
+      className={`${cfg.bg} text-white px-5 py-3.5 rounded-xl toast-shadow flex items-center min-w-65 pointer-events-auto animate-slide-in`}
     >
       <svg
-        className="w-5 h-5 flex-shrink-0 mr-3"
+        className="w-5 h-5 shrink-0 mr-3"
         fill="none"
         viewBox="0 0 24 24"
         stroke="currentColor"

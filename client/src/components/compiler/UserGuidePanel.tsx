@@ -268,9 +268,9 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
         aria-modal="true"
         aria-label="User Guide"
       >
-        <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-violet-50 px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-linear-to-r from-indigo-50 to-violet-50 px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md shadow-indigo-200/50">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-linear-to-br from-indigo-500 to-violet-600 shadow-md shadow-indigo-200/50">
               <BookOpenIcon className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -291,7 +291,7 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
         <div className="custom-scrollbar flex-1 space-y-6 overflow-y-auto px-6 py-5">
           <section>
             <div className="mb-3 flex items-center gap-2.5">
-              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-extrabold text-indigo-600">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-extrabold text-indigo-600">
                 1
               </span>
               <h3 className="text-sm font-bold text-slate-800">Upload SVG Icons</h3>
@@ -320,7 +320,7 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
 
           <section>
             <div className="mb-3 flex items-center gap-2.5">
-              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-extrabold text-emerald-600">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-extrabold text-emerald-600">
                 2
               </span>
               <h3 className="text-sm font-bold text-slate-800">What You Get</h3>
@@ -331,7 +331,7 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
               </p>
               <ul className="space-y-2">
                 <li className="flex items-center gap-2.5">
-                  <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-500">
+                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-500">
                     <svg
                       className="h-3.5 w-3.5"
                       fill="none"
@@ -353,7 +353,7 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
                   <span className="text-slate-500">— Your compiled SVG sprite</span>
                 </li>
                 <li className="flex items-center gap-2.5">
-                  <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-500">
+                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-500">
                     <svg
                       className="h-3.5 w-3.5"
                       fill="none"
@@ -375,7 +375,7 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
                   <span className="text-slate-500">— Interactive preview page</span>
                 </li>
                 <li className="flex items-center gap-2.5">
-                  <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md bg-rose-50 text-rose-500">
+                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-rose-50 text-rose-500">
                     <svg
                       className="h-3.5 w-3.5"
                       fill="none"
@@ -404,7 +404,7 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
 
           <section>
             <div className="mb-3 flex items-center gap-2.5">
-              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-extrabold text-violet-600">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-extrabold text-violet-600">
                 3
               </span>
               <h3 className="text-sm font-bold text-slate-800">Use in Your Code</h3>
@@ -458,7 +458,7 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
 
           <section>
             <div className="mb-3 flex items-center gap-2.5">
-              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-extrabold text-amber-600">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-extrabold text-amber-600">
                 4
               </span>
               <h3 className="text-sm font-bold text-slate-800">Pro Tips</h3>
