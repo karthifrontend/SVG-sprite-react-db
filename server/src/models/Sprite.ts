@@ -1,3 +1,4 @@
+// Mongoose model for a sprite "bundle" — the user-named, owned top-level container that holds many versions.
 import mongoose, {
   Schema,
   type InferSchemaType,
@@ -58,10 +59,6 @@ const spriteSchema = new Schema(
 spriteSchema.index({ ownerId: 1, bundleName: 1 }, { unique: true });
 // Owner-scoped "list my libraries" lookup. The public branch of the same query is satisfied by the `isPublic` index.
 spriteSchema.index({ ownerId: 1, updatedAt: -1 });
-
-// Cascade-delete: when a bundle document goes away, every version row that points at it must go away too. Mongoose's pre-delete hooks cover `deleteOne`, `deleteMany` (with a single-id filter) and `findOneAndDelete` so the cascade runs no matter which API the caller used. Without this hook, deleting a bundle via `Sprite.deleteOne` from any future code path would leave orphan rows in `sprite_versions` whose `spriteId` references a document that no longer exists.
-// The hooks are written as plain async functions and return promises. Mongoose 9 supports promise-returning hooks natively and we no longer need to thread Mongoose's `next` callback through the cascade. The previous `asNext(next)` plumbing crashed at runtime when Mongoose 9's combined-document-and-query hook machinery passed a non-function sentinel as `next` (it expects the hook to be async in that mode); letting the hook be async and just throwing on error sidesteps the issue entirely.
-// We pull the bundle's `_id` from the query filter (or, for `findOneAndDelete`, by materialising the matched doc) and issue a single `SpriteVersion.deleteMany({ spriteId })` before the bundle itself is removed. If the version delete throws, Mongoose catches the rejection and aborts the bundle delete, leaving the data in a consistent state.
 
 // Pull the `_id` value out of a Mongoose query filter, if any.
 function readIdFromFilter(filter: unknown): unknown | undefined {
@@ -129,11 +126,6 @@ spriteSchema.pre(
   "findOneAndDelete",
   { document: true, query: true },
   async function preFindOneAndDeleteCascade(this: unknown) {
-    // Materialise the about-to-be-removed doc so we have its id;
-    // the `findOneAndDelete` filter alone isn't enough because
-    // callers may have used anything (`bundleName`, `ownerId`,
-    // etc.) as the selector. Reusing `this.model.findOne(filter)`
-    // shares the connection / model and keeps the lookup cheap.
     const ctx = this as unknown as {
       getFilter: () => unknown;
       model: Model<{ _id: unknown }>;

@@ -1,7 +1,4 @@
-// /api/auth — Google + Microsoft (placeholder) + Demo sign-in.
-// The client posts the raw Google `credential` JWT returned by Google Identity Services. We verify the token, upsert a User document, and respond with a short-lived session token the client can attach to subsequent API calls.
-// The demo endpoint provisions a built-in "demo" account so users can try the app without a real OAuth flow. It is scoped to a single shared user so anyone who clicks "Continue as Demo" shares one library; the user is still a separate `User` doc with its own `ownerId`, distinct from Google / Microsoft / system users.
-// Microsoft sign-in is intentionally not implemented server-side yet; the route returns 501 so the client gets a clear signal instead of a 404.
+// /api/auth routes. Verifies Google ID tokens, upserts users, and issues session cookies/JWTs.
 import { Router, type Request, type Response } from "express";
 import type { HydratedDocument } from "mongoose";
 import { verifyGoogleIdToken } from "../lib/google.js";
@@ -43,10 +40,6 @@ function notConnectedResponse(res: Response) {
   });
 }
 
-// POST /api/auth/google
-// Body: { credential: string }  // the Google id_token from GIS
-// Response: { user, token }
-// The token is a short-lived JWT the client attaches to subsequent API calls as `Authorization: Bearer <token>`.
 router.post("/google", async (req: Request, res: Response) => {
   const body = (req.body ?? {}) as LoginBody;
   const credential = asString(body.credential);
@@ -114,9 +107,6 @@ router.post("/google", async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/auth/demo
-// Issues a session for the built-in demo account. The same single `User` document is upserted on every call so everyone using the demo flow shares one library. The user is still scoped by its own `ownerId`, which is distinct from real Google / Microsoft accounts, so demo saves never leak into a real user's library.
-// No request body is required.
 router.post("/demo", async (_req: Request, res: Response) => {
   const connected = await ensureConnected();
   if (!connected) {
@@ -161,8 +151,6 @@ router.post("/demo", async (_req: Request, res: Response) => {
   }
 });
 
-// POST /api/auth/microsoft
-// Placeholder for Microsoft (Entra ID / MSAL) sign-in. The backend MSAL flow is intentionally not wired up yet, so this route returns 501 with a clear message. The client surfaces this in the login modal so users get feedback instead of a generic network error.
 router.post("/microsoft", (_req: Request, res: Response) => {
   return res.status(501).json({
     error:

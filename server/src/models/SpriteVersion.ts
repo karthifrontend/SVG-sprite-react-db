@@ -1,6 +1,6 @@
+// A single version of a sprite bundle. Every save creates a NEW `SpriteVersion` row referencing the parent `Sprite` (bundle) by id, with a monotonically incrementing `version` number scoped to that bundle. The actual XML payload and parsed symbol ids live here, never on the bundle document, so the bundle metadata stays small and the per-version content can be loaded lazily.
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 
-// A single version of a sprite bundle. Every save creates a NEW `SpriteVersion` row referencing the parent `Sprite` (bundle) by id, with a monotonically incrementing `version` number scoped to that bundle. The actual XML payload and parsed symbol ids live here, never on the bundle document, so the bundle metadata stays small and the per-version content can be loaded lazily.
 const spriteVersionSchema = new Schema(
   {
     // Reference to the parent bundle document. Indexed because every "load latest" / "list versions" / "delete bundle" query starts by narrowing down to the bundle's versions.

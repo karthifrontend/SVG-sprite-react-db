@@ -1,4 +1,4 @@
-// File drop zone with click and keyboard activation.
+// Drag-and-drop / click-to-pick file zone. Accepts either icon files or a sprite file depending on `acceptMode`.
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
 type FileDropzoneProps = {

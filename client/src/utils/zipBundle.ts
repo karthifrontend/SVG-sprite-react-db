@@ -1,10 +1,4 @@
-// Browser-side zip builder for the "download sprite bundle" flow.
-// We don't pull in JSZip / fflate to keep the bundle lean and avoid a new dependency. The output is a valid Store-only (method 0) zip — uncompressed — which every modern OS can open. Each entry is written with its CRC-32, name, raw bytes, and a central directory record followed by the EOCD record.
-// Usage:
-//   const blob = createZip([{ name: "sprite.svg", data: "..." }, ...]);
-//   triggerBrowserDownload(blob, "sprite-bundle.zip");
-// All data is handled as Uint8Array; strings are UTF-8 encoded.
-
+// Builds an in-memory ZIP bundle containing the sprite XML, preview PNG, and a usage README for download.
 const CRC_TABLE: Uint32Array = (() => {
   const table = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
@@ -41,7 +35,6 @@ function concat(parts: Uint8Array[]): Uint8Array {
 }
 
 function dosDateTime(now = new Date()): { date: number; time: number } {
-  // MS-DOS packed date/time. Seconds are 2-second resolution, so we floor them to keep round-tripping tidy.
   const date =
     ((now.getFullYear() - 1980) << 9) |
     ((now.getMonth() + 1) << 5) |

@@ -1,7 +1,4 @@
-// Reusable SVG icons used across the compiler UI. Each icon accepts
-// an optional `className` so consumers can size/colour them with
-// Tailwind utilities. All icons are simple stroked paths that share
-// a 24×24 viewBox for consistency.
+// Shared inline SVG icon components used across the UI. Re-exports every icon used by the app.
 import type { SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement> & {
@@ -98,12 +95,6 @@ export function PlayCircleIcon({ className = "w-4 h-4", ...rest }: IconProps) {
 }
 
 export function CheckIcon({ className = "w-4 h-4", ...rest }: IconProps) {
-  // Plain tick / checkmark stroke. Used by the LiveDemo "Save
-  // Changes" button to communicate "commit pending edits"
-  // without leaning on the play-circle metaphor (which conflicts
-  // with the demo / preview intent of the surrounding modal).
-  // Painted via `currentColor` so it inherits the host's text
-  // colour (e.g. white on the emerald-600 "Save Changes" pill).
   return (
     <svg {...ICON_BASE} className={className} {...rest}>
       <path d="M5 12.5l4.5 4.5L19 7.5" />

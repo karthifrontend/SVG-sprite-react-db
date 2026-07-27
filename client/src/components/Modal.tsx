@@ -1,5 +1,4 @@
-// Generic modal shell used by every overlay (login, demo, edit, save,
-// paste). Keeps focus management and Escape handling consistent.
+// Generic modal shell used by every overlay (login, demo, edit, save, paste)
 import { useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 
 type ModalProps = {

@@ -1,3 +1,4 @@
+// Footer shown below the Compiler view. Renders the "built with" credit.
 function CompilerFooter() {
   return (
     <footer className="mt-7 text-center animate-fade-in-up" style={{ animationDelay: ".15s" }}>

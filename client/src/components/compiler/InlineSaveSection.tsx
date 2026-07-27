@@ -1,4 +1,4 @@
-// Inline "save to library" panel shown below the drop zone. Mirrors the "react app with MS" reference: a top-level toggle for "save to library", a "Save as new library instead" sub-toggle that only appears in update mode, and a name input with live conflict detection. When the toggle is on, saving always creates a new version of the bundle (server-side), so the user can keep iterating on the same sprite without typing a new name.
+// Inline "save to library" toggle panel with conflict detection. Sits below the drop zone in create/update modes.
 import { useEffect, useState } from "react";
 import { InfoIcon } from "../icons";
 

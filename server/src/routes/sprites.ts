@@ -1,3 +1,4 @@
+// /api/sprites routes. List, create, update, fetch, and delete sprite bundles and their versions.
 import { Router, type Request, type Response } from "express";
 import mongoose from "mongoose";
 import Sprite from "../models/Sprite.js";

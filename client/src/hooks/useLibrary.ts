@@ -1,3 +1,4 @@
+// useLibrary. Fetches, caches, and exposes the user's saved sprite libraries with change notifications.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteSprite,

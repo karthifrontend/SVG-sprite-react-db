@@ -1,7 +1,4 @@
-// Session token helpers. We issue a small HS256 JWT on successful
-// Google sign-in and verify it on every protected request. The
-// `SESSION_SECRET` env var is the signing key; the server refuses to
-// start without it so we never ship with a default secret in prod.
+// Session token helpers. Signs and verifies the short-lived HS256 JWT used to authenticate protected requests.
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 
 const ISSUER = "svg-compiler-server";

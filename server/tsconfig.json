@@ -1,3 +1,4 @@
+// TypeScript config for the Express server. Node ESM, strict mode, and .js import suffixes for ESM resolution.
 {
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {

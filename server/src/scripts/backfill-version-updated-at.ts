@@ -1,8 +1,4 @@
-// One-off backfill: every `sprite_versions` row currently lacks an `updatedAt` field, because the original schema was set to `timestamps: { createdAt: true, updatedAt: false }`. The new schema enables `updatedAt: true` so each version row tracks when it was last edited, but existing rows still need the field populated.
-// We set `updatedAt = createdAt` for every row that doesn't already have one. This is a reasonable approximation: a version row that has never been touched since its `createdAt` was set is exactly the case we want to represent as "last edited = first saved". Rows that have been edited in the past (between `createdAt` and now) will show a slightly stale `updatedAt`, but that's strictly better than `undefined`.
-// After this script runs once, future edits (PUT /:id) will refresh `updatedAt` automatically via the schema hook.
-// Run with:  npm run backfill:version-updated-at
-// (after `npm install` and a valid MONGODB_URI in server/.env)
+// One-off backfill: populates `updatedAt` on SpriteVersion documents that were created before the field existed.
 import "dotenv/config";
 import mongoose from "mongoose";
 import { connectDb } from "../db.js";

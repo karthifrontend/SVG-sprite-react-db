@@ -1,4 +1,4 @@
-// User Guide side panel with framework tabs and copy buttons.
+// User Guide side panel. Switches between framework-specific integration snippets with copy buttons.
 import { useEffect, useState } from "react";
 import { copyToClipboard } from "../../utils/sprite";
 

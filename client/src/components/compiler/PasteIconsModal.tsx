@@ -1,4 +1,4 @@
-// "Paste Icons To..." modal — opened from the live demo's "Copy N Selected" button. Shows a Current Workspace target plus every saved library version. Picking a target hands the pending icons back through `onPasteIntoWorkspace` or `onPasteIntoLibraryVersion`.
+// "Paste Icons To..." modal. Lets the user push selected symbols into a workspace or a library version.
 import { useEffect, useMemo } from "react";
 import Modal from "../Modal";
 import { useLibrary } from "../../hooks/useLibrary";

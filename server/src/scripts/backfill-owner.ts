@@ -1,9 +1,4 @@
-// One-time backfill: migrate pre-existing sprite documents (which stored XML / symbolIds / version inline) into the new two-collection layout:
-//   • One `sprites` row per (ownerId, bundleName) bundle, carrying metadata only (`currentVersion`, `symbolCount`, `isPublic`).
-//   • One `sprite_versions` row per legacy sprite document, with the `xml` / `symbolIds` / `version` from the old document and a back-reference (`spriteId`) to the new bundle row.
-// Legacy documents that already had an `ownerId` set are claimed by the same user; legacy documents without an `ownerId` are claimed by a new built-in "system" user so the new required `ownerId` field has a value.
-// Run with:  npm run backfill:owner
-// (after `npm install` and a valid MONGODB_URI in server/.env)
+// One-off backfill: assigns an owner to any existing sprite that was created before the owner field existed.
 import "dotenv/config";
 import mongoose from "mongoose";
 import { connectDb } from "../db.js";

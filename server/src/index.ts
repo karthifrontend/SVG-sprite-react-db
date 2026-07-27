@@ -1,3 +1,4 @@
+// Express app entry point. Loads env, sets up middleware, mounts routes, and starts the HTTP server.
 import "dotenv/config";
 import express, { type Request, type Response } from "express";
 import cors from "cors";
@@ -29,8 +30,6 @@ async function start() {
     try {
         await connectDb();
     } catch (err) {
-        // We still start the HTTP server so the rest of the API can
-        // respond (e.g. with a clear error for the DB-backed routes).
         console.error("[server] Starting without DB connection.");
     }
 

@@ -1,22 +1,14 @@
+// useFileDropzone. Encapsulates drag-and-drop state and file selection for the compiler's file zone.
 import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from "react";
 import { isSpriteSvgFile } from "../utils/sprite";
 
-// What kind of file a dropzone accepts. A "sprite sheet" is any SVG whose root <svg> contains at least one <symbol>; a "single icon" is any other valid SVG.
-//   - "icons"  : reject sprite sheets (the icon section shouldn't accept a whole sprite file).
-//   - "sprite" : reject anything that isn't a sprite sheet (the existing-sprite section shouldn't accept a single icon).
 export type DropzoneAcceptMode = "icons" | "sprite";
 
-// Payload delivered to the `onRejected` callback when a dropped file doesn't match the dropzone's accept mode.
-//   - kind:     "sprite"  — the user dropped a sprite sheet into the icon section, OR "icon" — the user dropped a single icon into the sprite section.
-//   - fileName: the offending file's name, so the caller can name and shame it in a toast.
 export type RejectedFile = {
   kind: "sprite" | "icon";
   fileName: string;
 };
 
-// Manages staged SVG files plus the drag/drop + click-to-browse interactions for a dropzone UI. The hook is intentionally UI-agnostic — it returns the props each dropzone section needs.
-// Duplicates (same name + same size) are silently skipped. Callers can receive the number of skipped files via the `onSkipped` callback so they can surface a toast/notice.
-// Wrong-type SVG files (sprite dropped into icon section, or icon dropped into sprite section) are silently filtered out of the staged list and reported via `onRejected` so the caller can surface a toast pointing the user at the correct upload target.
 export function useFileDropzone(options?: {
   // Default: "icons".
   accept?: DropzoneAcceptMode;

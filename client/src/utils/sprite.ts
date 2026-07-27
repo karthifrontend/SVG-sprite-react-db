@@ -1,3 +1,4 @@
+// Sprite utilities. Builds sprite XML, extracts symbols, validates SVG files, and formats sizes/dates.
 export type SpriteSymbol = {
   id: string;
   viewBox: string;
@@ -72,12 +73,6 @@ export async function isSpriteSvgFile(file: File): Promise<boolean> {
   }
 }
 
-// Derive a clean `<symbol id="…">` value from a file name. Used by the upload flow so every compiled sprite ends up with a predictable `icon-…` prefix the rest of the app can rely on.
-//   - Strips the `.svg` extension and any " (N)" / " - Copy" suffixes Windows / macOS append to duplicated files.
-//   - Replaces every run of non `[a-zA-Z0-9_-]` characters with a single dash (spaces, dots, parentheses, etc.).
-//   - Collapses repeated dashes and trims leading / trailing dashes so the id is a well-formed CSS selector.
-//   - Prefixes with `icon-` if the name doesn't already start with that prefix. The check is case-insensitive but the canonical prefix is lowercase, so we also normalise the leading `ICON-` / `Icon-` to `icon-` instead of leaving mixed-case ids in the sprite.
-//   - Falls back to `icon-<index>` for blank inputs (e.g. a file called ` (1).svg`).
 export function sanitizeSymbolName(
   rawName: string,
   fallbackIndex?: number

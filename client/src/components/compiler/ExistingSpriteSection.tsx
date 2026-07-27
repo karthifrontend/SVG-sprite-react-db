@@ -1,4 +1,4 @@
-// Update-mode "Base Sprite File" picker. Mirrors the "react app with MS" reference: shows a small drop zone (with a "select from library" hint) when no file is picked, and an emerald file card with a Change action row once a sprite is loaded.
+// Update-mode "Base Sprite File" picker. Lets the user choose the existing sprite to merge new icons into.
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { formatSize, isSpriteSvgFile } from "../../utils/sprite";
 

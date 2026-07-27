@@ -1,17 +1,4 @@
-// AuthContext
-// Multi-provider authentication: Google (GIS), Microsoft (placeholder), and a built-in Demo account.
-// Google flow (full implementation):
-//   1. User clicks "Sign in with Google" in the modal.
-//   2. We re-initialize GIS with a per-attempt `state` token and `callback`, then click the rendered button. Google opens its full account chooser.
-//   3. The chosen account returns an `id_token` (a JWT).
-//   4. We POST that token to /api/auth/google. The server verifies it, upserts the User, and returns a session JWT.
-// Demo flow:
-//   1. User clicks "Continue as Demo".
-//   2. We POST to /api/auth/demo. The server upserts a shared demo `User` doc (its own `ownerId`, distinct from real users) and returns a session token.
-// Microsoft flow:
-//   1. User clicks "Sign in with Microsoft".
-//   2. We POST to /api/auth/microsoft. The server route is not implemented yet, so the server returns 501 and we surface the message in the login modal.
-// In all cases we store { user, token } in localStorage and the sprites API attaches the token via an axios interceptor.
+// Auth context. Exposes the current Google user and the sign-in / sign-out handlers to the React tree.
 import {
   createContext,
   useCallback,

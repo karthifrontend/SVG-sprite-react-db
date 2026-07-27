@@ -1,4 +1,4 @@
-// Mode toggle between "Create New Sprite" and "Update Existing Sprite".
+// Tabbed toggle between "Create New Sprite" and "Update Existing Sprite" modes.
 export type CompilerMode = "new" | "update";
 
 type ModeTabsProps = {

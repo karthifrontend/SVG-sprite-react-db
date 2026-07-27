@@ -1,3 +1,4 @@
+// Sprites API client. Wraps /api/sprites* routes (list, save, get, delete) and attaches the current Google session token.
 import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5000";

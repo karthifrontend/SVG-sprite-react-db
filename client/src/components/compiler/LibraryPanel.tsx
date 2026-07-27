@@ -1,4 +1,4 @@
-// Left-hand library sidebar. Shows the signed-out CTA when no user is authenticated and a grouped list of saved libraries (with load / refresh / rename / delete actions) when signed in. UI mirrors the "react app with MS" reference, with collapse/expand behavior owned by the parent.
+// Left-hand library sidebar. Lists saved sprite libraries with load/refresh/rename/delete actions for signed-in users.
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { useLibrary } from "../../hooks/useLibrary";
 import { getSpriteById } from "../../api/sprites";
