@@ -1,30 +1,17 @@
-// Update-mode "Base Sprite File" picker. Mirrors the
-// "react app with MS" reference: shows a small drop zone
-// (with a "select from library" hint) when no file is picked,
-// and an emerald file card with a Change action row once a
-// sprite is loaded.
+// Update-mode "Base Sprite File" picker. Mirrors the "react app with MS" reference: shows a small drop zone (with a "select from library" hint) when no file is picked, and an emerald file card with a Change action row once a sprite is loaded.
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { formatSize, isSpriteSvgFile } from "../../utils/sprite";
 
 type ExistingSpriteSectionProps = {
   file: File | null;
-  /**
-   * Optional version number to surface next to the file name
-   * when the sprite was loaded from the library. Falls back to
-   * `null` (no badge) for uploaded files.
-   */
+  // Optional version number to surface next to the file name when the sprite was loaded from the library. Falls back to `null` (no badge) for uploaded files.
   version?: number | null;
   onFile: (file: File | null) => void;
   onClear: () => void;
   onSelectFromLibrary?: () => void;
   canSelectFromLibrary?: boolean;
   onPreview?: () => void;
-  /**
-   * Fired when the user drops a non-sprite SVG into the
-   * existing-sprite upload section. The parent uses this to
-   * surface a toast pointing the user at the right upload
-   * target.
-   */
+  // Fired when the user drops a non-sprite SVG into the existing-sprite upload section. The parent uses this to surface a toast pointing the user at the right upload target.
   onRejected?: (rejected: { fileName: string }) => void;
 };
 
@@ -90,21 +77,11 @@ function ExistingSpriteSection({
   async function handleFileChosen(picked: File | null | undefined) {
     if (!picked) return;
     if (!picked.name.toLowerCase().endsWith(".svg")) {
-      // Non-SVG file: the parent treats `onFile(null)` as
-      // "rejection with the generic 'Base sprite must be an SVG
-      // file.' toast". Don't also call `onRejected` here — the
-      // single toast is enough.
+      // Non-SVG file: the parent treats `onFile(null)` as "rejection with the generic 'Base sprite must be an SVG file.' toast". Don't also call `onRejected` here — the single toast is enough.
       onFile(null);
       return;
     }
-    // The "existing sprite" section must only accept sprite
-    // sheets (root <svg> containing at least one <symbol>).
-    // Reject standalone icons so the user gets a clear toast
-    // pointing them at the icon upload section. We ONLY fire
-    // `onRejected` here (no `onFile(null)`), because the parent
-    // would otherwise show its own generic "must be an SVG
-    // file" toast on top of our specific one — producing two
-    // toasts for the same mistake.
+    // The "existing sprite" section must only accept sprite sheets (root <svg> containing at least one <symbol>). Reject standalone icons so the user gets a clear toast pointing them at the icon upload section. We ONLY fire `onRejected` here (no `onFile(null)`), because the parent would otherwise show its own generic "must be an SVG file" toast on top of our specific one — producing two toasts for the same mistake.
     if (!(await isSpriteSvgFile(picked))) {
       onRejected?.({ fileName: picked.name });
       return;

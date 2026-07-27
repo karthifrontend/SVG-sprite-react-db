@@ -1,15 +1,8 @@
 // Browser-side zip builder for the "download sprite bundle" flow.
-//
-// We don't pull in JSZip / fflate to keep the bundle lean and avoid
-// a new dependency. The output is a valid Store-only (method 0) zip
-// — uncompressed — which every modern OS can open. Each entry is
-// written with its CRC-32, name, raw bytes, and a central directory
-// record followed by the EOCD record.
-//
+// We don't pull in JSZip / fflate to keep the bundle lean and avoid a new dependency. The output is a valid Store-only (method 0) zip — uncompressed — which every modern OS can open. Each entry is written with its CRC-32, name, raw bytes, and a central directory record followed by the EOCD record.
 // Usage:
 //   const blob = createZip([{ name: "sprite.svg", data: "..." }, ...]);
 //   triggerBrowserDownload(blob, "sprite-bundle.zip");
-//
 // All data is handled as Uint8Array; strings are UTF-8 encoded.
 
 const CRC_TABLE: Uint32Array = (() => {
@@ -48,8 +41,7 @@ function concat(parts: Uint8Array[]): Uint8Array {
 }
 
 function dosDateTime(now = new Date()): { date: number; time: number } {
-  // MS-DOS packed date/time. Seconds are 2-second resolution, so we
-  // floor them to keep round-tripping tidy.
+  // MS-DOS packed date/time. Seconds are 2-second resolution, so we floor them to keep round-tripping tidy.
   const date =
     ((now.getFullYear() - 1980) << 9) |
     ((now.getMonth() + 1) << 5) |
@@ -75,10 +67,7 @@ type CompiledEntry = {
   time: number;
 };
 
-/**
- * Build a Store-method zip archive from the given entries. Returns a
- * Blob with mime type `application/zip`.
- */
+// Build a Store-method zip archive from the given entries. Returns a Blob with mime type `application/zip`.
 export function createZip(entries: ZipEntry[]): Blob {
   const { date, time } = dosDateTime();
   const localParts: Uint8Array[] = [];
@@ -154,17 +143,13 @@ export function createZip(entries: ZipEntry[]): Blob {
   ev.setUint16(20, 0, true);
 
   const out = concat([...localParts, centralBytes, eocd]);
-  // Copy into a plain ArrayBuffer so TypeScript narrows BlobPart to
-  // ArrayBufferView<ArrayBuffer> under the latest DOM lib types.
+  // Copy into a plain ArrayBuffer so TypeScript narrows BlobPart to ArrayBufferView<ArrayBuffer> under the latest DOM lib types.
   const buf = new ArrayBuffer(out.byteLength);
   new Uint8Array(buf).set(out);
   return new Blob([buf], { type: "application/zip" });
 }
 
-/**
- * Trigger a browser download for the given blob with the supplied
- * filename. Works in Chromium, Firefox, and Safari.
- */
+// Trigger a browser download for the given blob with the supplied filename. Works in Chromium, Firefox, and Safari.
 export function triggerBrowserDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

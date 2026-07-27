@@ -1,14 +1,4 @@
 // Live demo modal: opens after a successful compile. Provides:
-//   - An icon grid with search, select mode, rename and remove.
-//   - A Custom CSS tab with size slider, color picker, gradient
-//     builder and a generated CSS snippet.
-//   - A Save button that updates the source library in place when
-//     the preview was opened from a library entry.
-//
-// The component is fully self-contained: it receives the sprite XML
-// and symbol list, parses/serialises the XML locally, and pushes
-// changes back through `onUpdate` (parent state) and the library
-// `updateContent` action (persisted save).
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, ChangeEvent, ReactNode } from "react";
 import {
@@ -58,103 +48,37 @@ export type { Source };
 type LiveDemoProps = {
   isOpen: boolean;
   onClose: () => void;
-  /** The current sprite XML (the same string the Compiler holds). */
+  // The current sprite XML (the same string the Compiler holds).
   sprite: string | null;
-  /** The list of symbol ids in the sprite. */
+  // The list of symbol ids in the sprite.
   symbolIds: string[];
-  /** Where the sprite came from — controls whether "Save Changes" is shown. */
+  // Where the sprite came from — controls whether "Save Changes" is shown.
   source?: Source;
-  /**
-   * Which entry point opened the demo. Defaults to "default" so
-   * existing callers (Results panel "Live Demo", the base-sprite
-   * preview, the post-paste preview, the preview action in the
-   * inline paste toast) keep their current behaviour — including
-   * the "Save to Library" footer button. Set to "preview" when
-   * the demo was opened from the library panel's eye icon. In
-   * preview mode the footer replaces "Save to Library" with a
-   * "Save Changes" button (disabled until the user edits) that
-   * persists edits back to the same library version via the
-   * optional `onSave` callback.
-   */
+  // Which entry point opened the demo. Defaults to "default" so existing callers (Results panel "Live Demo", the base-sprite preview, the post-paste preview, the preview action in the inline paste toast) keep their current behaviour — including the "Save to Library" footer button. Set to "preview" when the demo was opened from the library panel's eye icon. In preview mode the footer replaces "Save to Library" with a "Save Changes" button (disabled until the user edits) that persists edits back to the same library version via the optional `onSave` callback.
   mode?: "default" | "preview";
-  /**
-   * Fired whenever the user mutates the sprite (rename, delete). The
-   * parent is expected to update its own `spriteXml`/`symbolIds`
-   * state so the rest of the UI stays in sync.
-   */
+  // Fired whenever the user mutates the sprite (rename, delete). The parent is expected to update its own `spriteXml`/`symbolIds` state so the rest of the UI stays in sync.
   onUpdate?: (next: { sprite: string; symbolIds: string[]; hasChanges: boolean }) => void;
-  /** Optional callback for "open the regular save modal" (fallback). */
+  // Optional callback for "open the regular save modal" (fallback).
   onOpenSaveModal?: () => void;
-  /**
-   * Persist the currently-mutated XML back to the library
-   * version the demo was opened from. The parent (Compiler) is
-   * expected to call `useLibrary().updateContent(sourceId, xml)`
-   * and return `true` on success / `false` on failure. Only used
-   * by the eye-icon preview flow (see `mode`); other entry
-   * points keep their existing save affordances untouched.
-   */
+  // Persist the currently-mutated XML back to the library version the demo was opened from. The parent (Compiler) is expected to call `useLibrary().updateContent(sourceId, xml)` and return `true` on success / `false` on failure. Only used by the eye-icon preview flow (see `mode`); other entry points keep their existing save affordances untouched.
   onSave?: (input: { xml: string; symbolIds: string[] }) => Promise<boolean> | boolean;
-  /**
-   * Optional callback for "copy the current sprite XML to the
-   * clipboard". The parent owns the canonical XML, so we delegate.
-   */
+  // Optional callback for "copy the current sprite XML to the clipboard". The parent owns the canonical XML, so we delegate.
   onCopySprite?: () => Promise<boolean> | boolean;
-  /**
-   * Optional callback invoked when the user clicks "Copy N Selected".
-   * Receives the selected icons' raw XML/standalone SVG payloads.
-   */
+  // Optional callback invoked when the user clicks "Copy N Selected". Receives the selected icons' raw XML/standalone SVG payloads.
   onCopyIcons?: (icons: CopiedIcon[]) => void;
-  /**
-   * Optional callback invoked from inside `handleCopySelected` so
-   * the parent (Compiler) can open the "Paste Icons To..." modal
-   * at its own level. We need the parent to own the modal —
-   * not the LiveDemo — because the LiveDemo auto-closes as
-   * soon as the paste popup opens (per UX request: "when paste
-   * here popup opens close the livedemo popup"). If the modal
-   * were a child of the LiveDemo it would unmount with the
-   * demo. Receives the just-copied icons so the parent can hand
-   * them straight to its own `<PasteIconsModal>`.
-   */
+  // Optional callback invoked from inside `handleCopySelected` so the parent (Compiler) can open the "Paste Icons To..." modal at its own level. We need the parent to own the modal — not the LiveDemo — because the LiveDemo auto-closes as soon as the paste popup opens (per UX request: "when paste here popup opens close the livedemo popup"). If the modal were a child of the LiveDemo it would unmount with the demo. Receives the just-copied icons so the parent can hand them straight to its own `<PasteIconsModal>`.
   onCopySelectedRequest?: (icons: CopiedIcon[]) => void;
-  /**
-   * Open the "Save to Organization" modal pre-filled with the supplied
-   * name. The parent (Compiler) handles the actual save + library
-   * refresh.
-   */
+  // Open the "Save to Organization" modal pre-filled with the supplied name. The parent (Compiler) handles the actual save + library refresh.
   onOpenSaveToLibrary?: (input: { suggestedName: string }) => void;
-  /**
-   * Open the "Save to Organization" modal pre-loaded with a sprite
-   * that contains ONLY the icons the user selected. Wired to the
-   * "Save to Library" footer button when one or more icons are
-   * selected — the parent (Compiler) uses the supplied `CopiedIcon[]`
-   * to build a fresh sprite XML and lets the user save it as a
-   * brand-new library entry. When `onOpenSaveSelectedToLibrary` is
-   * provided, selecting icons enables the "Save to Library" button
-   * (it would otherwise be disabled in select mode).
-   */
+  // Open the "Save to Organization" modal pre-loaded with a sprite that contains ONLY the icons the user selected. Wired to the "Save to Library" footer button when one or more icons are selected — the parent (Compiler) uses the supplied `CopiedIcon[]` to build a fresh sprite XML and lets the user save it as a brand-new library entry. When `onOpenSaveSelectedToLibrary` is provided, selecting icons enables the "Save to Library" button (it would otherwise be disabled in select mode).
   onOpenSaveSelectedToLibrary?: (icons: CopiedIcon[]) => void;
-  /**
-   * Name to pre-fill in the "Save to Library" modal (e.g. the
-   * currently-loaded bundle).
-   */
+  // Name to pre-fill in the "Save to Library" modal (e.g. the currently-loaded bundle).
   suggestedBundleName?: string;
-  /**
-   * Optional fallback for the "open the regular save modal" flow.
-   * Kept around for compatibility with the previous implementation.
-   */
+  // Optional fallback for the "open the regular save modal" flow. Kept around for compatibility with the previous implementation.
   onDownloadBundle?: () => Promise<void> | void;
-  /**
-   * Filename (without extension) used by the save flow when
-   * generating the bundle on disk. The Compiler passes the base
-   * sprite's filename here.
-   */
+  // Filename (without extension) used by the save flow when generating the bundle on disk. The Compiler passes the base sprite's filename here.
   bundleFileName?: string;
-  /**
-   * Controlled Custom-CSS state (size, color, gradient, custom
-   * color). Lifted to the parent so the values persist when the
-   * user closes & reopens the demo (e.g. via the library's
-   * preview icon).
-   */
+  // Controlled Custom-CSS state (size, color, gradient, custom color). Lifted to the parent so the values persist when the user closes & reopens the demo (e.g. via the library's preview icon).
   cssState?: LiveDemoCssState;
   onCssStateChange?: (next: LiveDemoCssState) => void;
 };
@@ -165,7 +89,7 @@ export type CopiedIcon = {
   rawSymbol: string;
 };
 
-/** Custom-CSS state shared between the icons grid and the parent. */
+// Custom-CSS state shared between the icons grid and the parent.
 export type LiveDemoCssState = {
   iconSize: number;
   activeColorClass: string | null;
@@ -195,7 +119,7 @@ function getDefaultActiveColor(): string {
   return SOLID_PRESETS[0]?.color ?? "text-slate-700";
 }
 
-/** Serialise the in-memory `<symbol>` elements into a sprite XML doc. */
+// Serialise the in-memory `<symbol>` elements into a sprite XML doc.
 function serializeLiveSprite(symbols: Element[]): string {
   const inner = symbols
     .map(s => s.outerHTML)
@@ -206,7 +130,7 @@ function serializeLiveSprite(symbols: Element[]): string {
   );
 }
 
-/** Parse the symbol list out of a sprite XML string. */
+// Parse the symbol list out of a sprite XML string.
 function parseSpriteSymbols(sprite: string | null): Element[] {
   if (!sprite) return [];
   try {
@@ -247,12 +171,7 @@ export default function LiveDemoModal({
   const [selectedIcons, setSelectedIcons] = useState<Set<string>>(() => new Set());
   const [displayedSymbolIds, setDisplayedSymbolIds] = useState<string[]>(() => symbolIds ?? []);
   const [activeTab, setActiveTab] = useState<"grid" | "css">("grid");
-  // Custom-CSS state. When the parent supplies `cssState` +
-  // `onCssStateChange`, the values are owned outside the modal so
-  // they survive across opens (e.g. re-opening a saved library
-  // version via the eye icon). When the parent doesn't supply them
-  // we fall back to local state, so the modal still works in
-  // isolation (and in Storybook).
+  // Custom-CSS state. When the parent supplies `cssState` + `onCssStateChange`, the values are owned outside the modal so they survive across opens (e.g. re-opening a saved library version via the eye icon). When the parent doesn't supply them we fall back to local state, so the modal still works in isolation (and in Storybook).
   const defaultCssState: LiveDemoCssState = {
     iconSize: 24,
     activeColorClass: getDefaultActiveColor(),
@@ -289,62 +208,24 @@ export default function LiveDemoModal({
   const [renameValue, setRenameValue] = useState<string>("");
   const [, setHasChanges] = useState<boolean>(false);
   const [downloadBusy, setDownloadBusy] = useState<boolean>(false);
-  // Tracks uncommitted edits (rename / delete) since the demo
-  // was last opened or last saved. Drives the "Save Changes"
-  // footer button in preview mode (enabled when true). Reset
-  // on the next open and on a successful save.
+  // Tracks uncommitted edits (rename / delete)
   const [hasPendingChanges, setHasPendingChanges] = useState<boolean>(false);
-  // "Save Changes" button busy state — true while the parent's
-  // `onSave` promise is in-flight. Drives the "Saving…" label
-  // and disables the button so a double-click can't fire two
-  // PUTs against the same library version.
+  // "Save Changes" button busy state — true while the parent's `onSave` promise is in-flight.
   const [saveBusy, setSaveBusy] = useState<boolean>(false);
-  // Independent "Copied" label flip for the demo footer's
-  // "Copy Sprite" button. Local to LiveDemo so the same flag
-  // can't accidentally drive the main ResultsPanel button.
+  // Independent "Copied" label flip for the demo footer's "Copy Sprite" button. 
   const [copySpriteCopied, setCopySpriteCopied] = useState<boolean>(false);
   const symbolsRef = useRef<Element[]>([]);
-  // Debounce timer used by `handleSingleClick` to defer the
-  // copy action. A double-click cancels the pending timer so
-  // the user only gets a download (never a copy) on a dblclick.
+  // Debounce timer used by `handleSingleClick` to defer the copy action.
   const clickTimerRef = useRef<number | null>(null);
 
-  // Read-only mode for the icon grid's per-card rename/delete
-  // controls. Triggered ONLY when the demo was opened from a
-  // public library entry that the current user does NOT own
-  // (i.e. an organization-shared library that belongs to
-  // someone else). In that case the user can preview and copy
-  // icons, but cannot rename or remove them because the
-  // changes cannot be persisted back to the source. Private
-  // libraries and public libraries owned by the current user
-  // keep the full edit affordances.
+  // Read-only mode for the icon grid's per-card rename/delete controls.
   const isReadOnly =
     !!source &&
     source.type === "library" &&
     source.isPublic === true &&
     source.isOwner === false;
 
-  // Reset transient state ONLY when the modal opens or closes —
-  // never on `sprite`/`symbolIds` prop changes. Once the user
-  // starts editing, every rename / remove goes through
-  // `rebuildSprite`, which feeds the parent's `onUpdate`. The
-  // parent then writes the mutated XML back into its own state
-  // and re-passes it to this modal as a new `sprite` prop. If we
-  // react to that prop change we'd wipe the just-armed
-  // `hasPendingChanges` flag and the "Save Changes" button would
-  // never enable. Same applies to the `symbolsRef` re-sync below
-  // — running it on every sprite change would clobber the local
-  // symbol edits with the pre-edit prop value.
-  //
-  // Only `isOpen` is in the dep array. The custom-CSS state is
-  // intentionally left alone when the parent controls it (we
-  // want the user to keep their CSS customizations across
-  // opens), and the local placeholder set keeps the modal
-  // working in isolation (and in Storybook).
   useEffect(() => {
-    // Always clear any pending copy timer so a deferred copy
-    // can't fire after the user closes the demo or swaps the
-    // sprite out from under it.
     if (clickTimerRef.current !== null) {
       window.clearTimeout(clickTimerRef.current);
       clickTimerRef.current = null;
@@ -361,23 +242,12 @@ export default function LiveDemoModal({
     if (!isControlled) {
       setInternalCssState(defaultCssState);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   function syncSymbols(nextSymbols: Element[]): void {
     symbolsRef.current = nextSymbols;
     setDisplayedSymbolIds(nextSymbols.map((sym) => sym.getAttribute("id") || "").filter(Boolean));
   }
-
-  // Seed `symbolsRef` only on the initial open (and when the
-  // source itself changes — i.e. the parent swaps it). Edits
-  // made inside the modal flow through `syncSymbols` directly,
-  // so they MUST NOT be overwritten by this effect. We use a
-  // ref to track the last source we seeded against and only
-  // re-seed when it actually changes. The inline-iframe sprite
-  // `<use>` host is the only place we'd actually want to
-  // re-render, and that lives in a separate effect tied to the
-  // raw `sprite` prop.
   const lastSeededSourceRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isOpen) return;
@@ -385,7 +255,6 @@ export default function LiveDemoModal({
     if (lastSeededSourceRef.current === seedKey) return;
     lastSeededSourceRef.current = seedKey;
     syncSymbols(parseSpriteSymbols(sprite));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, sprite]);
 
   const filteredIds = useMemo<string[]>(() => {
@@ -408,10 +277,6 @@ export default function LiveDemoModal({
       hasChanges: true,
     });
     setHasChanges(true);
-    // Arm the "Save Changes" footer button (preview mode only).
-    // Cleared on a successful save and on the next open. Every
-    // rename / remove action goes through `rebuildSprite`, so
-    // the button enables the moment the user makes any edit.
     setHasPendingChanges(true);
   }
 
@@ -438,8 +303,6 @@ export default function LiveDemoModal({
       showToast(`"${newId}" already exists. Choose a different name.`, "error");
       return;
     }
-    // Clone the target symbol with the new id (preserves its viewBox
-    // + content) instead of mutating attributes on a fresh element.
     syncSymbols(
       symbolsRef.current.map((sym) => {
         if (sym.getAttribute("id") !== renamingId) return sym;
@@ -464,10 +327,6 @@ export default function LiveDemoModal({
       });
       return;
     }
-    // Defer the copy by ~250ms so a quick double-click can
-    // cancel it. Without this delay, every "click" of a
-    // dblclick pair would fire a copy before the download,
-    // which the user explicitly does not want.
     if (clickTimerRef.current !== null) {
       window.clearTimeout(clickTimerRef.current);
     }
@@ -480,9 +339,6 @@ export default function LiveDemoModal({
       }
       const viewBox = sym.getAttribute("viewBox") || "0 0 24 24";
       const innerHTML = sym.innerHTML;
-      // Copy the actual standalone SVG markup (with the active
-      // color/gradient baked in) so the payload is self-contained
-      // and matches what the "Copy N Selected" flow produces.
       const svgCode = buildStyledStandaloneSvg(viewBox, innerHTML);
       void copyToClipboard(svgCode).then((ok) => {
         showToast(
@@ -514,24 +370,11 @@ export default function LiveDemoModal({
       const innerHTML = sym.innerHTML;
       copied.push({
         name: id,
-        // Bake the active size + color/gradient into the
-        // standalone SVG payload so the pasted / downloaded
-        // icon renders with the user's chosen CSS, not the
-        // raw black default. The `rawSymbol` stays plain
-        // because the symbol will be merged into a sprite
-        // that is re-styled by the consumer.
         content: buildStyledStandaloneSvg(viewBox, innerHTML),
         rawSymbol: `<symbol id="${id}" viewBox="${viewBox}">${innerHTML}</symbol>`,
       });
     });
     onCopyIcons?.(copied);
-    // Hand the copied icons to the parent (Compiler) so it can
-    // open its own "Paste Icons To..." modal. We close the
-    // LiveDemo right after — per UX request, the LiveDemo
-    // should disappear the moment the paste popup opens so the
-    // user can complete the paste on a clean canvas. The
-    // parent's paste modal lives outside the LiveDemo, so it
-    // survives the close.
     if (copied.length > 0) {
       onCopySelectedRequest?.(copied);
     }
@@ -562,13 +405,6 @@ export default function LiveDemoModal({
   }
 
   function applyPreset(preset: SolidPreset): void {
-    // Each of these state changes used to be a separate
-    // `updateCss` call. That looked right, but each call
-    // computed `next` from the closure's stale `currentCss`,
-    // so the *last* call in the sequence overwrote every
-    // earlier one (only its patch survived). Result: clicking
-    // a swatch did nothing visible. Fix: compute the full
-    // next state once and write it in a single call.
     updateCss({
       activeColorClass: preset.color,
       activeCustomColor: null,
@@ -633,13 +469,7 @@ export default function LiveDemoModal({
     });
   }
 
-  // Resolve the effective color the icon grid is currently
-  // applying. Mirrors the `cssSnippet` formula so a single
-  // source of truth picks the gradient / custom hex / preset
-  // hex in that priority order. Used by the "Copy N Selected"
-  // flow to bake the user's CSS choice into the standalone
-  // `<svg>` payload so the pasted / downloaded icon keeps the
-  // selected color.
+  // Resolve the effective color the icon grid is currently applying. 
   function resolveActiveColor(): { kind: "gradient"; start: string; end: string } | { kind: "color"; hex: string } | null {
     if (useGradient && activeGradient) {
       return { kind: "gradient", start: activeGradient.start, end: activeGradient.end };
@@ -652,10 +482,7 @@ export default function LiveDemoModal({
     return null;
   }
 
-  // Build a standalone `<svg>` payload that bakes in the
-  // active size + color/gradient. When no color is active,
-  // fall back to the plain black symbol so the payload is
-  // still self-contained.
+  // Build a standalone `<svg>` payload that bakes in the active size + color/gradient.
   function buildStyledStandaloneSvg(viewBox: string, inner: string): string {
     const color = resolveActiveColor();
     const sizeAttrs = `width="${iconSize}" height="${iconSize}"`;
@@ -665,10 +492,7 @@ export default function LiveDemoModal({
     if (color.kind === "color") {
       return `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}" color="${color.hex}">${inner}</svg>`;
     }
-    // Gradient: emit an inline <defs> + a per-icon <linearGradient>
-    // and fill the icon via a mask. Keeps the SVG self-contained
-    // so the pasted / downloaded icon renders the gradient
-    // without needing the host page's hidden gradient host.
+    // Gradient: emit an inline <defs> + a per-icon <linearGradient> and fill the icon via a mask. 
     const gradId = `grad-${Math.random().toString(36).slice(2, 9)}`;
     return (
       `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}">` +
@@ -687,11 +511,7 @@ export default function LiveDemoModal({
     );
   }
 
-  // Inject the active gradient definition into a hidden <svg> in the
-  // document body so <use href="#id"> can reference it. The original
-  // vanilla app mounted this on the sprite container; we use a
-  // dedicated hidden element so demo icons render with the gradient
-  // regardless of where the modal is opened from.
+  // Inject the active gradient definition into a hidden <svg> in the document body so <use href="#id"> can reference it. 
   useEffect(() => {
     if (typeof document === "undefined") return;
     const GRAD_ID = "demo-icon-gradient";
@@ -735,8 +555,7 @@ export default function LiveDemoModal({
     defs.appendChild(grad);
   }, [activeGradient]);
 
-  // Ensure the sprite XML (symbols) is available in the document so
-  // <use href="#id"> inside the modal can resolve symbol references.
+  // Ensure the sprite XML (symbols) is available in the document so <use href="#id"> inside the modal can resolve symbol references.
   useEffect(() => {
     if (typeof document === "undefined") return;
     const HOST_ID = "live-demo-sprite-host";
@@ -758,8 +577,7 @@ export default function LiveDemoModal({
     };
   }, [isOpen, sprite]);
 
-  // Drop the hidden gradient host when the modal closes so stale
-  // gradient defs don't leak between sessions.
+  // Drop the hidden gradient host when the modal closes so stale gradient defs don't leak between sessions.
   useEffect(() => {
     if (isOpen) return;
     if (typeof document === "undefined") return;
@@ -788,26 +606,12 @@ export default function LiveDemoModal({
       ok ? "Copied to clipboard!" : "Failed to copy to clipboard",
       ok ? "success" : "error"
     );
-    // Mirror the inline button text flip for the demo footer's
-    // "Copy Sprite" button. The main Copy Sprite in ResultsPanel
-    // has its own state — keeping these independent avoids the
-    // two labels falling out of sync when the user copies from
-    // one but not the other.
+    // Mirror the inline button text flip for the demo footer's "Copy Sprite" button. 
     setCopySpriteCopied(true);
     window.setTimeout(() => setCopySpriteCopied(false), 1500);
   }
 
-  // Open the "Save to Organization" modal. The parent handles the
-  // actual save + library refetch when the user confirms.
-  // When the user has icons selected, take the "save selected
-  // only" branch instead: build a `CopiedIcon[]` for the
-  // selected symbols and hand it to the parent via
-  // `onOpenSaveSelectedToLibrary`. The parent will compose a
-  // fresh sprite XML containing only the selected icons and
-  // open the same Save to Organization modal pre-loaded with
-  // that XML. We always exit select mode on the way out so the
-  // modal opens on a clean canvas and the icon grid returns to
-  // its default hover/click behaviour.
+  // Open the "Save to Organization" modal. The parent handles the actual save + library refetch when the user confirms.
   function handleOpenSaveToLibrary(): void {
     if (!currentUser) {
       onOpenSaveModal?.();
@@ -842,11 +646,7 @@ export default function LiveDemoModal({
     onOpenSaveToLibrary?.({ suggestedName: fallbackName });
   }
 
-  // Persist the mutated sprite back to the source library
-  // version. Used by the "Save Changes" footer button in preview
-  // mode (opened from the library panel's eye icon). Without a
-  // library source there is nothing to update in place, so we
-  // bail with a toast instead of silently dropping the change.
+  // Persist the mutated sprite back to the source library version. 
   async function handleSaveChanges(): Promise<void> {
     if (saveBusy) return;
     if (!source || source.type !== "library") {
@@ -858,17 +658,9 @@ export default function LiveDemoModal({
       return;
     }
     if (!hasPendingChanges) {
-      // Defensive — the button is already disabled in this
-      // state, but a keyboard-only user could still trigger
-      // it via Enter on a focused, disabled element.
       showToast("No changes to save.", "warning");
       return;
     }
-    // Build the canonical XML from the in-memory symbol list.
-    // We do NOT read `sprite` directly because the parent may
-    // still hold the pre-edit XML until our `onUpdate` callback
-    // has re-hydrated it; the symbol list is the local source
-    // of truth.
     const nextIds = symbolsRef.current
       .map((s) => s.getAttribute("id") || "")
       .filter(Boolean);
@@ -877,25 +669,14 @@ export default function LiveDemoModal({
     try {
       const ok = await onSave({ xml, symbolIds: nextIds });
       if (ok === false) {
-        // The parent (Compiler) already surfaces its own
-        // failure toast, so we just exit without touching the
-        // pending flag — the user can retry the save without
-        // re-editing.
         return;
       }
-      // Clear the pending flag so the button disables itself
-      // again until the next edit.
       setHasPendingChanges(false);
       setHasChanges(false);
       showToast(
         `Saved changes to ${source.name} v${source.version ?? 1}.`,
         "success"
       );
-      // Close the demo so the user lands back on the library
-      // panel (preview mode flow). Skip the unsaved-changes
-      // guard by calling `onClose` directly — `hasPendingChanges`
-      // is already false at this point and the confirm prompt
-      // would be confusing here.
       onClose?.();
     } catch (err) {
       showToast(
@@ -906,9 +687,6 @@ export default function LiveDemoModal({
       setSaveBusy(false);
     }
   }
-
-  // Build a zip bundle (sprite + demo.html + preview.png) and
-  // trigger a browser download. Used by the logged-out footer.
   async function handleDownloadBundle(): Promise<void> {
     if (downloadBusy) return;
     if (!sprite) {
@@ -916,8 +694,6 @@ export default function LiveDemoModal({
       return;
     }
     if (onDownloadBundle) {
-      // Defer to parent (Compiler) when it supplies a richer bundle
-      // builder. The default builder below is the fallback.
       setDownloadBusy(true);
       try {
         await onDownloadBundle();
@@ -1042,10 +818,6 @@ export default function LiveDemoModal({
                         onChange={(event) => {
                           const next = event.target.checked;
                           setSelectMode(next);
-                          // Turning select mode off should also drop
-                          // any icons the user previously picked in
-                          // the preview, so nothing carries over
-                          // silently into the next session.
                           if (!next) {
                             setSelectedIcons(new Set());
                           }
@@ -1257,18 +1029,6 @@ export default function LiveDemoModal({
               {copySpriteCopied ? "Copied" : "Copy Sprite"}
             </button>
             {currentUser ? (
-              // Preview mode (opened from the library panel's eye
-              // icon) swaps the "Save to Library" affordance for an
-              // in-place "Save Changes" button. The button starts
-              // disabled and is armed the moment the user renames
-              // or removes an icon (via `rebuildSprite`). Clicking
-              // it persists the mutated XML back to the same
-              // library version via the parent's `onSave` callback
-              // and shows a "Saving…" busy label while the parent
-              // is writing. All other LiveDemo entry points
-              // (Results panel, post-paste preview, base-sprite
-              // preview) keep the original "Save to Library" flow
-              // so existing behaviour is untouched.
               mode === "preview" && source?.type === "library" && onSave ? source.isOwner !==false && (
                 <button
                   type="button"
@@ -1288,16 +1048,6 @@ export default function LiveDemoModal({
                 <button
                   type="button"
                   onClick={() => handleOpenSaveToLibrary()}
-                  // Stay enabled in select mode so the user can
-                  // save JUST the selected icons as a new
-                  // library. The label flips to "Save N Selected"
-                  // to make the scope obvious. The button only
-                  // becomes useless when both no source and no
-                  // selection exist (nothing to save), which
-                  // can't actually happen inside an open
-                  // LiveDemo, but we keep the disable on
-                  // `downloadBusy` for symmetry with the
-                  // logged-out branch.
                   disabled={downloadBusy}
                   title={
                     selectMode && selectedIconsCount() > 0
@@ -1348,12 +1098,7 @@ type DemoIconCardProps = {
   onDelete: () => void;
   onRenameCommit: () => void;
   onRenameCancel: () => void;
-  /**
-   * When true, hide the per-card rename and delete controls.
-   * Used for public library entries the current user does not
-   * own — the user can still preview and copy icons, but
-   * cannot mutate them in place.
-   */
+  // When true, hide the per-card rename and delete controls. Used for public library entries the current user does not own — the user can still preview and copy icons, but cannot mutate them in place.
   isReadOnly?: boolean;
 };
 
@@ -1381,40 +1126,14 @@ function DemoIconCard({
   const sizeStyle = { width: `${iconSize}px`, height: `${iconSize}px` } as const;
   const viewBox = symbol?.getAttribute("viewBox") || "0 0 24 24";
   const symbolInnerHtml = symbol?.innerHTML ?? "";
-  // Resolve the active solid color (gradient is handled in its
-  // own branch).
+  // Resolve the active solid color (gradient is handled in its own branch).
   const preset = activeColorClass
     ? SOLID_PRESETS.find((p) => p.color === activeColorClass)
     : undefined;
   const activeHex = activeCustomColor || (preset ? preset.hex : null);
-  // Detect whether the source symbol actually draws with a
-  // stroke. We scan the inner markup (and the wrapping <symbol>
-  // itself) for any explicit `stroke=...` attribute or any
-  // `stroke="currentColor"` style. If none is present, the
-  // source was rendered as a fill-only icon, and forcing a
-  // stroke on every child makes the icon visibly thicker
-  // because the SVG default `stroke-width: 1` kicks in even
-  // though the user never asked for an outline. Skipping the
-  // stroke override in that case keeps the preview pixel-
-  // faithful to the original.
   const hasStroke =
     /\bstroke\s*=\s*"(?!none)[^"]*"/i.test(symbolInnerHtml) ||
     (symbol ? /\bstroke\s*=\s*"(?!none)[^"]*"/i.test(symbol.outerHTML) : false);
-  // Build a tiny `<style>` block that targets every descendant
-  // of the icon SVG and forces fill (and stroke, only when the
-  // source actually uses one) to the active color, with
-  // `!important`. `!important` is the only reliable way to
-  // override the children when they declare an explicit
-  // presentation attribute (e.g. `<path fill="black" .../>`):
-  // a presentation attribute behaves as a low-specificity CSS
-  // rule on the child element, and an `!important` rule on any
-  // selector that matches the child wins per the CSS cascade.
-  // The `*` selector is intentionally broad so it covers any
-  // nested element (path, rect, circle, polyline, g, etc.) the
-  // icon might use. The selector is scoped to this icon via the
-  // unique `data-demo-icon-style` attribute we set on the
-  // wrapping `<svg>`, so two icons side by side can't bleed
-  // styles into each other.
   const buildColorCss = (hex: string): string => {
     const fillRule = `fill: ${hex} !important;`;
     const strokeRule = hasStroke ? ` stroke: ${hex} !important;` : "";
@@ -1423,10 +1142,6 @@ function DemoIconCard({
   const scopedColorStyle: ReactNode = activeHex ? (
     <style>{buildColorCss(activeHex)}</style>
   ) : (
-    // No color picked yet — keep the slate-700 default on every
-    // descendant for the same "consistent look" reason. We
-    // honour the same fill-only vs fill+stroke decision so the
-    // default preview also matches the original thickness.
     <style>{buildColorCss("#334155")}</style>
   );
   let inlineSvg: ReactNode;
@@ -1453,11 +1168,6 @@ function DemoIconCard({
       </svg>
     );
   } else {
-    // Solid color (custom or preset) — wrap the icon's inner
-    // markup in a `<g>` and inject a per-icon `<style>` that
-    // forces the active color onto every descendant. The `!important`
-    // is what wins over the children that declare
-    // `fill="black"` (or any other explicit fill) on their paths.
     inlineSvg = (
       <svg
         className="transition-all duration-200"

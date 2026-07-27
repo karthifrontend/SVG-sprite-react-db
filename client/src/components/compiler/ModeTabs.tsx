@@ -1,6 +1,4 @@
 // Mode toggle between "Create New Sprite" and "Update Existing Sprite".
-// Mirrors the "react app with MS" reference: a controlled tablist with
-// an animated, ring-shadowed active tab and a soft hover for the rest.
 export type CompilerMode = "new" | "update";
 
 type ModeTabsProps = {

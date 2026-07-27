@@ -1,31 +1,17 @@
 // AuthContext
-// ---------------------------------------------------------------------------
-// Multi-provider authentication: Google (GIS), Microsoft (placeholder),
-// and a built-in Demo account.
-//
+// Multi-provider authentication: Google (GIS), Microsoft (placeholder), and a built-in Demo account.
 // Google flow (full implementation):
 //   1. User clicks "Sign in with Google" in the modal.
-//   2. We re-initialize GIS with a per-attempt `state` token and
-//      `callback`, then click the rendered button. Google opens its
-//      full account chooser.
+//   2. We re-initialize GIS with a per-attempt `state` token and `callback`, then click the rendered button. Google opens its full account chooser.
 //   3. The chosen account returns an `id_token` (a JWT).
-//   4. We POST that token to /api/auth/google. The server verifies
-//      it, upserts the User, and returns a session JWT.
-//
+//   4. We POST that token to /api/auth/google. The server verifies it, upserts the User, and returns a session JWT.
 // Demo flow:
 //   1. User clicks "Continue as Demo".
-//   2. We POST to /api/auth/demo. The server upserts a shared demo
-//      `User` doc (its own `ownerId`, distinct from real users) and
-//      returns a session token.
-//
+//   2. We POST to /api/auth/demo. The server upserts a shared demo `User` doc (its own `ownerId`, distinct from real users) and returns a session token.
 // Microsoft flow:
 //   1. User clicks "Sign in with Microsoft".
-//   2. We POST to /api/auth/microsoft. The server route is not
-//      implemented yet, so the server returns 501 and we surface
-//      the message in the login modal.
-//
-// In all cases we store { user, token } in localStorage and the
-// sprites API attaches the token via an axios interceptor.
+//   2. We POST to /api/auth/microsoft. The server route is not implemented yet, so the server returns 501 and we surface the message in the login modal.
+// In all cases we store { user, token } in localStorage and the sprites API attaches the token via an axios interceptor.
 import {
   createContext,
   useCallback,
@@ -55,26 +41,15 @@ export type CurrentUser = {
 
 type AuthContextValue = {
   currentUser: CurrentUser | null;
-  /** True until we've finished rehydrating the user from localStorage. */
+  // True until we've finished rehydrating the user from localStorage.
   initializing: boolean;
-  /**
-   * Open the Google account chooser and return the signed-in user.
-   * The chooser is a popup, not One-Tap, so it always lists every
-   * signed-in account and exposes the "Use another account" option.
-   */
+  // Open the Google account chooser and return the signed-in user. The chooser is a popup, not One-Tap, so it always lists every signed-in account and exposes the "Use another account" option.
   loginWithGoogle: () => Promise<CurrentUser>;
-  /**
-   * Sign in as the built-in demo user. Returns the demo `CurrentUser`
-   * so the modal can show a success message.
-   */
+  // Sign in as the built-in demo user. Returns the demo `CurrentUser` so the modal can show a success message.
   loginAsDemo: () => Promise<CurrentUser>;
-  /**
-   * Microsoft sign-in. The server-side MSAL flow is not wired up
-   * yet, so this resolves to a thrown error with a clear message
-   * the modal can display.
-   */
+  // Microsoft sign-in. The server-side MSAL flow is not wired up yet, so this resolves to a thrown error with a clear message the modal can display.
   loginWithMicrosoft: () => Promise<CurrentUser>;
-  /** Clear local session and revoke the Google session if possible. */
+  // Clear local session and revoke the Google session if possible.
   logout: () => Promise<void>;
 };
 
@@ -98,10 +73,9 @@ declare global {
             callback: (response: { credential?: string; select_by?: string }) => void;
             auto_select?: boolean;
             cancel_on_tap_outside?: boolean;
-            /** A unique token per sign-in attempt. GIS uses it to
-             *  guarantee the popup returns a fresh credential. */
+            // A unique token per sign-in attempt. GIS uses it to guarantee the popup returns a fresh credential.
             state?: string;
-            /** Pass-through to `g_state` for replay protection. */
+            // Pass-through to `g_state` for replay protection.
             itp_support?: boolean;
           }) => void;
           prompt: () => void;
@@ -151,8 +125,7 @@ function persistSession(session: StoredSession | null) {
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(TOKEN_KEY);
   }
-  // Mirror the token on `window` so the sprites API interceptor can
-  // pick it up without creating a circular import.
+  // Mirror the token on `window` so the sprites API interceptor can pick it up without creating a circular import.
   window.__svgCompilerSessionToken = session?.token ?? null;
 }
 
@@ -163,15 +136,12 @@ function toCurrentUser(serverUser: ServerUser): CurrentUser {
     displayName: serverUser.displayName,
     picture: serverUser.picture,
     emailVerified: serverUser.emailVerified,
-    // Trust the server's provider label so a stale `google` cached
-    // in localStorage can never be reported as the demo user.
+    // Trust the server's provider label so a stale `google` cached in localStorage can never be reported as the demo user.
     provider: serverUser.provider,
   };
 }
 
-// ---------------------------------------------------------------------------
 // Google Identity Services loader
-// ---------------------------------------------------------------------------
 
 let gisLoadPromise: Promise<NonNullable<Window["google"]> | null> | null = null;
 function loadGis(): Promise<NonNullable<Window["google"]> | null> {
@@ -209,14 +179,7 @@ function ensureButtonHost(): HTMLDivElement {
   return host;
 }
 
-/**
- * Open the Google account chooser. The GIS button is the only entry
- * point that shows the full chooser with every signed-in Gmail
- * account + "Use another account". We re-initialize GIS with a
- * fresh `callback` and a per-attempt `state` token on every call so
- * the popup always presents a picker (no auto-select of the most
- * recent account).
- */
+// Open the Google account chooser. The GIS button is the only entry point that shows the full chooser with every signed-in Gmail account + "Use another account". We re-initialize GIS with a fresh `callback` and a per-attempt `state` token on every call so the popup always presents a picker (no auto-select of the most recent account).
 async function requestGoogleCredential(): Promise<string> {
   const google = await loadGis();
   if (!google) {
@@ -243,9 +206,7 @@ async function requestGoogleCredential(): Promise<string> {
       finish(() => reject(new Error("Google sign-in was cancelled.")));
     }, 5 * 60_000);
 
-    // Per-attempt `state` token: GIS encodes this in the returned
-    // id_token, guaranteeing the popup is for this specific call and
-    // not a replay of a previous attempt.
+    // Per-attempt `state` token: GIS encodes this in the returned id_token, guaranteeing the popup is for this specific call and not a replay of a previous attempt.
     const stateToken =
       Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -276,8 +237,7 @@ async function requestGoogleCredential(): Promise<string> {
       return;
     }
 
-    // Render the GIS button into the host (idempotent — re-rendering
-    // would create a second button, so we only do it once).
+    // Render the GIS button into the host (idempotent — re-rendering would create a second button, so we only do it once).
     if (!host.dataset.gisRendered) {
       try {
         google.accounts.id.renderButton(host, {
@@ -302,10 +262,7 @@ async function requestGoogleCredential(): Promise<string> {
       }
     }
 
-    // Click the hidden GIS button to open the chooser. The button
-    // renders either as an inner `<div role="button">` (older
-    // builds) or an `<iframe>` (newer builds); either responds to
-    // `.click()`.
+    // Click the hidden GIS button to open the chooser. The button renders either as an inner `<div role="button">` (older builds) or an `<iframe>` (newer builds); either responds to `.click()`.
     const inner = host.querySelector<HTMLElement>(
       'div[role="button"], iframe'
     );
@@ -314,17 +271,12 @@ async function requestGoogleCredential(): Promise<string> {
   });
 }
 
-// ---------------------------------------------------------------------------
 // Provider
-// ---------------------------------------------------------------------------
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [initializing, setInitializing] = useState(true);
 
-  // Rehydrate the user from localStorage on mount. We also try to
-  // verify the stored token with the server so a stale session is
-  // detected and cleared automatically.
+  // Rehydrate the user from localStorage on mount. We also try to verify the stored token with the server so a stale session is detected and cleared automatically.
   useEffect(() => {
     let cancelled = false;
     async function rehydrate() {
@@ -343,8 +295,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setCurrentUser(next);
         persistSession({ user: next, token: stored.token });
       } catch {
-        // Server rejected the token (expired / revoked). Wipe the
-        // local session and force the user to sign in again.
+        // Server rejected the token (expired / revoked). Wipe the local session and force the user to sign in again.
         if (cancelled) return;
         persistSession(null);
         setCurrentUser(null);
@@ -368,12 +319,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loginAsDemo = useCallback(async (): Promise<CurrentUser> => {
-    // The demo flow does not use Google Identity Services, so we
-    // skip the GIS re-init and go straight to the API. The server
-    // upserts a shared demo `User` doc every time, but the
-    // resulting `CurrentUser` (with its own `ownerId`) is
-    // indistinguishable from a real session as far as the rest of
-    // the app is concerned.
+    // The demo flow does not use Google Identity Services, so we skip the GIS re-init and go straight to the API. The server upserts a shared demo `User` doc every time, but the resulting `CurrentUser` (with its own `ownerId`) is indistinguishable from a real session as far as the rest of the app is concerned.
     const { user, token } = await loginAsDemoApi();
     const next = toCurrentUser(user);
     setCurrentUser(next);
@@ -382,9 +328,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loginWithMicrosoft = useCallback(async (): Promise<CurrentUser> => {
-    // The server route is a placeholder (501). We let the error
-    // bubble up to the caller (the login modal) so it can show the
-    // server-provided message in the error slot.
+    // The server route is a placeholder (501). We let the error bubble up to the caller (the login modal) so it can show the server-provided message in the error slot.
     const { user, token } = await loginWithMicrosoftApi();
     const next = toCurrentUser(user);
     setCurrentUser(next);
@@ -392,9 +336,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return next;
   }, []);
 
-  // Track the most-recently-logged-in user so `logout` can revoke
-  // their Google session. Revoking makes the chooser appear on the
-  // next sign-in instead of auto-selecting the same account.
+  // Track the most-recently-logged-in user so `logout` can revoke their Google session. Revoking makes the chooser appear on the next sign-in instead of auto-selecting the same account.
   const lastUserRef = useRef<CurrentUser | null>(null);
   useEffect(() => {
     if (currentUser) lastUserRef.current = currentUser;
@@ -405,16 +347,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     persistSession(null);
     setCurrentUser(null);
     try {
-      // Disable auto-select so the next GIS attempt shows the
-      // chooser rather than signing in silently.
+      // Disable auto-select so the next GIS attempt shows the chooser rather than signing in silently.
       window.google?.accounts.id.disableAutoSelect();
     } catch {
       // ignore
     }
     if (previous?.email) {
-      // Revoke the Google session for the email we just signed out
-      // from. This invalidates Google's own session cookies for
-      // this origin so the chooser appears next time.
+      // Revoke the Google session for the email we just signed out from. This invalidates Google's own session cookies for this origin so the chooser appears next time.
       await new Promise<void>((resolve) => {
         let done = false;
         const finish = () => {

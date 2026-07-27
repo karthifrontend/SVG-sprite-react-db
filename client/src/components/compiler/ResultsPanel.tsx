@@ -8,11 +8,9 @@ type ResultsPanelProps = {
   symbolIds: string[];
   onCopy: () => void;
   onDemo: () => void;
-  /** Build a zip bundle (sprite + demo.html + preview.png) and
-   *  trigger a browser download. Used for the "Download zip" CTA. */
+  // Build a zip bundle (sprite + demo.html + preview.png) and trigger a browser download. Used for the "Download zip" CTA.
   onDownloadZip: () => void;
-  /** Disable the Download zip button while the bundle is being
-   *  generated (e.g. preview.png render in flight). */
+  // Disable the Download zip button while the bundle is being generated (e.g. preview.png render in flight).
   downloadBusy?: boolean;
 };
 
@@ -27,11 +25,7 @@ function ResultsPanel({
   onDownloadZip,
   downloadBusy,
 }: ResultsPanelProps) {
-  // Independent "Copied" feedback state for the main "Copy Sprite"
-  // button and the inline "Copy" inside the code preview. Each
-  // tracks its own button so clicking one doesn't flip the other's
-  // label (a single shared flag would make both labels change
-  // together, which felt misleading).
+  // Independent "Copied" feedback state for the main "Copy Sprite" button and the inline "Copy" inside the code preview. Each tracks its own button so clicking one doesn't flip the other's label (a single shared flag would make both labels change together, which felt misleading).
   const [mainCopied, setMainCopied] = useState(false);
   const [inlineCopied, setInlineCopied] = useState(false);
 

@@ -1,8 +1,4 @@
 // File drop zone with click and keyboard activation.
-// Mirrors the "react app with MS" reference: uses a ref-counted
-// dragenter/dragleave pattern to keep the highlight state stable
-// while child nodes move in and out of the hit area, and applies
-// the global `.dropzone-active` style on hover.
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
 type FileDropzoneProps = {

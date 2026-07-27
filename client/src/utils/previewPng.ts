@@ -1,9 +1,4 @@
-// Renders a sprite sheet to a PNG by drawing each symbol onto its own
-// card on a hidden <canvas>. We avoid adding an html-to-image dependency
-// by inlining the sprite XML into a Blob URL, parsing each <symbol> and
-// re-serialising it as a tiny data: URL we can drawImage onto the
-// canvas. The result is a "preview.png" with one card per symbol,
-// matching the on-screen design of the live demo / library panel.
+// Renders a sprite sheet to a PNG by drawing each symbol onto its own card on a hidden <canvas>. We avoid adding an html-to-image dependency by inlining the sprite XML into a Blob URL, parsing each <symbol> and re-serialising it as a tiny data: URL we can drawImage onto the canvas. The result is a "preview.png" with one card per symbol, matching the on-screen design of the live demo / library panel.
 
 const SYMBOL_PX = 96;
 const CARD_PADDING_X = 16;
@@ -21,11 +16,7 @@ const FG = "#0f172a";
 const MUTED = "#64748b";
 const ICON = "#1e293b";
 
-/**
- * Render the supplied sprite XML to a PNG blob. Returns `null` if
- * the browser cannot produce the image (e.g. a symbol with an
- * external reference or a parse error).
- */
+// Render the supplied sprite XML to a PNG blob. Returns `null` if the browser cannot produce the image (e.g. a symbol with an external reference or a parse error).
 export async function renderSpritePreviewPng(
   spriteXml: string,
   symbolIds: string[]
@@ -69,8 +60,7 @@ export async function renderSpritePreviewPng(
     PAGE_PADDING
   );
 
-  // Parse the sprite so we can pull each symbol's viewBox + inner
-  // markup out individually.
+  // Parse the sprite so we can pull each symbol's viewBox + inner markup out individually.
   const parser = new DOMParser();
   const doc = parser.parseFromString(spriteXml, "image/svg+xml");
   if (doc.querySelector("parsererror")) return null;
@@ -179,21 +169,14 @@ function roundRect(
   ctx.closePath();
 }
 
-/**
- * Build a standalone SVG string for a single symbol and return a
- * data: URL we can drawImage onto the canvas. Using a data URL
- * avoids needing a separate fetch / load step per symbol.
- */
+// Build a standalone SVG string for a single symbol and return a data: URL we can drawImage onto the canvas. Using a data URL avoids needing a separate fetch / load step per symbol.
 function renderSymbolToDataUrl(
   viewBox: string,
   inner: string,
   size: number,
   color: string
 ): string {
-  // Re-color hard-coded fills / strokes to currentColor so the
-  // surrounding <svg color="..."> attribute can style the icon.
-  // We leave `none` and `currentColor` alone so transparent parts
-  // stay transparent.
+  // Re-color hard-coded fills / strokes to currentColor so the surrounding <svg color="..."> attribute can style the icon. We leave `none` and `currentColor` alone so transparent parts stay transparent.
   const styled = inner
     .replace(/\sfill="(?!none|currentColor)[^"]*"/gi, ' fill="currentColor"')
     .replace(/\sstroke="(?!none|currentColor)[^"]*"/gi, ' stroke="currentColor"');
@@ -220,7 +203,7 @@ function drawDataUrlImage(
       try {
         ctx.drawImage(img, x, y, w, h);
       } catch {
-        /* swallow individual icon errors so the rest still draws */
+        // swallow individual icon errors so the rest still draws
       }
       resolve();
     };

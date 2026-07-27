@@ -1,5 +1,4 @@
-// Auth API client. Wraps the server's /api/auth/* routes so the
-// rest of the app can stay provider-agnostic.
+// Auth API client. Wraps the server's /api/auth/* routes so the rest of the app can stay provider-agnostic.
 import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
@@ -32,11 +31,7 @@ export async function loginWithGoogle(credential: string): Promise<LoginResponse
   }
 }
 
-/**
- * Sign in as the built-in demo user. The server upserts a shared
- * demo `User` doc (separate `ownerId` from any real account) and
- * returns a session token. No client-side credentials required.
- */
+// Sign in as the built-in demo user. The server upserts a shared demo `User` doc (separate `ownerId` from any real account) and returns a session token. No client-side credentials required.
 export async function loginAsDemo(): Promise<LoginResponse> {
   try {
     const { data } = await axios.post<LoginResponse>(
@@ -50,12 +45,7 @@ export async function loginAsDemo(): Promise<LoginResponse> {
   }
 }
 
-/**
- * Microsoft sign-in. The server route is intentionally not
- * implemented yet (returns 501) so the UI can surface a friendly
- * "not configured" message. We keep this call here so the client
- * never has to special-case network errors itself.
- */
+// Microsoft sign-in. The server route is intentionally not implemented yet (returns 501) so the UI can surface a friendly "not configured" message. We keep this call here so the client never has to special-case network errors itself.
 export async function loginWithMicrosoft(): Promise<LoginResponse> {
   try {
     const { data } = await axios.post<LoginResponse>(

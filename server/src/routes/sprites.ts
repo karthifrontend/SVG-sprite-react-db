@@ -26,13 +26,7 @@ type RenameSpriteBody = {
   name?: unknown;
 };
 
-/**
- * Shape of a row in the library list. The client expects one
- * entry per *version* (so a bundle with 3 versions shows up as
- * 3 cards). We return the version id as the row id so the
- * existing client code (load to update / delete / preview) can
- * keep calling the per-id endpoints unchanged.
- */
+// Shape of a row in the library list. The client expects one entry per *version* (so a bundle with 3 versions shows up as 3 cards). We return the version id as the row id so the existing client code (load to update / delete / preview) can keep calling the per-id endpoints unchanged.
 type ListSpriteItem = {
   _id: unknown;
   name: string;
@@ -63,8 +57,7 @@ function asBoolean(value: unknown): boolean {
 }
 
 function sanitizeBundleName(raw: string): string {
-  // Mirror the model constraints (trim, 1..100) and keep the slug
-  // friendly to URLs by replacing whitespace with `-`.
+  // Mirror the model constraints (trim, 1..100) and keep the slug friendly to URLs by replacing whitespace with `-`.
   return raw
     .trim()
     .replace(/\s+/g, "-")
@@ -93,12 +86,7 @@ function ownerIdString(value: unknown): string | null {
   return null;
 }
 
-/**
- * Returns 403 via `res` if `bundle.ownerId` does not match the
- * session user, otherwise returns `true` so the caller can keep
- * going. Returns `false` if the bundle is missing (the response is
- * already written as 404).
- */
+// Returns 403 via `res` if `bundle.ownerId` does not match the session user, otherwise returns `true` so the caller can keep going. Returns `false` if the bundle is missing (the response is already written as 404).
 function ensureOwner(
   res: Response,
   bundle: OwnerLike | null,
@@ -144,13 +132,7 @@ type VersionDetailLike = VersionLike & {
   symbolIds: string[];
 };
 
-/**
- * The client's library list & detail views treat a "sprite" as a
- * single version (newest per bundle in the list, specific version
- * on detail). We mirror that here: the `name` field is the
- * bundle slug for v1, or "<bundle> v<n>" for any other version,
- * so the rendered text in the panel still looks correct.
- */
+// The client's library list & detail views treat a "sprite" as a single version (newest per bundle in the list, specific version on detail). We mirror that here: the `name` field is the bundle slug for v1, or "<bundle> v<n>" for any other version, so the rendered text in the panel still looks correct.
 function versionDisplayName(bundleName: string, version: number): string {
   return version === 1 ? bundleName : `${bundleName} v${version}`;
 }
@@ -160,13 +142,7 @@ function serializeVersion(
   version: VersionLike,
   isOwner = true
 ) {
-  // `createdAt` / `updatedAt` are taken from the *version* row
-  // (not the bundle) so the library panel can show an accurate
-  // "last touched" timestamp for each individual version. The
-  // bundle's `updatedAt` is also returned as a fallback for
-  // rows that haven't been edited since the schema gained
-  // per-version timestamps (e.g. legacy data inserted before
-  // the migration script ran).
+  // `createdAt` / `updatedAt` are taken from the *version* row (not the bundle) so the library panel can show an accurate "last touched" timestamp for each individual version. The bundle's `updatedAt` is also returned as a fallback for rows that haven't been edited since the schema gained per-version timestamps (e.g. legacy data inserted before the migration script ran).
   return {
     id: version._id,
     name: versionDisplayName(bundle.bundleName, version.version),
@@ -192,16 +168,8 @@ function serializeVersionDetail(
   };
 }
 
-/**
- * Save a sprite. Every save creates a NEW version under the bundle
- * (the `name` field, or `bundleName` if provided). The new version
- * number is always (bundle.currentVersion + 1) so the client never
- * has to compute it.
- *
- * If the bundle does not exist yet for this owner, it's created
- * in the same operation. This keeps the "first save" path simple
- * for callers that don't want to pre-create the bundle.
- */
+// Save a sprite. Every save creates a NEW version under the bundle (the `name` field, or `bundleName` if provided). The new version number is always (bundle.currentVersion + 1) so the client never has to compute it.
+// If the bundle does not exist yet for this owner, it's created in the same operation. This keeps the "first save" path simple for callers that don't want to pre-create the bundle.
 router.post("/", requireUser, async (req: Request, res: Response) => {
   const body = req.body as CreateSpriteBody;
 
@@ -236,12 +204,7 @@ router.post("/", requireUser, async (req: Request, res: Response) => {
     const userId = req.user!._id;
     const userEmail = req.user!.email;
 
-    // Upsert the bundle doc first. We use a conditional update
-    // pattern so two concurrent first-saves for the same bundle
-    // name converge on a single bundle document with a stable id,
-    // rather than racing to create two. `$setOnInsert` only fires
-    // on the very first insert; the `currentVersion` / `symbolCount`
-    // bump happens in a second, version-numbered step below.
+    // Upsert the bundle doc first. We use a conditional update pattern so two concurrent first-saves for the same bundle name converge on a single bundle document with a stable id, rather than racing to create two. `$setOnInsert` only fires on the very first insert; the `currentVersion` / `symbolCount` bump happens in a second, version-numbered step below.
     const bundle = await Sprite.findOneAndUpdate(
       { ownerId: userId, bundleName: sanitizedBundleName },
       {
@@ -263,14 +226,7 @@ router.post("/", requireUser, async (req: Request, res: Response) => {
       }
     );
 
-    // The previous-current-version is the highest version currently
-    // stored for this bundle. We use a real count rather than the
-    // cached `bundle.currentVersion` to guard against the cache
-    // getting out of sync (e.g. after a manual DB edit or a prior
-    // bug). The unique index on (spriteId, version) is the real
-    // safety net that prevents duplicates if two requests race
-    // past this read at the same time — a duplicate would surface
-    // as an E11000 below and we retry once with the new max.
+    // The previous-current-version is the highest version currently stored for this bundle. We use a real count rather than the cached `bundle.currentVersion` to guard against the cache getting out of sync (e.g. after a manual DB edit or a prior bug). The unique index on (spriteId, version) is the real safety net that prevents duplicates if two requests race past this read at the same time — a duplicate would surface as an E11000 below and we retry once with the new max.
     let nextVersion = bundle.currentVersion + 1;
     let createdVersion;
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -280,13 +236,7 @@ router.post("/", requireUser, async (req: Request, res: Response) => {
           version: nextVersion,
           xml,
           symbolIds,
-          // The version doc carries the symbol count as a
-          // denormalised field so the library list can stay
-          // join-free. Without this, a freshly-saved version
-          // would show `symbolCount: 0` until the user edited
-          // it via PUT /:id (which is the only other place we
-          // set the field). The schema defaults it to 0, so
-          // omitting it is a silent UX bug rather than a crash.
+          // The version doc carries the symbol count as a denormalised field so the library list can stay join-free. Without this, a freshly-saved version would show `symbolCount: 0` until the user edited it via PUT /:id (which is the only other place we set the field). The schema defaults it to 0, so omitting it is a silent UX bug rather than a crash.
           symbolCount,
         });
         break;
@@ -295,8 +245,7 @@ router.post("/", requireUser, async (req: Request, res: Response) => {
           err instanceof mongoose.mongo.MongoServerError &&
           err.code === 11000
         ) {
-          // Another writer beat us to this version number. Look up
-          // the actual latest and retry with max + 1.
+          // Another writer beat us to this version number. Look up the actual latest and retry with max + 1.
           const actualMax = await SpriteVersion.findOne({
             spriteId: bundle._id,
           })
@@ -315,11 +264,7 @@ router.post("/", requireUser, async (req: Request, res: Response) => {
         .json({ error: "Failed to allocate a new sprite version." });
     }
 
-    // Refresh the bundle's cached metadata to reflect the newly
-    // inserted version. Doing this after the insert (rather than
-    // in the same `findOneAndUpdate` above) means the cache is
-    // only ever advanced forward, never overwritten with a
-    // stale value from a parallel request.
+    // Refresh the bundle's cached metadata to reflect the newly inserted version. Doing this after the insert (rather than in the same `findOneAndUpdate` above) means the cache is only ever advanced forward, never overwritten with a stale value from a parallel request.
     bundle.currentVersion = nextVersion;
     bundle.symbolCount = symbolCount;
     bundle.isPublic = isPublic;
@@ -334,9 +279,7 @@ router.post("/", requireUser, async (req: Request, res: Response) => {
   }
 });
 
-/**
- * Fetch a single sprite version by id. Returns the full XML payload.
- */
+// Fetch a single sprite version by id. Returns the full XML payload.
 router.get("/id/:id", requireUser, async (req: Request, res: Response) => {
   const id = req.params.id;
   if (!id) {
@@ -355,14 +298,10 @@ router.get("/id/:id", requireUser, async (req: Request, res: Response) => {
     }
     const bundle = await Sprite.findById(version.spriteId);
     if (!bundle) {
-      // Orphaned version (bundle deleted underneath us). Treat as
-      // not-found so the client surfaces a clean error.
+      // Orphaned version (bundle deleted underneath us). Treat as not-found so the client surfaces a clean error.
       return res.status(404).json({ error: "Sprite not found." });
     }
-    // Public sprites are readable by any authenticated user. The
-    // owner-only gate is enforced for every write route below; for
-    // reads we just return a flag so the UI can disable mutating
-    // actions for non-owners.
+    // Public sprites are readable by any authenticated user. The owner-only gate is enforced for every write route below; for reads we just return a flag so the UI can disable mutating actions for non-owners.
     const isOwner = ownerIdString(bundle.ownerId) === ownerIdString(req.user!._id);
     if (!isOwner && !bundle.isPublic) {
       return forbiddenResponse(res, "You can only access libraries you own or that are public.");
@@ -374,9 +313,7 @@ router.get("/id/:id", requireUser, async (req: Request, res: Response) => {
   }
 });
 
-/**
- * Fetch the latest version of a sprite bundle by bundle name.
- */
+// Fetch the latest version of a sprite bundle by bundle name.
 router.get("/:name", requireUser, async (req: Request, res: Response) => {
   const name = req.params.name;
   if (!name) {
@@ -389,9 +326,7 @@ router.get("/:name", requireUser, async (req: Request, res: Response) => {
   }
 
   try {
-    // Resolve the bundle by name. We accept any owner here so a
-    // public bundle can be looked up by anyone with its slug; the
-    // ownership / public flag is enforced below.
+    // Resolve the bundle by name. We accept any owner here so a public bundle can be looked up by anyone with its slug; the ownership / public flag is enforced below.
     const bundle = await Sprite.findOne({ bundleName: name });
     if (!bundle) {
       return res.status(404).json({ error: "Sprite not found." });
@@ -403,10 +338,7 @@ router.get("/:name", requireUser, async (req: Request, res: Response) => {
     const version = await SpriteVersion.findOne({ spriteId: bundle._id })
       .sort({ version: -1 });
     if (!version) {
-      // A bundle without any versions is treated as not-found.
-      // This shouldn't happen in normal flow (you can only create
-      // a bundle by saving a version) but guarding keeps the API
-      // honest if a future migration leaves an empty bundle.
+      // A bundle without any versions is treated as not-found. This shouldn't happen in normal flow (you can only create a bundle by saving a version) but guarding keeps the API honest if a future migration leaves an empty bundle.
       return res.status(404).json({ error: "Sprite not found." });
     }
     return res.json(serializeVersionDetail(bundle, version, isOwner));
@@ -416,18 +348,10 @@ router.get("/:name", requireUser, async (req: Request, res: Response) => {
   }
 });
 
-/**
- * List sprite versions. Returns one entry per *version* (not per
- * bundle) so a bundle with 3 versions shows up as 3 cards, which
- * is what the existing client UI expects. Each entry carries an
- * `isOwner` flag so the client can render owner-only actions
- * (load to update, rename, delete) appropriately.
- *
- * Visibility:
- *   • Every version of any bundle owned by the current user.
- *   • Every version of any bundle flagged `isPublic` (regardless
- *     of owner).
- */
+// List sprite versions. Returns one entry per *version* (not per bundle) so a bundle with 3 versions shows up as 3 cards, which is what the existing client UI expects. Each entry carries an `isOwner` flag so the client can render owner-only actions (load to update, rename, delete) appropriately.
+// Visibility:
+//   • Every version of any bundle owned by the current user.
+//   • Every version of any bundle flagged `isPublic` (regardless of owner).
 router.get("/", requireUser, async (req: Request, res: Response) => {
   const connected = await ensureConnected();
   if (!connected) {
@@ -437,10 +361,7 @@ router.get("/", requireUser, async (req: Request, res: Response) => {
   try {
     const userId = req.user!._id;
 
-    // Step 1: pick the bundles the user is allowed to see. Doing
-    // this in a single query (rather than fetching every version
-    // and filtering in app code) keeps the list cheap as the
-    // library grows.
+    // Step 1: pick the bundles the user is allowed to see. Doing this in a single query (rather than fetching every version and filtering in app code) keeps the list cheap as the library grows.
     const visibleBundles = await Sprite.find(
       {
         $or: [{ ownerId: userId }, { isPublic: true }],
@@ -459,12 +380,7 @@ router.get("/", requireUser, async (req: Request, res: Response) => {
     }
 
     const bundleIds = visibleBundles.map((b) => b._id);
-    // Step 2: pull every version for those bundles in one go and
-    // join in app code. Mongoose gives us `lean` objects so this
-    // stays cheap. We project `updatedAt` (per-version) so the
-    // panel can show when each individual version was last
-    // edited, independent of when the bundle as a whole was
-    // last touched.
+    // Step 2: pull every version for those bundles in one go and join in app code. Mongoose gives us `lean` objects so this stays cheap. We project `updatedAt` (per-version) so the panel can show when each individual version was last edited, independent of when the bundle as a whole was last touched.
     const versions = await SpriteVersion.find(
       { spriteId: { $in: bundleIds } },
       { spriteId: 1, version: 1, symbolCount: 1, createdAt: 1, updatedAt: 1 }
@@ -485,9 +401,7 @@ router.get("/", requireUser, async (req: Request, res: Response) => {
 
     const list: ListSpriteItem[] = versions.map((v) => {
       const bundle = bundleById.get(String(v.spriteId));
-      // Should never happen: every version's spriteId points at a
-      // visible bundle. If it does (e.g. during a race), fall
-      // back to a minimal record so the row still renders.
+      // Should never happen: every version's spriteId points at a visible bundle. If it does (e.g. during a race), fall back to a minimal record so the row still renders.
       const safeBundle: BundleLike =
         bundle ??
         ({
@@ -497,11 +411,7 @@ router.get("/", requireUser, async (req: Request, res: Response) => {
           ownerId: undefined,
           updatedAt: undefined,
         } satisfies BundleLike);
-      // Prefer the per-version `updatedAt` (precise to the
-      // individual save / edit) and fall back to the bundle's
-      // `updatedAt` for legacy rows that predate the per-version
-      // timestamp migration. We also include `createdAt` so the
-      // client can render "saved on ..." if it ever needs to.
+      // Prefer the per-version `updatedAt` (precise to the individual save / edit) and fall back to the bundle's `updatedAt` for legacy rows that predate the per-version timestamp migration. We also include `createdAt` so the client can render "saved on ..." if it ever needs to.
       const versionUpdatedAt = (v as { updatedAt?: Date }).updatedAt;
       const effectiveUpdatedAt = versionUpdatedAt ?? safeBundle.updatedAt;
       return {
@@ -517,21 +427,14 @@ router.get("/", requireUser, async (req: Request, res: Response) => {
       };
     });
 
-    // Newest activity first: a version's relative position is
-    // decided by the version's own `updatedAt` (or the bundle's,
-    // for legacy rows). This means editing an older version of a
-    // bundle correctly surfaces that row at the top of the list,
-    // even if the latest version hasn't been touched in a while.
+    // Newest activity first: a version's relative position is decided by the version's own `updatedAt` (or the bundle's, for legacy rows). This means editing an older version of a bundle correctly surfaces that row at the top of the list, even if the latest version hasn't been touched in a while.
     list.sort((a, b) => {
       const at = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
       const bt = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
       return bt - at;
     });
 
-    // Annotate with the isOwner flag the UI expects. We forward
-    // both `createdAt` (per-version) and `updatedAt` (per-version
-    // with bundle-level fallback) so the panel can render an
-    // accurate "saved on / last edited" stamp for every row.
+    // Annotate with the isOwner flag the UI expects. We forward both `createdAt` (per-version) and `updatedAt` (per-version with bundle-level fallback) so the panel can render an accurate "saved on / last edited" stamp for every row.
     const annotated = list.map((sprite) => {
       const isOwner =
         ownerIdString(sprite.ownerId) === ownerIdString(userId);
@@ -555,11 +458,7 @@ router.get("/", requireUser, async (req: Request, res: Response) => {
   }
 });
 
-/**
- * Update an existing version's XML (re-save the same version). This
- * does not change `bundleName` or `version`; new versions should go
- * through POST /.
- */
+// Update an existing version's XML (re-save the same version). This does not change `bundleName` or `version`; new versions should go through POST /.
 router.put("/:id", requireUser, async (req: Request, res: Response) => {
   const id = req.params.id;
   if (!id) {
@@ -590,28 +489,16 @@ router.put("/:id", requireUser, async (req: Request, res: Response) => {
     if (!ensureOwner(res, bundle, req.user!)) return;
     version.xml = xml;
     version.symbolIds = symbolIds;
-    // The version doc carries the symbol count as a denormalised
-    // field so the library list can stay join-free.
+    // The version doc carries the symbol count as a denormalised field so the library list can stay join-free.
     version.symbolCount = symbolCount;
-    // `version.save()` now refreshes `version.updatedAt` (the
-    // schema has `timestamps: { updatedAt: true }`), so each
-    // version row independently tracks when it was last edited.
+    // `version.save()` now refreshes `version.updatedAt` (the schema has `timestamps: { updatedAt: true }`), so each version row independently tracks when it was last edited.
     await version.save();
 
-    // If this is still the latest version, refresh the bundle's
-    // cached symbol count so the library list reflects the edit.
+    // If this is still the latest version, refresh the bundle's cached symbol count so the library list reflects the edit.
     if (version.version === bundle.currentVersion) {
       bundle.symbolCount = symbolCount;
     }
-    // Always touch the bundle's `updatedAt` so the "latest
-    // activity" sort in the library list and the per-row date
-    // stamp in the panel stay accurate — even when the user is
-    // editing an older version (e.g. v2 of a 3-version bundle),
-    // which otherwise would not register as a bundle-level
-    // change. Marking the doc dirty via `bundle.markModified`
-    // guarantees Mongoose emits a write even when no other
-    // field changed (e.g. when `version.version !==
-    // bundle.currentVersion`).
+    // Always touch the bundle's `updatedAt` so the "latest activity" sort in the library list and the per-row date stamp in the panel stay accurate — even when the user is editing an older version (e.g. v2 of a 3-version bundle), which otherwise would not register as a bundle-level change. Marking the doc dirty via `bundle.markModified` guarantees Mongoose emits a write even when no other field changed (e.g. when `version.version !== bundle.currentVersion`).
     bundle.markModified("updatedAt");
     await bundle.save();
 
@@ -622,12 +509,7 @@ router.put("/:id", requireUser, async (req: Request, res: Response) => {
   }
 });
 
-/**
- * Rename a sprite bundle. Updates the `bundleName` on the bundle
- * document. Versions carry their own `name` (derived as
- * "bundleName v<n>") so we don't need to touch them — the next
- * list call will recompute the display name from the new slug.
- */
+// Rename a sprite bundle. Updates the `bundleName` on the bundle document. Versions carry their own `name` (derived as "bundleName v<n>") so we don't need to touch them — the next list call will recompute the display name from the new slug.
 router.patch("/:id/rename", requireUser, async (req: Request, res: Response) => {
   const id = req.params.id;
   if (!id) {
@@ -649,9 +531,7 @@ router.patch("/:id/rename", requireUser, async (req: Request, res: Response) => 
   }
 
   try {
-    // The id is a *version* id (the client's list view is version-
-    // keyed). Resolve it to the owning bundle before doing the
-    // rename.
+    // The id is a *version* id (the client's list view is version-keyed). Resolve it to the owning bundle before doing the rename.
     const version = await SpriteVersion.findById(id).lean();
     if (!version) {
       return res.status(404).json({ error: "Sprite not found." });
@@ -663,9 +543,7 @@ router.patch("/:id/rename", requireUser, async (req: Request, res: Response) => 
     if (!ensureOwner(res, target, req.user!)) return;
     const oldBundleName = target.bundleName;
 
-    // Reject rename collisions: a different bundle owned by the
-    // same user already uses the requested name. Renaming would
-    // silently merge two libraries.
+    // Reject rename collisions: a different bundle owned by the same user already uses the requested name. Renaming would silently merge two libraries.
     if (newBundleName.toLowerCase() !== oldBundleName.toLowerCase()) {
       const collision = await Sprite.findOne({
         ownerId: target.ownerId,
@@ -681,8 +559,7 @@ router.patch("/:id/rename", requireUser, async (req: Request, res: Response) => 
     target.bundleName = newBundleName;
     await target.save();
 
-    // Count versions so the client gets the same "updated: N"
-    // shape it used to get.
+    // Count versions so the client gets the same "updated: N" shape it used to get.
     const versionCount = await SpriteVersion.countDocuments({
       spriteId: target._id,
     });
@@ -699,13 +576,7 @@ router.patch("/:id/rename", requireUser, async (req: Request, res: Response) => 
   }
 });
 
-/**
- * Delete a sprite version. By default only the version with the
- * given id is removed, leaving the rest of the bundle intact.
- * Pass `?scope=bundle` (or `scope=all`) to remove every version of
- * the bundle AND the bundle itself, useful for a "delete the whole
- * library" action.
- */
+// Delete a sprite version. By default only the version with the given id is removed, leaving the rest of the bundle intact. Pass `?scope=bundle` (or `scope=all`) to remove every version of the bundle AND the bundle itself, useful for a "delete the whole library" action.
 router.delete("/:id", requireUser, async (req: Request, res: Response) => {
   const id = req.params.id;
   if (!id) {
@@ -720,8 +591,7 @@ router.delete("/:id", requireUser, async (req: Request, res: Response) => {
   }
 
   try {
-    // The id is a version id; resolve it to the owning bundle so
-    // we can do the ownership check before any destructive work.
+    // The id is a version id; resolve it to the owning bundle so we can do the ownership check before any destructive work.
     const version = await SpriteVersion.findById(id).lean();
     if (!version) {
       return res.status(404).json({ error: "Sprite not found." });
@@ -733,13 +603,7 @@ router.delete("/:id", requireUser, async (req: Request, res: Response) => {
     if (!ensureOwner(res, bundle, req.user!)) return;
 
     if (deleteBundle) {
-      // Count the versions before the bundle goes away so the
-      // client gets an accurate "deleted: N" count back. The
-      // cascade-delete hook on the Sprite schema takes care of
-      // removing every `SpriteVersion` whose `spriteId` matches
-      // the bundle, so we only have to delete the bundle itself
-      // here. Any future code path that deletes a bundle doc
-      // gets the same cascade for free.
+      // Count the versions before the bundle goes away so the client gets an accurate "deleted: N" count back. The cascade-delete hook on the Sprite schema takes care of removing every `SpriteVersion` whose `spriteId` matches the bundle, so we only have to delete the bundle itself here. Any future code path that deletes a bundle doc gets the same cascade for free.
       const versionCount = await SpriteVersion.countDocuments({
         spriteId: bundle._id,
       });
@@ -756,37 +620,22 @@ router.delete("/:id", requireUser, async (req: Request, res: Response) => {
       spriteId: bundle._id,
     });
 
-    // If we just removed the last version, drop the empty bundle
-    // doc so the library list doesn't carry a ghost row. The
-    // Sprite schema's pre-delete hook handles the version-side
-    // cleanup automatically, but in this branch there are no
-    // versions left to cascade — the count is the source of
-    // truth.
+    // If we just removed the last version, drop the empty bundle doc so the library list doesn't carry a ghost row. The Sprite schema's pre-delete hook handles the version-side cleanup automatically, but in this branch there are no versions left to cascade — the count is the source of truth.
     if (remaining === 0) {
       await Sprite.deleteOne({ _id: bundle._id });
     } else if (version.version === bundle.currentVersion) {
-      // If we removed what used to be the "current" version, walk
-      // the new latest version's metadata up to the bundle so the
-      // library list keeps showing accurate counts.
+      // If we removed what used to be the "current" version, walk the new latest version's metadata up to the bundle so the library list keeps showing accurate counts.
       const newLatest = await SpriteVersion.findOne({ spriteId: bundle._id })
         .sort({ version: -1 });
       if (newLatest) {
         bundle.currentVersion = newLatest.version;
         bundle.symbolCount = newLatest.symbolCount ?? 0;
       }
-      // `markModified("updatedAt")` ensures Mongoose emits a
-      // write even when no other field changed (e.g. when the
-      // deleted version was *not* the current one). This keeps
-      // the bundle's "last activity" stamp in sync with any
-      // delete, so the library sort order reflects the user's
-      // most recent action regardless of which version was
-      // removed.
+      // `markModified("updatedAt")` ensures Mongoose emits a write even when no other field changed (e.g. when the deleted version was *not* the current one). This keeps the bundle's "last activity" stamp in sync with any delete, so the library sort order reflects the user's most recent action regardless of which version was removed.
       bundle.markModified("updatedAt");
       await bundle.save();
     } else {
-      // Deleted version was not the current one — no metadata
-      // walk needed, but the bundle's `updatedAt` still needs
-      // to advance so the row re-sorts to the top of the list.
+      // Deleted version was not the current one — no metadata walk needed, but the bundle's `updatedAt` still needs to advance so the row re-sorts to the top of the list.
       bundle.markModified("updatedAt");
       await bundle.save();
     }
@@ -804,11 +653,7 @@ router.delete("/:id", requireUser, async (req: Request, res: Response) => {
   }
 });
 
-/**
- * Escape a string for use inside a `new RegExp` pattern. MongoDB
- * regex queries treat unescaped special characters as syntax, so we
- * have to neutralise them before using user input as a filter.
- */
+// Escape a string for use inside a `new RegExp` pattern. MongoDB regex queries treat unescaped special characters as syntax, so we have to neutralise them before using user input as a filter.
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

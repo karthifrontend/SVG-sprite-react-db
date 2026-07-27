@@ -1,8 +1,4 @@
-// "Paste Icons To..." modal — opened from the live demo's
-// "Copy N Selected" button. Shows a Current Workspace target plus
-// every saved library version. Picking a target hands the pending
-// icons back through `onPasteIntoWorkspace` or
-// `onPasteIntoLibraryVersion`.
+// "Paste Icons To..." modal — opened from the live demo's "Copy N Selected" button. Shows a Current Workspace target plus every saved library version. Picking a target hands the pending icons back through `onPasteIntoWorkspace` or `onPasteIntoLibraryVersion`.
 import { useEffect, useMemo } from "react";
 import Modal from "../Modal";
 import { useLibrary } from "../../hooks/useLibrary";
@@ -15,26 +11,11 @@ type PasteIconsModalProps = {
   icons: CopiedIcon[];
   busy: boolean;
   onClose: () => void;
-  /**
-   * Optional name of the library the user is currently editing
-   * in the live demo. When set, the bundle with this name is
-   * hidden from the target list so the user can't accidentally
-   * paste the icons back into the very same library and create
-   * a duplicate version of it.
-   */
+  // Optional name of the library the user is currently editing in the live demo. When set, the bundle with this name is hidden from the target list so the user can't accidentally paste the icons back into the very same library and create a duplicate version of it.
   currentBundleName?: string;
-  /**
-   * Paste the icons into the compiler's staging area. The modal
-   * closes itself immediately after the call returns so the
-   * parent's Preview/Undo toast can appear right away.
-   */
+  // Paste the icons into the compiler's staging area. The modal closes itself immediately after the call returns so the parent's Preview/Undo toast can appear right away.
   onPasteIntoWorkspace: (icons: CopiedIcon[]) => void;
-  /**
-   * Paste the icons into a library. The parent reads the
-   * latest version of the bundle, merges the new symbols, and
-   * saves a new version. The modal closes itself the moment
-   * this is invoked; the parent surfaces its own toast.
-   */
+  // Paste the icons into a library. The parent reads the latest version of the bundle, merges the new symbols, and saves a new version. The modal closes itself the moment this is invoked; the parent surfaces its own toast.
   onPasteIntoLibraryVersion: (input: {
     spriteId: string;
     bundleName: string;
@@ -55,39 +36,13 @@ export default function PasteIconsModal({
 }: PasteIconsModalProps) {
   const { currentUser } = useAuth();
   const { sprites, loading, refetch } = useLibrary(!!currentUser);
-  // const [busyTarget, setBusyTarget] = useState<string | null>(null);
-
-  // Always re-fetch when the modal opens so the user can paste into
-  // a library that was just created in another tab.
   useEffect(() => {
     if (isOpen && currentUser) {
       void refetch();
     }
   }, [isOpen, currentUser, refetch]);
 
-  // Group by bundle so the UI can show "Name" with a version
-  // count summary. Pasting can only target libraries the
-  // signed-in user owns (the library panel only exposes
-  // owner-only actions — load, edit, delete, rename — to
-  // non-owners, and the public-by-someone-else case is
-  // read-only). Foreign public libraries are filtered out
-  // here so the popup mirrors the same "owned only" view the
-  // user has in the library panel.
-  //
-  // The bundle the user is currently editing in the live demo
-  // is also hidden — pasting back into the same library would
-  // just create a duplicate version of the sprite the user is
-  // already looking at, which is never what they want. We
-  // compare by trimmed, case-insensitive name so "Foo" and
-  // "foo" are treated as the same bundle.
-  //
-  // Each group carries an `isPublic` flag (OR-reduced across
-  // its versions) so the per-group Public badge only renders
-  // for bundles the owner has actually flipped to public.
-  // Private bundles show no badge — same as the library panel.
-  //
-  // We also surface the latest version's id so the parent can
-  // load it as the merge base when the user picks this bundle.
+  // Group by bundle so the UI can show "Name" with a version count summary. Pasting can only target libraries the signed-in user owns (the library panel only exposes owner-only actions — load, edit, delete, rename — to non-owners, and the public-by-someone-else case is read-only). Foreign public libraries are filtered out here so the popup mirrors the same "owned only" view the user has in the library panel.
   const groups = useMemo(() => {
     const byName = new Map<
       string,
@@ -100,25 +55,13 @@ export default function PasteIconsModal({
         versions: { id: string; version: number; updatedAt?: string; isOwner: boolean; isPublic: boolean }[];
       }
     >();
-    // Normalise the current bundle name once so the per-row
-    // comparison below is cheap. We lowercase + trim so the
-    // match survives incidental whitespace/case differences
-    // between the source label the modal receives and the
-    // bundle names the server returns.
+    // Normalise the current bundle name once so the per-row comparison below is cheap. We lowercase + trim so the match survives incidental whitespace/case differences between the source label the modal receives and the bundle names the server returns.
     const currentKey = currentBundleName?.trim().toLowerCase() || "";
     for (const sprite of sprites) {
-      // Skip libraries owned by other users. The server's
-      // `listSprites` returns every version of every visible
-      // bundle (owner OR public), so we still see foreign
-      // public rows in `sprites` and have to drop them here.
+      // Skip libraries owned by other users. The server's `listSprites` returns every version of every visible bundle (owner OR public), so we still see foreign public rows in `sprites` and have to drop them here.
       if (sprite.isOwner === false) continue;
       const key = (sprite.bundleName || sprite.name || "").trim();
       if (!key) continue;
-      // Skip every version of the bundle the user is currently
-      // editing in the live demo. Without this filter the
-      // "Paste Here" button would happily add the same icons
-      // back to the very same sprite and the server would
-      // create yet another version of it.
       if (currentKey && key.toLowerCase() === currentKey) continue;
       if (!byName.has(key)) {
         byName.set(key, {
@@ -131,10 +74,7 @@ export default function PasteIconsModal({
         });
       }
       const group = byName.get(key)!;
-      // A bundle is "public" if any of its versions say so. In
-      // practice the server keeps the flag consistent across
-      // versions, but we OR defensively so a stray miss doesn't
-      // hide a real Public badge.
+      // A bundle is "public" if any of its versions say so. In practice the server keeps the flag consistent across versions, but we OR defensively so a stray miss doesn't hide a real Public badge.
       const versionIsPublic = !!sprite.isPublic;
       if (versionIsPublic) group.isPublic = true;
       const versionNumber = sprite.version ?? 1;
@@ -142,16 +82,11 @@ export default function PasteIconsModal({
         id: sprite._id,
         version: versionNumber,
         updatedAt: sprite.updatedAt,
-        // Preserve the original "undefined counts as owned"
-        // semantics. After the `isOwner === false` filter above
-        // the type is `true | undefined`, so we map `undefined`
-        // -> `true` directly without a comparison that TS would
-        // flag as always-true.
+        // Preserve the original "undefined counts as owned" semantics. After the `isOwner === false` filter above the type is `true | undefined`, so we map `undefined` -> `true` directly without a comparison that TS would flag as always-true.
         isOwner: sprite.isOwner ?? true,
         isPublic: versionIsPublic,
       });
-      // Track the latest version so we can use it as the merge
-      // base when the user picks this bundle.
+      // Track the latest version so we can use it as the merge base when the user picks this bundle.
       if (versionNumber > group.latestVersion) {
         group.latestVersion = versionNumber;
         group.latestId = sprite._id;
@@ -161,12 +96,7 @@ export default function PasteIconsModal({
       group.versions.sort((a, b) => b.version - a.version);
       group.versionCount = group.versions.length;
     }
-    // Order: public bundles first, private bundles second. Within
-    // each section the relative order matches the LibraryPanel's
-    // "newest activity first" list, since `useLibrary` already
-    // returns sprites sorted by `updatedAt` desc. We use a stable
-    // `Array.prototype.sort` (every modern engine is stable) so
-    // the in-section ordering is preserved.
+    // Order: public bundles first, private bundles second. Within each section the relative order matches the LibraryPanel's "newest activity first" list, since `useLibrary` already returns sprites sorted by `updatedAt` desc. We use a stable `Array.prototype.sort` (every modern engine is stable) so the in-section ordering is preserved.
     const allGroups = Array.from(byName.values());
     allGroups.sort((a, b) => {
       if (a.isPublic === b.isPublic) return 0;
@@ -177,10 +107,7 @@ export default function PasteIconsModal({
 
   function handlePaste(target: Target) {
     if (busy) return;
-    // Close the modal as soon as the user picks a target so the
-    // parent's Preview/Undo toast can appear on a clean canvas.
-    // We snapshot the per-target busy state for visual feedback
-    // while the parent does the actual paste in the background.
+    // Close the modal as soon as the user picks a target so the parent's Preview/Undo toast can appear on a clean canvas. We snapshot the per-target busy state for visual feedback while the parent does the actual paste in the background.
     if (target.kind === "workspace") {
       //setBusyTarget("workspace");
       onPasteIntoWorkspace(icons);

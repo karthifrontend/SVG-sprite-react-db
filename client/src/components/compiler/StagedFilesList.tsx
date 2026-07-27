@@ -1,8 +1,4 @@
-// Staged file list shown below the drop zone. Mirrors the
-// "react app with MS" reference: per-row file size, an
-// "X files" counter, a "Paste N icons" CTA surfaced by the
-// copy flow, an individual remove button (revealed on hover)
-// and a clear-all action.
+// Staged file list shown below the drop zone.
 import { formatSize } from "../../utils/sprite";
 
 type StagedFilesListProps = {

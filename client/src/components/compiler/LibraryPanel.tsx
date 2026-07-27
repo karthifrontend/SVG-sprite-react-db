@@ -1,8 +1,4 @@
-// Left-hand library sidebar. Shows the signed-out CTA when no
-// user is authenticated and a grouped list of saved libraries
-// (with load / refresh / rename / delete actions) when signed in.
-// UI mirrors the "react app with MS" reference, with collapse/
-// expand behavior owned by the parent.
+// Left-hand library sidebar. Shows the signed-out CTA when no user is authenticated and a grouped list of saved libraries (with load / refresh / rename / delete actions) when signed in. UI mirrors the "react app with MS" reference, with collapse/expand behavior owned by the parent.
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { useLibrary } from "../../hooks/useLibrary";
 import { getSpriteById } from "../../api/sprites";
@@ -53,25 +49,11 @@ type LibraryPanelProps = {
     symbolIds: string[];
     source: LiveDemoSource;
   }) => void;
-  /**
-   * Fired after a library is renamed. The parent can use this to
-   * keep in-flight references (e.g. the active bundle name in the
-   * compiler) in sync with the new MongoDB name.
-   */
+  // Fired after a library is renamed. The parent can use this to keep in-flight references (e.g. the active bundle name in the compiler) in sync with the new MongoDB name.
   onLibraryRenamed?: (info: { oldName: string; newName: string }) => void;
-  /**
-   * Fired after a library is deleted. The parent can use this to
-   * clear any UI that was pointing at the removed bundle.
-   */
+  // Fired after a library is deleted. The parent can use this to clear any UI that was pointing at the removed bundle.
   onLibraryDeleted?: (info: { name: string }) => void;
-  /**
-   * Fired when the user clicks the "Download bundle" button on a
-   * library version. The parent owns the bundle builder (zip
-   * with sprite.svg + demo.html + preview.png) so the downloaded
-   * contents are identical to the Results panel's "Download zip"
-   * output. Receives the version's summary so the parent can
-   * resolve the full XML via the existing `getSpriteById` call.
-   */
+  // Fired when the user clicks the "Download bundle" button on a library version. The parent owns the bundle builder (zip with sprite.svg + demo.html + preview.png) so the downloaded contents are identical to the Results panel's "Download zip" output. Receives the version's summary so the parent can resolve the full XML via the existing `getSpriteById` call.
   onDownloadBundle?: (summary: SpriteSummary) => void;
 };
 
@@ -107,11 +89,7 @@ type InlineRenameInputProps = {
   onConfirm: (next: string) => void;
 };
 
-/**
- * Inline text input used in place of the library title while
- * renaming. Enter or blur saves, Escape cancels. The input keeps
- * the same typography as the title so the row doesn't jump.
- */
+// Inline text input used in place of the library title while renaming. Enter or blur saves, Escape cancels. The input keeps the same typography as the title so the row doesn't jump.
 function InlineRenameInput({
   currentName,
   existingNames,
@@ -122,8 +100,7 @@ function InlineRenameInput({
   const [name, setName] = useState(currentName);
   const [touched, setTouched] = useState(false);
 
-  // Keep the field in sync if the parent switches the target row
-  // (e.g. another library started editing while we were here).
+  // Keep the field in sync if the parent switches the target row (e.g. another library started editing while we were here).
   useEffect(() => {
     setName(currentName);
     setTouched(false);
@@ -275,9 +252,7 @@ function LibraryPanel({
   const { showToast } = useToast();
   const [showSkeleton, setShowSkeleton] = useState(false);
 
-  // Inline rename: the bundle name currently being edited. Only one
-  // row at a time can be in edit mode. Saving calls the API; the
-  // busy flag disables the field while the request is in flight.
+  // Inline rename: the bundle name currently being edited. Only one row at a time can be in edit mode. Saving calls the API; the busy flag disables the field while the request is in flight.
   const [renamingName, setRenamingName] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<{
     id: string;
@@ -285,9 +260,7 @@ function LibraryPanel({
   } | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
 
-  // Pending delete: the version the user wants to remove. We
-  // confirm via a modal so a stray click can't wipe data from
-  // MongoDB.
+  // Pending delete: the version the user wants to remove. We confirm via a modal so a stray click can't wipe data from MongoDB.
   const [pendingDelete, setPendingDelete] = useState<{
     id: string;
     bundleName: string;
@@ -295,13 +268,10 @@ function LibraryPanel({
   } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
-  // Per-version "Download bundle" busy state. The parent owns the
-  // zip build (which includes a `preview.png` render), so a single
-  // id is enough to disable just the row that's in flight.
+  // Per-version "Download bundle" busy state. The parent owns the zip build (which includes a `preview.png` render), so a single id is enough to disable just the row that's in flight.
   const [downloadBusyId, setDownloadBusyId] = useState<string | null>(null);
 
   // Show a brief skeleton only when a refresh is in flight, not on first
-  // paint (the panel may render before the user signs in).
   useEffect(() => {
     if (loading && sprites.length === 0) {
       setShowSkeleton(true);
@@ -312,29 +282,18 @@ function LibraryPanel({
   }, [loading, sprites.length]);
 
   // Accordion state: "Public" rendered first (closed by default),
-  // "Private" rendered second (open by default). The split below
-  // drives the two sections, so a single group never appears in
-  // both lists.
   const [publicOpen, setPublicOpen] = useState(false);
   const [privateOpen, setPrivateOpen] = useState(true);
 
-  // Per-group "show all versions" toggle. By default each group
-  // displays only the first two (newest) versions; clicking the
-  // chevron in the card header reveals the rest. The set is keyed
-  // by bundleName so collapsing the section / refreshing the list
-  // collapses back to the trimmed view automatically.
+  // Per-group "show all versions" toggle. By default each group displays only the first two (newest) versions; clicking the chevron in the card header reveals the rest. 
   const [expandedGroupNames, setExpandedGroupNames] = useState<Set<string>>(
     () => new Set(),
   );
 
-  // Number of versions to show per group when collapsed. Set to 2
-  // so the card never overwhelms the sidebar; clicking the header
-  // chevron expands to the full list.
+  // Number of versions to show per group when collapsed. Set to 2 so the card never overwhelms the sidebar; clicking the header chevron expands to the full list.
   const COLLAPSED_VERSION_COUNT = 2;
 
-  // When the expanded version list grows past this threshold the
-  // inner version stack becomes scrollable instead of stretching
-  // the card (and the rest of the sidebar) to fit every row.
+  // When the expanded version list grows past this threshold the  inner version stack becomes scrollable instead of stretching the card (and the rest of the sidebar) to fit every row.
   const VERSION_SCROLL_THRESHOLD = 5;
 
   function toggleGroupExpanded(bundleName: string) {
@@ -359,9 +318,6 @@ function LibraryPanel({
           bundleName: sprite.bundleName || sprite.name,
           versions: [],
           // A bundle is "public" / "owned" if any version says so.
-          // In practice the server applies the same flag to every
-          // version of a bundle, but we OR defensively in case a
-          // future change makes them diverge.
           isPublic: false,
           isOwner: false,
         });
@@ -389,9 +345,6 @@ function LibraryPanel({
   }, [sprites]);
 
   // Split the unified group list into the two accordion buckets.
-  // "Public" = any version flagged public (typically org-wide),
-  // "Private" = anything the signed-in user owns that is not public.
-  // Public is rendered first in the panel, Private second.
   const publicGroups = useMemo(
     () => groups.filter((g) => g.isPublic),
     [groups],
@@ -401,10 +354,7 @@ function LibraryPanel({
     [groups],
   );
 
-  // Renders the original library list. Pulled out so the public
-  // and private accordions can share identical markup. Each
-  // library keeps its own card container for visual separation,
-  // while the outer accordion section stays flat (no card).
+  // Renders the original library list. Pulled out so the public and private accordions can share identical markup.
   function renderGroupList(groupList: LibraryGroup[], listKey: string) {
     return (
       <div className="space-y-2 pb-1">
@@ -665,12 +615,7 @@ function LibraryPanel({
     );
   };
 
-  // Per-version bundle download. We delegate the actual zip build
-  // to the parent so the contents (sprite.svg + demo.html +
-  // preview.png) match the Results panel's "Download zip" output
-  // exactly. The library panel only owns the busy flag so the
-  // button reflects the in-flight render and the user can't fire
-  // two downloads against the same version by accident.
+  // Per-version bundle download. We delegate the actual zip build to the parent so the contents (sprite.svg + demo.html + preview.png) match the Results panel's "Download zip" output exactly.
   async function handleDownloadVersion(version: LibraryGroupVersion) {
     if (downloadBusyId) return;
     if (!onDownloadBundle) {
@@ -690,8 +635,7 @@ function LibraryPanel({
     }
   }
 
-  // Names of every library used to detect rename collisions while
-  // editing. Compared case-insensitively inside the input.
+  // Names of every library used to detect rename collisions while editing. Compared case-insensitively inside the input.
   const existingLibraryNames = useMemo(
     () => groups.map((g) => g.bundleName),
     [groups],
@@ -752,8 +696,7 @@ function LibraryPanel({
           : `Deleted the last version of “${bundleName}”.`,
         "success",
       );
-      // Only notify the parent when there are no versions left, so
-      // it can clear any references pointing at the removed library.
+      // Only notify the parent when there are no versions left
       if (remaining === 0) {
         onLibraryDeleted?.({ name: bundleName });
       }
@@ -769,9 +712,6 @@ function LibraryPanel({
   }
 
   // Accordion section: flat collapsible header (chevron + title)
-  // with the body rendered directly below, no card container.
-  // Mirrors the simple grouped-list look (e.g. Folders / Chats in
-  // a sidebar): no border, no count badge, no nested background.
   function renderAccordionSection(opts: {
     title: string;
     count: number;
