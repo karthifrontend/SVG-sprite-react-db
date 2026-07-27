@@ -1,6 +1,4 @@
 // User Guide side panel with framework tabs and copy buttons.
-// Mirrors the "react app with MS" reference: a slide-in drawer with
-// step-by-step sections, framework code samples, and a pro-tips list.
 import { useEffect, useState } from "react";
 import { copyToClipboard } from "../../utils/sprite";
 

@@ -2,11 +2,7 @@ import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
-// Attach the current Google session token (if any) to every request
-// so the server's `requireUser` middleware can authenticate the call.
-// The token is kept on `window.__svgCompilerSessionToken` by the
-// AuthContext so the interceptor can read it without becoming a
-// circular import.
+// Attach the current Google session token (if any) to every request so the server's `requireUser` middleware can authenticate the call. The token is kept on `window.__svgCompilerSessionToken` by the AuthContext so the interceptor can read it without becoming a circular import.
 declare global {
   interface Window {
     __svgCompilerSessionToken?: string | null;
@@ -42,20 +38,9 @@ export type SpriteSummary = {
   version: number;
   symbolCount: number;
   isPublic?: boolean;
-  /**
-   * True when the sprite belongs to the currently signed-in user.
-   * `false` for public sprites owned by someone else — the UI uses
-   * this to hide rename / delete / load-to-update actions.
-   */
+  // True when the sprite belongs to the currently signed-in user. `false` for public sprites owned by someone else — the UI uses this to hide rename / delete / load-to-update actions.
   isOwner?: boolean;
-  /**
-   * Free-form version label supplied by the user at save time
-   * (e.g. "v4" or "Added 5 icons"). Stored client-side only — the
-   * server doesn't persist it, so this is `undefined` for sprites
-   * loaded from MongoDB that were saved before this field was
-   * added. The library panel falls back to "v<version>" when the
-   * label is missing.
-   */
+  // Free-form version label supplied by the user at save time (e.g. "v4" or "Added 5 icons"). Stored client-side only — the server doesn't persist it, so this is `undefined` for sprites loaded from MongoDB that were saved before this field was added. The library panel falls back to "v<version>" when the label is missing.
   versionLabel?: string;
   updatedAt?: string;
 };
@@ -65,12 +50,7 @@ export type SpriteDetail = SavedSprite & {
   symbolIds: string[];
 };
 
-/**
- * Persist a generated sprite to MongoDB Atlas as a new version
- * under the given bundle name. The server computes the next version
- * number; the client only supplies the bundle name + payload.
- * Throws an Error with a human-readable message on failure.
- */
+// Persist a generated sprite to MongoDB Atlas as a new version under the given bundle name. The server computes the next version number; the client only supplies the bundle name + payload. Throws an Error with a human-readable message on failure.
 export async function saveSprite(input: {
   name: string;
   bundleName?: string;
@@ -95,9 +75,7 @@ export async function saveSprite(input: {
   }
 }
 
-/**
- * Fetch the list of saved sprite versions (lightweight; no XML payload).
- */
+// Fetch the list of saved sprite versions (lightweight; no XML payload).
 export async function listSprites(): Promise<SpriteSummary[]> {
   try {
     const { data } = await authApi.get<SpriteSummary[]>(`/api/sprites`);
@@ -107,9 +85,7 @@ export async function listSprites(): Promise<SpriteSummary[]> {
   }
 }
 
-/**
- * Fetch the latest version of a sprite bundle by bundle name.
- */
+// Fetch the latest version of a sprite bundle by bundle name.
 export async function getSprite(name: string): Promise<SpriteDetail> {
   try {
     const { data } = await authApi.get<SpriteDetail>(
@@ -121,9 +97,7 @@ export async function getSprite(name: string): Promise<SpriteDetail> {
   }
 }
 
-/**
- * Fetch a single sprite version (with XML) by id.
- */
+// Fetch a single sprite version (with XML) by id.
 export async function getSpriteById(id: string): Promise<SpriteDetail> {
   try {
     const { data } = await authApi.get<SpriteDetail>(
@@ -135,11 +109,7 @@ export async function getSpriteById(id: string): Promise<SpriteDetail> {
   }
 }
 
-/**
- * Update an existing sprite version's XML in place. Does NOT create
- * a new version; for that, use `saveSprite`. Used by the live-demo
- * editor to persist symbol add/remove/rename actions.
- */
+// Update an existing sprite version's XML in place. Does NOT create a new version; for that, use `saveSprite`. Used by the live-demo editor to persist symbol add/remove/rename actions.
 export async function putSprite(input: {
   id: string;
   xml: string;
@@ -162,10 +132,7 @@ export async function putSprite(input: {
   }
 }
 
-/**
- * Rename a sprite bundle. Updates the bundle name on every version
- * server-side, so the client only needs to send the new name.
- */
+// Rename a sprite bundle. Updates the bundle name on every version server-side, so the client only needs to send the new name.
 export async function renameSprite(input: {
   id: string;
   name: string;
@@ -182,9 +149,7 @@ export async function renameSprite(input: {
   }
 }
 
-/**
- * Delete a sprite bundle (every version) from the library.
- */
+// Delete a sprite bundle (every version) from the library.
 export async function deleteSprite(input: {
   id: string;
   scope?: "version" | "bundle";

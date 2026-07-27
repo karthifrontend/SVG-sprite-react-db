@@ -1,11 +1,4 @@
-// One-off cleanup: drop every `sprite_versions` row whose
-// `spriteId` does not point at a live `sprites` (bundle)
-// document. Past code paths could leave these orphans behind if
-// a bundle delete failed between the two `deleteMany` /
-// `deleteOne` calls. The new `pre('deleteOne')` cascade hook on
-// the Sprite schema prevents the issue going forward, but the
-// data already in the database still needs scrubbing.
-//
+// One-off cleanup: drop every `sprite_versions` row whose `spriteId` does not point at a live `sprites` (bundle) document. Past code paths could leave these orphans behind if a bundle delete failed between the two `deleteMany` / `deleteOne` calls. The new `pre('deleteOne')` cascade hook on the Sprite schema prevents the issue going forward, but the data already in the database still needs scrubbing.
 // Run with:  npm run cleanup:orphans
 // (after `npm install` and a valid MONGODB_URI in server/.env)
 import "dotenv/config";
@@ -17,18 +10,13 @@ import SpriteVersion from "../models/SpriteVersion.js";
 async function main() {
   await connectDb();
 
-  // Pull the full set of bundle ids currently in the
-  // `sprites` collection. The list is small relative to the
-  // version table (one entry per library, not per save) so
-  // loading it into memory is fine.
+  // Pull the full set of bundle ids currently in the `sprites` collection. The list is small relative to the version table (one entry per library, not per save) so loading it into memory is fine.
   const bundles = await Sprite.find({}, { _id: 1 }).lean();
   const liveIds = new Set<string>(
     bundles.map((b) => String((b as { _id: unknown })._id)),
   );
 
-  // Walk the version table once and collect orphan ids. We use
-  // a cursor (`.lean().cursor()`) so memory stays bounded even
-  // if the collection grows large.
+  // Walk the version table once and collect orphan ids. We use a cursor (`.lean().cursor()`) so memory stays bounded even if the collection grows large.
   const orphanIds: unknown[] = [];
   const cursor = SpriteVersion.find({}, { _id: 1, spriteId: 1 })
     .lean()
@@ -64,7 +52,7 @@ main().catch(async (err) => {
   try {
     await mongoose.disconnect();
   } catch {
-    /* ignore */
+    // ignore
   }
   process.exit(1);
 });

@@ -1,15 +1,4 @@
-// "Save to Organization" modal — opens from the live demo's
-// "Save to Library" button. Lets the user pick a library name and
-// a version description, then dispatches the save through the
-// supplied `onSubmit` callback. The parent (Compiler) is
-// responsible for hitting the API and refetching the library list.
-//
-// Important contract:
-//   - "Library Name" is the bundleName — the grouping key used by
-//     the server to find the latest version under a given bundle.
-//   - "Version Description" is a free-form human label for this
-//     specific save. It is NOT appended to the bundle name; the
-//     server auto-numbers versions per bundle.
+// "Save to Organization" modal — opens from the live demo's "Save to Library" button. Lets the user pick a library name and a version description, then dispatches the save through the supplied `onSubmit` callback. The parent (Compiler) is responsible for hitting the API and refetching the library list.
 import { useEffect, useMemo, useState } from "react";
 import Modal from "../Modal";
 import { CloseIcon, InfoIcon } from "../icons"; 
@@ -17,30 +6,14 @@ import { CloseIcon, InfoIcon } from "../icons";
 type SaveToLibraryModalProps = {
   isOpen: boolean;
   busy: boolean;
-  /** Names of libraries that already exist (for live conflict hint). */
+  // Names of libraries that already exist (for live conflict hint).
   existingNames: string[];
   defaultName: string;
-  /**
-   * Hint shown inside the Library Name field when it's empty
-   * (e.g. "New sprite 7/15/2026"). When the user submits an empty
-   * value the parent falls back to this string so the save still
-   * succeeds.
-   */
+  // Hint shown inside the Library Name field when it's empty (e.g. "New sprite 7/15/2026"). When the user submits an empty value the parent falls back to this string so the save still succeeds.
   placeholder?: string;
-  /**
-   * The next version number the server will assign if the user
-   * saves against the `defaultName` bundle. We pre-fill the
-   * Version Description with this so the user sees a sensible
-   * default (e.g. "v3") every time the modal opens.
-   */
+  // The next version number the server will assign if the user saves against the `defaultName` bundle. We pre-fill the Version Description with this so the user sees a sensible default (e.g. "v3") every time the modal opens.
   nextVersion: number;
-  /**
-   * Initial value of the "Make it as public" toggle. Defaults to
-   * `false` (private) when the modal is opened for a new bundle,
-   * and is seeded from the existing library's visibility when the
-   * modal is opened to save a new version of a bundle the user
-   * already loaded (matches the main page's inline-save toggle).
-   */
+  // Initial value of the "Make it as public" toggle. Defaults to `false` (private) when the modal is opened for a new bundle, and is seeded from the existing library's visibility when the modal is opened to save a new version of a bundle the user already loaded (matches the main page's inline-save toggle).
   initialIsPublic?: boolean;
   onClose: () => void;
   onSubmit: (input: { name: string; version: string; isPublic: boolean }) => void;
@@ -59,15 +32,10 @@ export default function SaveToLibraryModal({
 }: SaveToLibraryModalProps) {
   const [name, setName] = useState(defaultName);
   const [version, setVersion] = useState(`v${nextVersion}`);
-  // Local mirror of the public toggle. Seeded from
-  // `initialIsPublic` on every open so the user can flip the
-  // visibility per-save without it leaking across opens.
+  // Local mirror of the public toggle. Seeded from `initialIsPublic` on every open so the user can flip the visibility per-save without it leaking across opens.
   const [isPublic, setIsPublic] = useState<boolean>(initialIsPublic);
 
-  // Pre-fill the inputs every time the modal is (re)opened. The
-  // `defaultName` and `nextVersion` props may change between opens
-  // (the user could have saved another version in the meantime),
-  // so we sync the local state from the props here.
+  // Pre-fill the inputs every time the modal is (re)opened. The `defaultName` and `nextVersion` props may change between opens (the user could have saved another version in the meantime), so we sync the local state from the props here.
   useEffect(() => {
     if (isOpen) {
       setName(defaultName);
@@ -86,12 +54,7 @@ export default function SaveToLibraryModal({
       ),
     [trimmedName, existingNames],
   );
-  // The form is invalid when the user typed a conflicting name OR
-  // when either the library name or the version description is
-  // empty. Both fields are required before the Save button can be
-  // clicked — we no longer fall back to the placeholder for an
-  // empty Library Name, so the user must explicitly type both
-  // values to enable the submit action.
+  // The form is invalid when the user typed a conflicting name OR when either the library name or the version description is empty. Both fields are required before the Save button can be clicked — we no longer fall back to the placeholder for an empty Library Name, so the user must explicitly type both values to enable the submit action.
   const isInvalid =
     isNameConflict ||
     trimmedName.length === 0 ||
@@ -112,12 +75,7 @@ export default function SaveToLibraryModal({
               Save this sprite to the shared Syncfusion library.
             </p>
           </div>
-          {/* Dedicated close (×) affordance in the header so the
-              user can dismiss the modal without scrolling to the
-              bottom Cancel button. Mirrors the close (×) the
-              LiveDemo puts in its own header. Disabled while the
-              save is in-flight so an impatient user can't cancel
-              a request the server has already started. */}
+          {/* Dedicated close (×) affordance in the header so the user can dismiss the modal without scrolling to the bottom Cancel button. Mirrors the close (×) the LiveDemo puts in its own header. Disabled while the save is in-flight so an impatient user can't cancel a request the server has already started. */}
           <button
             type="button"
             onClick={onClose}
@@ -180,13 +138,7 @@ export default function SaveToLibraryModal({
             </p>
           </div> */}
 
-          {/* "Make it as public" toggle. Mirrors the main page's
-              inline-save section so the user gets a consistent
-              visibility control whether they save from the
-              compiler or from the Live Demo. Default is private
-              for new bundles; seeded from the active bundle's
-              visibility when the modal opens against an already-
-              loaded library. */}
+          {/* "Make it as public" toggle. Mirrors the main page's inline-save section so the user gets a consistent visibility control whether they save from the compiler or from the Live Demo. Default is private for new bundles; seeded from the active bundle's visibility when the modal opens against an already-loaded library. */}
           <div className="border-t border-slate-200/60 pt-3">
             <label className="group flex cursor-pointer items-center gap-2.5">
               <div className="relative">
@@ -210,8 +162,7 @@ export default function SaveToLibraryModal({
               aria-label="What does public mean?"
             >
               <InfoIcon className="h-3.5 w-3.5 cursor-pointer text-slate-400 transition-colors group-hover/info:text-indigo-500" />
-              {/* Tooltip — appears on hover/focus so screen readers can
-                  discover the explanation via the focusable wrapper. */}
+              {/* Tooltip — appears on hover/focus so screen readers can discover the explanation via the focusable wrapper. */}
               <span
                 role="tooltip"
                 className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-56 -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-center text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/info:opacity-100 group-focus-within/info:opacity-100"

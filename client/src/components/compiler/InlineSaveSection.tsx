@@ -1,10 +1,4 @@
-// Inline "save to library" panel shown below the drop zone.
-// Mirrors the "react app with MS" reference: a top-level toggle
-// for "save to library", a "Save as new library instead" sub-toggle
-// that only appears in update mode, and a name input with live
-// conflict detection. When the toggle is on, saving always creates
-// a new version of the bundle (server-side), so the user can keep
-// iterating on the same sprite without typing a new name.
+// Inline "save to library" panel shown below the drop zone. Mirrors the "react app with MS" reference: a top-level toggle for "save to library", a "Save as new library instead" sub-toggle that only appears in update mode, and a name input with live conflict detection. When the toggle is on, saving always creates a new version of the bundle (server-side), so the user can keep iterating on the same sprite without typing a new name.
 import { useEffect, useState } from "react";
 import { InfoIcon } from "../icons";
 
@@ -19,19 +13,7 @@ type InlineSaveValue = {
 type InlineSaveSectionProps = {
   isVisible: boolean;
   isUpdateMode: boolean;
-  /**
-   * True only in update mode AND when the base sprite was loaded
-   * from a saved library version. In that case the panel shows
-   * the two-toggle UI ("Save new version to library" + "Save as
-   * a new library instead") because the user has a known bundle
-   * to attach a new version to. When false — i.e. the user
-   * uploaded a sprite file from their computer in the update
-   * tab — the panel collapses to the single-toggle create-mode
-   * UI (no "Save new version" toggle, no "Save as a new library
-   * instead" sub-toggle, just "Save to library" with
-   * public/private), because an uploaded file has no
-   * pre-existing bundle to version off of.
-   */
+  // True only in update mode AND when the base sprite was loaded from a saved library version. In that case the panel shows the two-toggle UI ("Save new version to library" + "Save as a new library instead") because the user has a known bundle to attach a new version to. When false — i.e. the user uploaded a sprite file from their computer in the update tab — the panel collapses to the single-toggle create-mode UI (no "Save new version" toggle, no "Save as a new library instead" sub-toggle, just "Save to library" with public/private), because an uploaded file has no pre-existing bundle to version off of.
   isLibrarySource?: boolean;
   activeBundleName: string;
   existingLibraryNames: string[];
@@ -53,14 +35,7 @@ function InlineSaveSection({
   const [name, setName] = useState(value?.name || "");
   const [isPublic, setIsPublic] = useState<boolean>(value?.isPublic ?? false);
 
-  // `saveAsNew` and `enabled` are now both sourced from the
-  // parent's `value` directly — no local mirror. The two
-  // toggles encode a single "save to library" intent split
-  // across two flags, so we re-derive each toggle's visual
-  // state from the same source of truth, which makes the
-  // mutual-exclusion behaviour fall out for free (the user can
-  // never see "both on" because the parent never holds that
-  // state, and the handlers never emit it).
+  // `saveAsNew` and `enabled` are now both sourced from the parent's `value` directly — no local mirror. The two toggles encode a single "save to library" intent split across two flags, so we re-derive each toggle's visual state from the same source of truth, which makes the mutual-exclusion behaviour fall out for free (the user can never see "both on" because the parent never holds that state, and the handlers never emit it).
 
   useEffect(() => {
     if (value?.name !== undefined) setName(value.name);
@@ -72,39 +47,12 @@ function InlineSaveSection({
 
   if (!isVisible) return null;
 
-  // The two toggles share a single source of truth and are
-  // strictly mutually exclusive at the data layer:
-  //   - master "Save new version" is on  <=> enabled && !saveAsNew
-  //   - sub "Save as a new library" is on <=> enabled && saveAsNew
-  //   - the user can never have both on at the same time, and
-  //     `!enabled && !saveAsNew` means "don't save to a library".
-  // Both toggles stay visible at all times in update mode.
-  // Neither is `disabled` — clicking either one just auto-flips
-  // the other in the handlers below, so the UI always shows the
-  // current state and the user is never stuck on a greyed-out
-  // option.
+  // The two toggles share a single source of truth and are strictly mutually exclusive at the data layer:
   const masterOn = !!value?.enabled && !value?.saveAsNew;
   const newLibraryOn = !!value?.enabled && !!value?.saveAsNew;
-  // When the user is in the update tab but uploaded a sprite
-  // file from their computer (rather than loading one from the
-  // library), there is no pre-existing bundle to version off
-  // of, so the two-toggle "new version" UI would be confusing.
-  // We collapse the panel to the create-mode UI instead: a
-  // single "Save to library" toggle with name input and a
-  // public/private visibility option. The two-toggle UI is only
-  // shown when we're in update mode AND the base sprite was
-  // loaded from the library.
+  // When the user is in the update tab but uploaded a sprite file from their computer (rather than loading one from the library), there is no pre-existing bundle to version off of, so the two-toggle "new version" UI would be confusing. We collapse the panel to the create-mode UI instead: a single "Save to library" toggle with name input and a public/private visibility option. The two-toggle UI is only shown when we're in update mode AND the base sprite was loaded from the library.
   const renderAsCreateMode = !isUpdateMode || isLibrarySource === false;
-  // The "Save as a new library instead" toggle is the master
-  // switch for both the name input and the public-visibility
-  // toggle in update mode:
-  //   - name input: shown only when the user has selected the
-  //     "new library" branch (regardless of the master's on/off
-  //     state, which is always on when this is on);
-  //   - public toggle: shown only when the user has selected the
-  //     "new library" branch (you can't change visibility on a
-  //     "new version" save — that inherits the active bundle's
-  //     visibility).
+  // The "Save as a new library instead" toggle is the master switch for both the name input and the public-visibility toggle in update mode:
   const showNameInput = renderAsCreateMode ? value?.enabled : newLibraryOn;
   const showSaveAsNewToggle = isUpdateMode && isLibrarySource !== false;
   const showPublicOption = renderAsCreateMode ? !!value?.enabled : newLibraryOn;
@@ -126,13 +74,7 @@ function InlineSaveSection({
 
   function handleToggle(next: boolean) {
     onToggle?.(next);
-    // Master toggle controls "save to library" + picks the
-    // "new version" branch by default. Flipping it on forces
-    // `saveAsNew` off so the sub-toggle is also off — they
-    // can't both be on simultaneously. Flipping it off is the
-    // user's "don't save" signal; we leave `saveAsNew` alone in
-    // that case so a subsequent click on the sub-toggle still
-    // re-enables the save.
+    // Master toggle controls "save to library" + picks the "new version" branch by default. Flipping it on forces `saveAsNew` off so the sub-toggle is also off — they can't both be on simultaneously. Flipping it off is the user's "don't save" signal; we leave `saveAsNew` alone in that case so a subsequent click on the sub-toggle still re-enables the save.
     onLibraryNameChange?.({
       name,
       saveAsNew: next ? false : value?.saveAsNew,
@@ -154,11 +96,7 @@ function InlineSaveSection({
   }
 
   function handleSaveAsNew(next: boolean) {
-    // Sub-toggle is only meaningful in update mode. Clicking it
-    // ON implies "save as a new library" — which in our data
-    // model is `enabled: true, saveAsNew: true`. Clicking it
-    // OFF just clears the `saveAsNew` flag and lets the master
-    // toggle (which is still on) take over again.
+    // Sub-toggle is only meaningful in update mode. Clicking it ON implies "save as a new library" — which in our data model is `enabled: true, saveAsNew: true`. Clicking it OFF just clears the `saveAsNew` flag and lets the master toggle (which is still on) take over again.
     if (next) {
       onToggle?.(true);
       onLibraryNameChange?.({
@@ -284,8 +222,7 @@ function InlineSaveSection({
               aria-label="What does public mean?"
             >
               <InfoIcon className="h-3.5 w-3.5 cursor-pointer text-slate-400 transition-colors group-hover/info:text-indigo-500" />
-              {/* Tooltip — appears on hover/focus so screen readers can
-                  discover the explanation via the focusable wrapper. */}
+              {/* Tooltip — appears on hover/focus so screen readers can discover the explanation via the focusable wrapper. */}
               <span
                 role="tooltip"
                 className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-56 -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-center text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/info:opacity-100 group-focus-within/info:opacity-100"
