@@ -1,4 +1,4 @@
-// Live demo modal: opens after a successful compile. Provides:
+// Live demo modal. Opens after a successful compile to preview, search, select, and copy/use the generated symbols.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, ChangeEvent, ReactNode } from "react";
 import {
@@ -14,8 +14,7 @@ import {
 } from "../icons";
 import { useToast } from "../../context/ToastContext";
 import { useAuth } from "../../context/AuthContext";
-import { copyToClipboard } from "../../utils/formatters";
-import { buildDemoHtml } from "../../utils/sprite";
+import { buildDemoHtml, copyToClipboard } from "../../utils/sprite";
 import { createZip, triggerBrowserDownload } from "../../utils/zipBundle";
 import { renderSpritePreviewPng } from "../../utils/previewPng";
 

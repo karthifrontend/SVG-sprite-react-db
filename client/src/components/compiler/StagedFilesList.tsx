@@ -1,4 +1,4 @@
-// Staged file list shown below the drop zone.
+// Read-only list of staged icon files queued for compilation, with per-file remove actions.
 import { formatSize } from "../../utils/sprite";
 
 type StagedFilesListProps = {

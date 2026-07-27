@@ -1,3 +1,4 @@
+// Top navigation bar. Shows the brand, library toggle, and sign-in / user menu.
 import { useAuth } from "../context/AuthContext";
 import type { ReactNode } from "react";
 
@@ -11,12 +12,6 @@ function Navbar({ onOpenLogin, libraryToggleSlot }: NavbarProps) {
 
   async function handleLogout() {
     await logout();
-    // Toast is owned by App — it stages a one-shot marker in
-    // sessionStorage before its auth-change effect calls
-    // `window.location.reload()`, so the "Logged out
-    // successfully" toast re-fires on the freshly-mounted
-    // app. Firing it here would race the reload and the
-    // user would never see it.
     window.location.reload();
   }
 

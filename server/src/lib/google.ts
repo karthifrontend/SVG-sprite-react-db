@@ -1,17 +1,10 @@
-// Google id_token verification.
-//
-// The client uses Google Identity Services (GIS) and posts the raw
-// `credential` (a JWT id_token) to /api/auth/google. We must verify
-// it against Google's signing keys (fetched from the JWKS endpoint
-// and cached) and check the standard claims (`iss`, `aud`, `exp`).
-// The library `jose` handles all of this for us.
+// Google ID-token verification. Validates the JWT returned from the client sign-in flow using Google's JWKS.
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 
 const GOOGLE_ISSUER = "https://accounts.google.com";
 const GOOGLE_JWKS_URL = new URL("https://www.googleapis.com/oauth2/v3/certs");
 
-// `createRemoteJWKSet` returns a function that fetches the JWKS on
-// demand and caches the keys; we instantiate it once at module load.
+// `createRemoteJWKSet` returns a function that fetches the JWKS on demand and caches the keys; we instantiate it once at module load.
 const jwks = createRemoteJWKSet(GOOGLE_JWKS_URL);
 
 export type GoogleIdTokenClaims = {
@@ -34,8 +27,7 @@ export async function verifyGoogleIdToken(
     throw new Error("Missing Google id_token.");
   }
   if (!expectedAudience) {
-    // Defensive: an empty audience means anyone could sign tokens
-    // for us, so refuse to verify at all.
+    // Defensive: an empty audience means anyone could sign tokens for us, so refuse to verify at all.
     throw new Error("Server is not configured with a Google client id.");
   }
 
@@ -51,8 +43,7 @@ export async function verifyGoogleIdToken(
     throw new Error("Google id_token has expired.");
   }
   if (!payload.email_verified) {
-    // We only want to trust verified Google addresses. A user can
-    // re-run the flow once Google confirms their address.
+    // We only want to trust verified Google addresses. A user can re-run the flow once Google confirms their address.
     throw new Error("Google account email is not verified.");
   }
 

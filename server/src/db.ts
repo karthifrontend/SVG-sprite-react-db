@@ -1,3 +1,4 @@
+// MongoDB connection helper. Loads models and exposes ensureConnected() / connectDb() for the rest of the server.
 import mongoose from "mongoose";
 import User from "./models/User.js";
 import Sprite from "./models/Sprite.js";

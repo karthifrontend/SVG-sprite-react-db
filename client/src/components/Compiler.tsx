@@ -1,3 +1,4 @@
+// Main Compiler view. Coordinates dropzone, mode tabs, generation, live demo, and library save/load flows.
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useFileDropzone } from "../hooks/useFileDropzone";
 import { useSpriteCompiler } from "../hooks/useSpriteCompiler";
@@ -6,7 +7,7 @@ import { getSpriteById, saveSprite, type SpriteSummary } from "../api/sprites";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { buildSpriteXml, extractSymbolsFromSprite } from "../utils/sprite";
-import { copyToClipboard } from "../utils/formatters";
+import { copyToClipboard } from "../utils/sprite";
 import CompilerHeader from "./compiler/CompilerHeader";
 import ExistingSpriteSection from "./compiler/ExistingSpriteSection";
 import FileDropzone from "./compiler/FileDropzone";
@@ -133,10 +134,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // ── UI state ────────────────────────────────────────────────
   const [mode, setMode] = useState<CompilerMode>("new");
   const [baseSpriteFile, setBaseSpriteFile] = useState<File | null>(null);
-  // Tracks where the currently-loaded base sprite came from.
-  //   - "library"  : loaded from a saved library version (via the library panel's "Load to Update" or eye button). The inline-save panel shows the full two-toggle update-mode UI ("Save new version to library" + "Save as a new library instead") because the user already has a known bundle to attach a new version to.
-  //   - "uploaded" : the user picked an `.svg` file from their computer in the update tab. The inline-save panel collapses to the simpler create-mode UI (single "Save to library" toggle with public/private) because there is no pre-existing bundle to version off of.
-  //   - null       : no base sprite is loaded yet.
   const [baseSpriteSource, setBaseSpriteSource] = useState<
     "library" | "uploaded" | null
   >(null);
@@ -284,9 +281,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setLiveDemoOpen(false);
     setSaveModalOpen(true);
   }
-
-  // Open the "Save to Organization" modal pre-loaded with a sprite that contains ONLY the icons the user picked inside the live demo's select mode. The LiveDemo's "Save N Selected to Library" footer button hands us the `CopiedIcon[]` it built for the selection; we re-parse the raw symbol markup into the same `SpriteSymbol` shape the compiler uses elsewhere and stitch a fresh sprite XML out of it. The new XML is written into the demo preview buffer (`demoSpriteXml` + `demoSymbolIds`) so the existing `handleSaveToLibraryConfirm` saves the selected-only sprite verbatim, without disturbing the compiler's main `spriteXml` (the full sprite is still intact in the background and can be re-opened by closing the modal).
-  // We intentionally do NOT re-use `activeBundleName` here: saving the selected icons as a new version of the currently-loaded library would be surprising (the rest of the library's symbols would silently disappear from the new version). Instead, the modal always opens with an empty name and the date-stamped placeholder, forcing the user to type a fresh bundle name so the new entry shows up as a brand-new library in the panel.
   function handleOpenSaveSelectedToLibrary(icons: CopiedIcon[]) {
     if (!icons || icons.length === 0) return;
     const selectedSymbols = icons
@@ -380,11 +374,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }
   }
 
-  // Hand the current sprite (or the loaded one) back to the compiler's staging area. We re-stage by writing the symbols as individual File objects, then forcing a regen. This is the simplest way to inject symbols without rewriting the file dropzone API.
-  // Each copied icon already carries a full standalone `<svg>` document (`CopiedIcon.content`) and its source symbol id (`CopiedIcon.name`). We wrap the SVG text in a `File` so the existing dropzone / staged-list code path renders it like any other upload — the user can then either:
-  //   1. Click "Generate" in the main page to compile a new sprite from the staged files, OR
-  //   2. Already be in "update" mode against a library, in which case the next Generate merges the pasted icons into a new version of that library.
-  // After the files land in the staging area we surface a Preview / Undo toast. Undo pulls the same File objects back out by reference (via `removeFiles`), so it works even if the user has added or removed other files in the meantime.
   function handlePasteIntoWorkspace(icons: CopiedIcon[]) {
     if (!icons || icons.length === 0) return;
     // De-duplicate by name against the currently-staged files so the user doesn't end up with two rows for the same icon if they paste the same selection twice. We compare by basename (since every File the dropzone stores has its own name) and by the source symbol id, so a paste that targets the same icon from a different selection set is treated as a refresh, not a duplicate.
@@ -441,8 +430,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     bundleName: string;
     icons: CopiedIcon[];
   }) {
-    // De-duplicate the pasted selection against the destination library BEFORE we load the sprite or save a new version. The check is by symbol id: if every pasted id already exists in the destination library we abort entirely (no new version, no Preview/Undo toast — there's nothing to undo). If only some ids already exist we paste the rest and surface a warning so the user knows how many were dropped. We need the destination's full XML to know the existing ids, so the duplicate check runs after the `getSpriteById` fetch below — but BEFORE we call `saveSprite`, which is the irreversible step.
-    // To avoid the wasted round-trip in the all-duplicates case we still need the latest version's symbol list. The `getSpriteById` call is cheap (single Mongo doc), so we accept the cost in exchange for the duplicate detection being authoritative against the server's view of the bundle. The merge / save is skipped on the all-duplicates branch, so we never create an empty new version.
     const detail = await getSpriteById(input.spriteId);
     const baseSymbols = extractSymbolsFromSprite(detail.xml);
     const baseIds = new Set(baseSymbols.map((s) => s.id));
@@ -485,8 +472,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     await refetchLibrary();
     // Broadcast to every other `useLibrary` instance so the LibraryPanel shows the new pasted-into-library version without a manual refresh.
     notifyLibraryChanged();
-    // Capture the bundle/version info before the toast is constructed; `saved` is the new sprite id+version. We build a Preview / Undo toast so the user can roll the paste back if it wasn't what they wanted. Undo deletes the version we just created, leaving the bundle's older versions intact.
-    // `pastedCount` reflects the number of icons that actually landed in the new version (i.e. after the duplicate filter above), not the original selection size. If the selection had any duplicates we append a "skipped N duplicates" note to the toast so the user can see what was dropped without having to compare icons themselves.
     const pastedCount = newIcons.length;
     const duplicateCount = duplicateIcons.length;
     const newSpriteId = saved.id;
@@ -650,9 +635,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }
     setResultsDownloadBusy(true);
     try {
-      // Prefer the live demo's source for a stable bundle +
-      // version when the user is previewing a library version
-      // (the Results panel may not have those values in scope).
       const sourceBundle =
         liveDemoSource.type === "library"
           ? liveDemoSource.name
@@ -716,9 +698,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       return;
     }
     if (next) {
-      // Pre-fill the name with the active bundle (when loaded from
-      // the library) or with a sensible default. Mark conflict if
-      // the name matches a different bundle.
       const baseName =
         mode === "update" && activeBundleName
           ? activeBundleName
@@ -732,14 +711,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         ...current,
         enabled: true,
         name: candidate,
-        // If we're in update mode AND the candidate matches the
-        // active bundle, the natural flow is "save as new version",
-        // not "save as new library".
         saveAsNew: current.saveAsNew && !isActiveBundle,
         hasNameConflict: existingLibraryNames.includes(candidateKey) && !isActiveBundle,
-        // Preserve the existing visibility choice when re-enabling
-        // the toggle so users don't accidentally flip a bundle
-        // between public and private mid-flow.
         isPublic: current.isPublic,
       }));
     } else {
@@ -800,13 +773,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       isPublic: false,
     }));
   }
-
-  // Open the Live Demo modal pre-populated with the symbols from
-  // the currently-loaded base sprite file. The user can rename /
-  // delete icons inside the modal just like with a freshly-
-  // generated sprite, but the preview source is a "scratch"
-  // because the base sprite file has not been saved to a library
-  // yet. Existing functionality, data, and DB code are untouched.
   async function handlePreviewBaseSprite() {
     if (!baseSpriteFile) {
       showToast("Upload a sprite.svg first.", "warning");
@@ -822,49 +788,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         );
         return;
       }
-      // Reuse the demo preview buffer used by the Results panel
-      // so the existing LiveDemoModal renders without any extra
-      // wiring. When the base sprite was loaded from the
-      // library, tag the demo source as `library` so the modal
-      // shows the bundle name + version chip in its title and
-      // surfaces the right affordances. For uploaded files
-      // (no saved bundle to attach to) we keep the scratch
-      // source — there's no library context to surface.
-      //
-      // Flag the demo as a base-sprite preview via
-      // `liveDemoIsBaseSpritePreview`. The `onUpdate` callback
-      // below ORs this with `liveDemoMode === "preview"` to
-      // gate the `loadFromLibrary` mirror — without that
-      // guard, a rename or delete inside the demo would
-      // flow into the compiler's main `spriteXml` /
-      // `symbolIds` / `spriteUrl`, flipping `hasResult` to
-      // true and surfacing the entire Results panel as a
-      // side effect of a preview.
-      //
-      // We deliberately do NOT set `liveDemoMode = "preview"`
-      // here. That flag is reserved for the library panel's
-      // eye-icon entry point, where it controls the in-place
-      // "Save Changes" footer button inside LiveDemo. The
-      // base-sprite preview keeps the default
-      // `liveDemoMode = "default"`, so the modal renders the
-      // original "Save to Library" CTA (matching the
-      // pre-experiment behaviour the user asked to revert).
-      // The "Save to Library" button opens the Save to
-      // Organization modal, which works regardless of whether
-      // the base sprite was loaded from the library or
-      // uploaded — there's no special in-place save path for
-      // base-sprite previews.
       setLiveDemoIsBaseSpritePreview(true);
       const demoXml = buildSpriteXml(symbols);
       setDemoSpriteXml(demoXml);
       setDemoSymbolIds(symbols.map((s) => s.id));
       if (baseSpriteSource === "library") {
-        // Reuse the existing liveDemoSource if it's already a
-        // library record (e.g. the user opened the demo for
-        // the same bundle earlier and is now re-opening the
-        // preview from the base-sprite section). Otherwise
-        // synthesise a fresh library source from the active
-        // bundle + version captured when the file was loaded.
         const existing =
           liveDemoSource.type === "library" ? liveDemoSource : null;
         const resolvedName = existing?.name ?? activeBundleName;
@@ -876,23 +804,13 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           isOwner: existing?.isOwner ?? true,
           isPublic: existing?.isPublic ?? false,
         });
-        // Remember the source bundle so the paste popup can
-        // hide it. Without this, copying from a previewed
-        // base sprite that was loaded from a library would
-        // still show that library as a paste target.
         if (resolvedName) {
           setPasteExcludeBundleName(resolvedName);
         }
       } else {
         setLiveDemoSource({ type: "scratch" });
-        // Uploaded (non-library) base sprite: no bundle to
-        // exclude from the paste popup.
         setPasteExcludeBundleName("");
       }
-      // Re-seed the custom-CSS preview buffer from defaults so
-      // the modal opens with a clean slate, mirroring how the
-      // Results panel's "Live Demo" button behaves after a
-      // fresh compile.
       lastSeededSourceKeyRef.current = null;
       setDemoPreviewCssState(null);
       setLiveDemoOpen(true);
@@ -928,14 +846,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
     const summary = await generate(files, existingContent ? { existingContent } : undefined);
 
-    // All-duplicates short-circuit: every staged file's symbol id
-    // was already present in the base sprite, so the generator
-    // didn't produce a new output. We bail before any of the
-    // post-generate state changes (which would otherwise drop the
-    // base-sprite file, lock the Generate button, and run the
-    // save flow for a sprite that didn't change). The staged
-    // files are left in place so the user can remove the
-    // duplicates and try again.
     if (summary.allDuplicates) {
       showToast(
         `All ${summary.duplicateCount} icon${summary.duplicateCount === 1 ? "" : "s"} already exist in the base sprite.`,
@@ -946,17 +856,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
     // Lock the Generate button until new files are uploaded.
     setHasGenerated(true);
-
-    // Drop the base sprite file (its contents have been consumed by
-    // the generator). This also visually clears the Base Sprite
-    // File section, so the user knows to re-upload one before the
-    // next generation.
     if (mode === "update") {
-      // Snapshot the loaded bundle BEFORE we clear it below —
-      // the freshly-generated demo's icons still came from this
-      // library, so the paste popup needs to keep excluding it
-      // even though `activeBundleName` and `liveDemoSource` are
-      // about to be reset to "no source".
       const sourceBundle =
         activeBundleName ||
         (liveDemoSource.type === "library" ? liveDemoSource.name : "");
@@ -977,11 +877,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }
 
     if (!inlineSave.enabled) {
-      // In update mode, surface the duplicate-skip count so the
-      // user can see how many of their staged files were dropped.
-      // In new mode there are no existing symbols to collide
-      // with, so `duplicateCount` is always 0 and the message
-      // stays the original.
       const updatedMessage =
         mode === "update" && summary.duplicateCount > 0
           ? `Sprite updated in your browser! (skipped ${summary.duplicateCount} duplicate${summary.duplicateCount === 1 ? "" : "s"})`
@@ -994,12 +889,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
     const { xml, symbolIds: ids } = await waitForSprite();
     if (!xml) return;
-
-    // Decide the target bundle name:
-    //   - "save as new" off + active bundle set -> new version of the
-    //     active bundle (server increments version).
-    //   - "save as new" on OR no active bundle -> brand-new bundle
-    //     using the typed name.
     const targetBundle = !inlineSave.saveAsNew && activeBundleName
       ? activeBundleName
       : trimmedName;
@@ -1017,58 +906,18 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       const isNewBundle = !inlineSave.saveAsNew && activeBundleName
         ? false
         : true;
-      // Surface the success as a toast (matches the
-      // "Sprite generated and saved to library!" / "New
-      // version saved to library successfully!" / "New
-      // library saved successfully!" patterns from the
-      // design) instead of the inline status text below the
-      // Generate button. The inline block was removed; the
-      // toast is now the single source of truth for the
-      // user's "did it save?" feedback. The message branches
-      // on the save branch the user picked in the inline
-      // save panel:
-      //   - saveAsNew ON  -> they asked for a brand-new
-      //     library, so the toast says "New library saved
-      //     successfully!".
-      //   - saveAsNew OFF + active bundle -> they asked for
-      //     a new version of the active bundle, so the toast
-      //     says "New version saved to library
-      //     successfully!".
-      //   - create mode (no active bundle) -> they created
-      //     the first version of a brand-new bundle, so the
-      //     toast says "Sprite generated and saved to
-      //     library!".
       const successMessage = inlineSave.saveAsNew
         ? "New library saved successfully!"
         : activeBundleName
           ? "New version saved to library successfully!"
           : "Sprite generated and saved to library!";
       showToast(successMessage, "success");
-      // Refresh the library list so the new version shows up
-      // immediately in the side panel without the user having to
-      // hit the refresh button. `refetchLibrary` only updates
-      // this Compiler's `useLibrary` instance, so we also fire
-      // the module-level "library changed" broadcast so the
-      // LibraryPanel's separate `useLibrary` instance picks up
-      // the new version too.
       void refetchLibrary();
       notifyLibraryChanged();
-      // Stay in update mode so the user can keep iterating; the
-      // next save will create v(n+1) of the same bundle.
       setActiveBundleName(saved.bundleName);
-      // Track the freshly-saved bundle as the paste-exclude
-      // hint so a copy-from-demo on this generated sprite
-      // hides the just-saved library from the paste popup.
       if (saved.bundleName) {
         setPasteExcludeBundleName(saved.bundleName);
       }
-      // Reset the inline-save "Library Name" field so the next
-      // save starts with an empty input. The `InlineSaveSection`
-      // mirrors `value.name` into its local state via a
-      // `useEffect`, so the visible input clears on the next
-      // render too. For a new bundle we also reset `saveAsNew`
-      // so the user isn't pinned to a stale "new library"
-      // branch.
       setInlineSave((current) => ({
         ...current,
         name: "",
@@ -1076,10 +925,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         hasNameConflict: false,
       }));
     } catch (err) {
-      // Mirror the success path: surface the failure as a
-      // toast rather than the inline status text. The
-      // inline display block below the Generate button is
-      // gone, so the toast is the only feedback channel.
       showToast(
         err instanceof Error ? err.message : "Failed to save sprite.",
         "error"
@@ -1090,26 +935,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   }
 
   const handleClearAll = () => {
-    // "Clear All" is scoped to the staged-files list only.
-    // Everything else stays put: the user keeps the base
-    // sprite file they uploaded/loaded, the active bundle
-    // name, the live demo source, the preview buffer, the
-    // inline-save fields, etc. We do NOT touch the
-    // `inlineSave.enabled` toggle either — that's a user
-    // choice and shouldn't be flipped by a clear button.
     clearFiles();
   };
 
   // ── Library → Update flow ──────────────────────────────────
   async function handleLoadFromLibrary(summary: SpriteSummary) {
-    // Drop any in-flight "generated" state from a prior update so
-    // the UI starts at the initial stage when the new library is
-    // loaded: staged files list reappears, Generate button is
-    // unlocked, and the result panel clears. Without this, a
-    // post-update `hasGenerated === true` would keep the Generate
-    // button locked and the staged list hidden until the user
-    // re-uploads files. The library's own XML still gets surfaced
-    // via `setBaseSpriteFile(file)` further down.
     clearFiles();
     resetForNewUpload();
     setMode("update");
@@ -1118,24 +948,15 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       const detail = await getSpriteById(summary._id);
       const bundleName = detail.bundleName || detail.name;
       const isOwner = detail.isOwner !== false; // server defaults to true on writes
-
-      // Build a synthetic File from the loaded XML so the existing
-      // sprite section can display the base file (and the compiler
-      // can read its text as `existingContent`).
       const blob = new Blob([detail.xml], { type: "image/svg+xml" });
       const file = new File([blob], `${bundleName}.svg`, { type: "image/svg+xml" });
       setBaseSpriteFile(file);
       setBaseSpriteSource("library");
       setBaseSpriteVersion(detail.version);
       setActiveBundleName(bundleName);
-      // Refresh the paste-exclude hint so a copy-from-demo on
-      // this newly-loaded library hides this library from the
-      // paste popup. `resetForNewUpload()` above just cleared
-      // it, so we re-seed it here.
       setPasteExcludeBundleName(bundleName);
 
-      // The live-demo modal can persist edits directly to this
-      // library version via `useLibrary().updateContent`.
+      // The live-demo modal can persist edits directly to this library version via `useLibrary().updateContent`.
       const newSource: LiveDemoSource = {
         type: "library",
         id: detail.id,
@@ -1145,22 +966,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         isPublic: !!detail.isPublic,
       };
       setLiveDemoSource(newSource);
-      // Pre-seed the preview buffer with the loaded library's
-      // CSS so any subsequent demo open starts from that
-      // library's stored customisation rather than from a stale
-      // preview left over from a prior session.
       seedPreviewFromSource(newSource);
-
-      // Only pre-enable the save toggle for the owner of the
-      // bundle. Public bundles loaded by non-owners stay
-      // read-only on this screen (they can still open the live
-      // demo, copy the XML, or load it to a new bundle).
-      // The Library Name input stays empty so the user can see
-      // the active bundle in the update section header but
-      // still has to type a fresh name (or rely on the auto-
-      // version flow) to commit a save. This matches the
-      // default behaviour the user expects when entering
-      // update mode.
       setInlineSave({
         enabled: isOwner,
         name: "",
@@ -1173,13 +979,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         err instanceof Error ? err.message : "Failed to load sprite from library.",
         "error"
       );
-      // Fall back to the previous (partial) behaviour: switch mode
-      // and pre-fill the name so the user can still pick a file.
+      // Fall back to the previous (partial) behaviour: switch mode and pre-fill the name so the user can still pick a file.
       setMode("update");
       const fallbackBundleName = summary.bundleName || summary.name;
       setActiveBundleName(fallbackBundleName);
-      // Mirror the success-path hint so the paste popup hides
-      // this library even when the full detail fetch failed.
+      // Mirror the success-path hint so the paste popup hides this library even when the full detail fetch failed.
       if (fallbackBundleName) {
         setPasteExcludeBundleName(fallbackBundleName);
       }
@@ -1227,45 +1031,21 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
             setDemoSpriteXml(sprite);
             setDemoSymbolIds(symbolIds);
             setLiveDemoSource(source);
-            // Remember the source bundle so the paste popup can
-            // hide it from its target list. The user is about
-            // to copy icons out of this library; we never want
-            // the paste popup to suggest the same library as a
-            // destination (it would just create a duplicate
-            // version of what they're looking at).
             if (source.type === "library") {
               setPasteExcludeBundleName(source.name);
             } else {
               setPasteExcludeBundleName("");
             }
-            // The eye icon is the only entry point that opens
-            // the demo in "preview" mode — flag it so the modal
-            // shows the in-place "Save Changes" footer button
-            // (and hides the default "Save to Library" button).
-            // All other LiveDemo openers (Results panel,
-            // post-paste preview, base-sprite preview) leave
-            // `liveDemoMode` at its default "default" value so
-            // their existing UX is untouched.
             setLiveDemoMode("preview");
-            // Seed the preview buffer from the library's stored
-            // CSS (or defaults for scratch) so the user sees that
-            // library's saved customisation. Tweak the preview
-            // buffer will NOT modify the source library's record.
             seedPreviewFromSource(source);
             setLiveDemoOpen(true);
           }}
           onLibraryRenamed={({ oldName, newName }) => {
-            // If the user renamed the bundle currently loaded into
-            // the compiler, update the local references so the next
-            // save targets the new MongoDB name.
             if (activeBundleName && activeBundleName.toLowerCase() === oldName.toLowerCase()) {
               setActiveBundleName(newName);
               if (liveDemoSource.type === "library") {
                 setLiveDemoSource({ ...liveDemoSource, name: newName });
               }
-              // Keep the paste-exclude hint in sync too — the
-              // modal matches by name, so a renamed bundle
-              // would otherwise leak back into the paste list.
               if (pasteExcludeBundleName && pasteExcludeBundleName.toLowerCase() === oldName.toLowerCase()) {
                 setPasteExcludeBundleName(newName);
               }
@@ -1277,12 +1057,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
             }
           }}
           onDownloadBundle={async (summary) => {
-            // Library panel's "Download bundle" button: fetch the
-            // full XML for the requested version, then build the
-            // same zip the Results panel produces (sprite.svg +
-            // demo.html + preview.png). The filename mirrors the
-            // bundle name + version so a multi-version library
-            // produces distinct downloads per row.
             const detail = await getSpriteById(summary._id);
             const bundleName = detail.bundleName || detail.name || summary.name;
             await buildAndDownloadBundle({
@@ -1294,17 +1068,13 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
             });
           }}
           onLibraryDeleted={({ name }) => {
-            // If the deleted bundle is the one we have loaded, fall
-            // back to scratch mode so the user can't accidentally
-            // "save v(n+1)" to a library that no longer exists.
             if (activeBundleName && activeBundleName.toLowerCase() === name.toLowerCase()) {
               showToast(`The active library “${name}” was deleted.`, "warning");
               setBaseSpriteFile(null);
               setBaseSpriteVersion(null);
               setActiveBundleName("");
               setLiveDemoSource({ type: "scratch" });
-              // Drop the paste-exclude hint too — the bundle
-              // is gone, so there's nothing left to hide.
+              // Drop the paste-exclude hint too — the bundle is gone, so there's nothing left to hide.
               if (pasteExcludeBundleName && pasteExcludeBundleName.toLowerCase() === name.toLowerCase()) {
                 setPasteExcludeBundleName("");
               }
@@ -1319,15 +1089,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 isPublic: false,
               }));
             }
-            // Purge any cached CSS for the deleted library so a
-            // future save under the same name starts fresh.
+            // Purge any cached CSS for the deleted library so a future save under the same name starts fresh.
             setLibraryCssState((prev) => {
               const next: Record<string, LiveDemoCssState> = {};
               for (const [key, value] of Object.entries(prev)) {
-                // We don't have the deleted id here, but the
-                // refetch from useLibrary will trim the sprites
-                // array. The label cache is the same shape and
-                // is purged by useLibrary itself.
                 if (key !== `library:${name}`) next[key] = value;
               }
               return next;
@@ -1355,30 +1120,13 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                       showToast("Base sprite must be an SVG file.", "error");
                       return;
                     }
-                    // Picking a new base sprite (after a generation)
-                    // should drop the previously generated sprite and
-                    // return the UI to the initial stage so the user
-                    // can generate again from scratch.
                     if (hasGenerated) {
                       resetForNewUpload();
                       clearFiles();
                     }
                     setBaseSpriteFile(f);
                     setBaseSpriteVersion(null);
-                    // Mark this base sprite as "uploaded" (not
-                    // loaded from the library). The inline-save
-                    // panel reads this to decide whether to show
-                    // the two-toggle update-mode UI or the simpler
-                    // single-toggle create-mode UI, because an
-                    // uploaded file has no pre-existing bundle to
-                    // version off of.
                     setBaseSpriteSource("uploaded");
-                    // An uploaded file has no library to hide from
-                    // the paste popup. `resetForNewUpload()` above
-                    // already cleared the hint in the post-generate
-                    // branch; clear it here too when we're not in
-                    // that branch (e.g. the user picked a file
-                    // before generating anything).
                     if (!hasGenerated) {
                       setPasteExcludeBundleName("");
                     }
@@ -1386,13 +1134,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                       const fromName = f.name.replace(/\.svg$/i, "");
                       setActiveBundleName(fromName);
                     }
-                    // Reset the inline-save toggle to OFF so the
-                    // user starts in the create-mode default
-                    // (toggle off) rather than the update-mode
-                    // default (toggle on). An uploaded file has
-                    // no pre-existing bundle to auto-version, so
-                    // the "Save new version to library" default
-                    // would be misleading.
                     setInlineSave((current) => ({
                       ...current,
                       enabled: false,
@@ -1405,11 +1146,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                   canSelectFromLibrary={!!currentUser}
                   onPreview={handlePreviewBaseSprite}
                   onRejected={(rejected) => {
-                    // The user dropped a single icon into the
-                    // existing-sprite section. Use error tone to
-                    // match the existing "Base sprite must be an
-                    // SVG file" message style and point the user
-                    // at the icon upload target.
                     showToast(
                       `${rejected.fileName} is not a sprite file, drop standalone icons in the icon section above.`,
                       "error"
@@ -1452,13 +1188,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               <InlineSaveSection
                 isVisible={!!currentUser}
                 isUpdateMode={mode === "update"}
-                // The two-toggle update-mode UI ("Save new version
-                // to library" + "Save as a new library instead")
-                // only makes sense when the base sprite was loaded
-                // from the library — there has to be an existing
-                // bundle to version off of. When the user uploaded
-                // a file from their computer we collapse the panel
-                // to the single-toggle create-mode UI instead.
                 isLibrarySource={baseSpriteSource === "library"}
                 activeBundleName={activeBundleName}
                 existingLibraryNames={existingLibraryNames}
@@ -1472,16 +1201,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                   hasGenerated ||
                   !hasFiles ||
                   (mode === "update" && !baseSpriteFile) ||
-                  // In Create mode the bundle name is the only
-                  // thing that names a new library, so block the
-                  // button when the user enabled "Save to library"
-                  // without typing one. In Update mode the active
-                  // bundle (from a loaded library) is used as the
-                  // target by default, so an empty typed name is
-                  // fine — unless the user has flipped the
-                  // "Save as a new library instead" sub-toggle on,
-                  // in which case the typed name becomes the new
-                  // bundle's identifier and must be present.
                   (mode !== "update" &&
                     inlineSave.enabled &&
                     trimmedName.length === 0) ||
@@ -1506,13 +1225,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 spriteXml={spriteXml}
                 symbolIds={symbolIds}
                 onCopy={async () => {
-                  // Copy whatever the user is currently looking at
-                  // (the demo's mutated XML when one is open, the
-                  // freshly-generated `spriteXml` otherwise). The
-                  // hook's `copy()` only reads `spriteXml`, so we go
-                  // straight through `copyToClipboard` here and
-                  // surface the result with a toast — no in-place
-                  // "Copied!" label flip on the button anymore.
                   const xmlToCopy = demoSpriteXml ?? spriteXml;
                   if (!xmlToCopy) {
                     showToast("Nothing to copy yet.", "warning");
@@ -1563,125 +1275,24 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         isOpen={liveDemoOpen}
         onClose={() => {
           setLiveDemoOpen(false);
-          // Reset the entry-point flag on close so the next open
-          // falls back to the standard behaviour unless the eye
-          // icon was clicked again.
           setLiveDemoMode("default");
-          // Clear the base-sprite preview flag too so a
-          // subsequent open from a different entry point
-          // (e.g. the Results panel's "Live Demo" button) can
-          // flow its rename/delete edits into the Symbol IDs
-          // list. `handlePreviewBaseSprite` re-sets this on
-          // every open from that entry point.
           setLiveDemoIsBaseSpritePreview(false);
-          // Clear the demo buffer so a subsequent open from a
-          // different entry point (e.g. the Results panel's
-          // "Live Demo" button) doesn't accidentally render
-          // whatever was last previewed — most notably a saved
-          // library version the user just renamed / deleted
-          // symbols in. Without this reset, the library
-          // preview's mutated XML would persist in
-          // `demoSpriteXml` after close, and because the demo
-          // reads `demoSpriteXml ?? spriteXml` the Results
-          // demo would show the renamed library content
-          // instead of the freshly-generated sprite the user
-          // expects. The user explicitly reported this leak
-          // between the library preview and the Results demo.
-          // Each entry point that needs a non-default demo
-          // buffer re-seeds it on open, so dropping the buffer
-          // here is safe for every flow.
           setDemoSpriteXml(null);
           setDemoSymbolIds([]);
-          // Reset the demo source too so a subsequent open
-          // doesn't briefly surface a stale library/version
-          // chip in the modal header before the new entry
-          // point overwrites it.
           setLiveDemoSource({ type: "scratch" });
         }}
         sprite={demoSpriteXml ?? spriteXml}
         symbolIds={demoSpriteXml ? demoSymbolIds : symbolIds}
         source={liveDemoSource}
-        // Toggles the in-place "Save Changes" footer button —
-        // set to "preview" ONLY when the demo was opened from
-        // the library panel's eye icon. The base-sprite
-        // "Preview" button in ExistingSpriteSection keeps
-        // `mode = "default"` so the demo renders the original
-        // "Save to Library" CTA (revert from a prior
-        // experiment that exposed "Save Changes" there). The
-        // base-sprite preview is still protected from
-        // polluting the Results section via the
-        // `liveDemoIsBaseSpritePreview` flag, which the
-        // `onUpdate` gate below ORs with `mode === "preview"`.
         mode={liveDemoMode}
         onUpdate={(next) => {
-          // Always sync the demo preview buffer so the live
-          // demo re-renders against the user's edits
-          // (rename / delete inside the modal).
           setDemoSpriteXml(next.sprite);
           setDemoSymbolIds(next.symbolIds);
-          // Mirror the demo's edits into the compiler's main
-          // result state via `loadFromLibrary` ONLY when the
-          // demo was NOT opened from a preview-only entry
-          // point. The two preview-only entry points are:
-          //   1. The library panel's eye icon (sets
-          //      `liveDemoMode = "preview"` in
-          //      `LibraryPanel`'s `onOpenDemo`). The "Save
-          //      Changes" footer button appears for this
-          //      entry point, and the in-place library
-          //      update routes through `onSave` below.
-          //   2. The base-sprite "Preview" button in
-          //      ExistingSpriteSection (sets
-          //      `liveDemoIsBaseSpritePreview = true` in
-          //      `handlePreviewBaseSprite`). This entry
-          //      point keeps `mode = "default"` so the demo
-          //      shows the default "Save to Library" CTA,
-          //      and `onUpdate` must still skip the
-          //      `loadFromLibrary` mirror so the demo's
-          //      edits don't surface the Results section.
-          // Every other path (Results panel "Live Demo",
-          // post-paste previews) leaves both flags at their
-          // default (`false` / `"default"`), so the mirror
-          // runs and the Symbol IDs list stays in lock-step
-          // with the demo's icon grid.
           if (liveDemoMode !== "preview" && !liveDemoIsBaseSpritePreview) {
             loadFromLibrary({ xml: next.sprite, symbolIds: next.symbolIds });
           }
         }}
-        // Persist the mutated XML back to the source library
-        // version (library panel eye icon only — only entry
-        // point that exposes the "Save Changes" footer
-        // button via `mode === "preview"`). Uses
-        // `useLibrary().updateContent` for an in-place PUT —
-        // no new version row, no bundle rename. After the save
-        // succeeds we refresh the in-memory preview buffer so
-        // the next edit-save cycle starts from the just-saved
-        // baseline, and broadcast a "library changed" event so
-        // sibling panels (e.g. LibraryPanel) pick up the new
-        // symbol count + updatedAt without a manual refresh.
-        //
-        // The base-sprite "Preview" button in
-        // ExistingSpriteSection was previously also routed
-        // through this `onSave` (via `mode = "preview"`).
-        // Per user request that change has been reverted —
-        // the base-sprite preview now shows the default
-        // "Save to Library" CTA, which routes through
-        // `onOpenSaveToLibrary` instead and lets the user
-        // pick a fresh bundle name.
-        //
-        // The compiler's main result state (`spriteXml` /
-        // `symbolIds` / `spriteUrl`) is intentionally NOT
-        // touched here. The user reported that "Save Changes"
-        // inside a library preview must reflect the rename /
-        // delete ONLY in the library panel, strictly NOT in
-        // the Results section — even when a generated sprite
-        // is currently showing there. The `onUpdate` callback
-        // above gates `loadFromLibrary` on
-        // `liveDemoMode !== "preview" &&
-        // !liveDemoIsBaseSpritePreview`, so the demo buffer
-        // and the result section stay decoupled for every
-        // preview-only entry point; we keep that decoupling
-        // consistent on save by only writing the demo buffer
-        // here.
+       
         onSave={async ({ xml, symbolIds: saveIds }) => {
           if (liveDemoSource.type !== "library") {
             showToast("No library source to save to.", "error");
@@ -1711,22 +1322,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           }
         }}
         onCopySprite={async () => {
-          // The Live Demo shows `demoSpriteXml` (which reflects any
-          // rename / remove actions the user performed inside the
-          // modal) and only falls back to the compiler's
-          // freshly-generated `spriteXml` when no demo preview has
-          // been opened. Copy whichever the user is actually
-          // looking at — the compiler's `copy()` helper reads
-          // `spriteXml` only, so it can be null (nothing generated
-          // yet, only a demo loaded from the library) or stale
-          // (demo was mutated after the original compile).
           const xmlToCopy = demoSpriteXml ?? spriteXml;
           if (!xmlToCopy) return false;
           try {
             await copyToClipboard(xmlToCopy);
-            // The LiveDemo shows its own success toast via the
-            // boolean return value, so we just signal success here
-            // and let the modal decide what to say.
             return true;
           } catch {
             return false;
@@ -1758,16 +1357,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         busy={pasteBusy}
         onClose={closePasteModal}
         currentBundleName={
-          // Hide the bundle the user just copied icons FROM
-          // from the paste targets. We prefer the explicit
-          // `pasteExcludeBundleName` hint because it survives
-          // the update-mode `generate()` reset that wipes
-          // `activeBundleName` and `liveDemoSource` — the
-          // freshly-generated demo's icons still came from
-          // the loaded library, so the paste popup must keep
-          // excluding it. Falls back to the live demo source
-          // (eye icon flow) or the active bundle name when no
-          // explicit hint is set.
           pasteExcludeBundleName ||
             (liveDemoSource.type === "library"
               ? liveDemoSource.name
@@ -1778,9 +1367,6 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           try {
             handlePasteIntoWorkspace(icons);
           } finally {
-            // Reset on the next tick so the close button is
-            // disabled for the brief moment the modal is still
-            // on-screen during its closing animation.
             setTimeout(() => setPasteBusy(false), 0);
           }
         }}

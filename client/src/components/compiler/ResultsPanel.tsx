@@ -1,3 +1,4 @@
+// Right-hand results panel. Shows the generated sprite XML, symbol count, and copy/demo/download actions.
 import { useState } from "react";
 
 type ResultsPanelProps = {

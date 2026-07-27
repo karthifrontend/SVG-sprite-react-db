@@ -1,8 +1,4 @@
-// ToastContext
-// ---------------------------------------------------------------------------
-// Replaces the imperative `showToast` global from the vanilla app with
-// a React-friendly context. Toasts can include optional action buttons
-// (used for the Undo/Preview flow when pasting icons into a library).
+// Toast context. Replaces the imperative showToast global with a React-friendly provider that supports action buttons.
 import {
   createContext,
   useCallback,

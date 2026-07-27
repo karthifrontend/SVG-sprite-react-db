@@ -1,4 +1,4 @@
-// "Save to Organization" modal — opens from the live demo's "Save to Library" button. Lets the user pick a library name and a version description, then dispatches the save through the supplied `onSubmit` callback. The parent (Compiler) is responsible for hitting the API and refetching the library list.
+// "Save to Organization" modal. Captures library name + version description and submits via the parent callback.
 import { useEffect, useMemo, useState } from "react";
 import Modal from "../Modal";
 import { CloseIcon, InfoIcon } from "../icons"; 

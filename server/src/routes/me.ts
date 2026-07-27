@@ -1,6 +1,4 @@
-// /api/auth/me — returns the user attached to the current session
-// token. Used by the client on page load to rehydrate the signed-in
-// user from `localStorage` without trusting the client-stored data.
+// /api/me route. Returns the currently authenticated user (or 401) for client-side session checks.
 import { Router, type Request, type Response } from "express";
 import { requireUser } from "../middleware/requireUser.js";
 

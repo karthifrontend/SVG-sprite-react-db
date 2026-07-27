@@ -1,3 +1,4 @@
+// Primary "Generate Sprite" button. Reflects busy/disabled state and triggers compilation on click.
 type GenerateButtonProps = {
   disabled: boolean;
   busy: boolean;

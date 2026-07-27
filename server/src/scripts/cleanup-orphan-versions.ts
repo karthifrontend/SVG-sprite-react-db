@@ -1,6 +1,4 @@
-// One-off cleanup: drop every `sprite_versions` row whose `spriteId` does not point at a live `sprites` (bundle) document. Past code paths could leave these orphans behind if a bundle delete failed between the two `deleteMany` / `deleteOne` calls. The new `pre('deleteOne')` cascade hook on the Sprite schema prevents the issue going forward, but the data already in the database still needs scrubbing.
-// Run with:  npm run cleanup:orphans
-// (after `npm install` and a valid MONGODB_URI in server/.env)
+// One-off cleanup: removes SpriteVersion documents that no longer reference an existing sprite bundle.
 import "dotenv/config";
 import mongoose from "mongoose";
 import { connectDb } from "../db.js";

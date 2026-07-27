@@ -1,3 +1,4 @@
+// Renders compiler header with title and description
 function CompilerHeader() {
   return (
     <header className="mb-8 mt-8 text-center animate-fade-in-up">

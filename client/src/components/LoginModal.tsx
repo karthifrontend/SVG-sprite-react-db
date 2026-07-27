@@ -1,15 +1,4 @@
-// Login modal — Google / Microsoft / Demo sign-in.
-//
-// Google: real OAuth via Google Identity Services. Same button
-// handles sign-in and sign-up; GIS creates the account on first
-// use.
-//
-// Microsoft: UI button is wired up but the backend route is a
-// placeholder (returns 501). The server's message is shown in the
-// error slot so users get a clear explanation.
-//
-// Demo: instant sign-in. The server upserts a built-in shared
-// demo `User` doc on every click and returns a session token.
+// Login modal. Triggers the Google sign-in flow and surfaces auth errors to the user.
 import { useState } from "react";
 import Modal from "./Modal";
 import { useAuth } from "../context/AuthContext";
@@ -153,13 +142,6 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
           ? "Microsoft"
           : "Demo";
       setMessage(`Signed in as ${user.email} (${providerLabel})`);
-      // We don't fire a toast here — App stages a "Logged in
-      // successfully" marker in sessionStorage before its
-      // post-auth `window.location.reload()` lands, and the
-      // freshly-mounted app shows the toast on its own. Firing
-      // one here too would either be invisible (raced by the
-      // reload) or double up on slow networks, so we keep the
-      // success message in the modal and let App own the toast.
       setTimeout(close, 400);
     } catch (err) {
       setError(
