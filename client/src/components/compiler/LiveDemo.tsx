@@ -944,7 +944,7 @@ export default function LiveDemoModal({
                   return (
                     <>
                       <span
-                        className="text-sm text-slate-500 truncate mt-0.5 max-w-[200px]"
+                        className="text-sm text-slate-500 truncate mt-0.5 max-w-50"
                         title={`${identity.name} (v${identity.version ?? 1})`}
                       >
                         {identity.name}
