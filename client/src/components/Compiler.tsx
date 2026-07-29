@@ -20,6 +20,7 @@ import PasteIconsModal from "./compiler/PasteIconsModal";
 import SaveToLibraryModal from "./compiler/SaveToLibraryModal";
 import IconConflictModal from "./compiler/IconConflictModal";
 import type { ConflictResolution, IconConflict } from "../hooks/useSpriteCompiler";
+import SelectFromLibraryModal from "./compiler/SelectFromLibraryModal";
 import { buildDemoHtml } from "../utils/sprite";
 import { createZip, triggerBrowserDownload } from "../utils/zipBundle";
 import { renderSpritePreviewPng } from "../utils/previewPng";
@@ -1131,7 +1132,59 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       onRequireAuth?.();
       return;
     }
-    onLibraryToggle(true);
+    setSelectFromLibraryOpen(true);
+  }
+
+  // "Select a sprite from the library" modal. Opened from the "Or select a sprite from the Library" link under the base-sprite uploader. The modal lists the user's libraries as accordions (Public / Private) and lets them pick a specific version; on Load we call the existing `handleLoadFromLibrary` flow so the picked version lands in the base sprite section just like a sidebar Load-to-Update click.
+  const [selectFromLibraryOpen, setSelectFromLibraryOpen] = useState(false);
+  const [selectFromLibraryBusy, setSelectFromLibraryBusy] = useState(false);
+
+  function closeSelectFromLibrary() {
+    if (selectFromLibraryBusy) return;
+    setSelectFromLibraryOpen(false);
+  }
+
+  async function handleSelectFromLibraryLoad(summary: SpriteSummary) {
+    if (selectFromLibraryBusy) return;
+    setSelectFromLibraryBusy(true);
+    try {
+      await handleLoadFromLibrary(summary);
+    } finally {
+      // The modal already auto-closes on click, but we still flip the busy flag off so a subsequent open starts clean.
+      setSelectFromLibraryBusy(false);
+    }
+  }
+
+  function handleBundleDeleted(name: string) {
+    if (activeBundleName && activeBundleName.toLowerCase() === name.toLowerCase()) {
+      showToast(`The active library “${name}” was deleted.`, "warning");
+      setBaseSpriteFile(null);
+      setBaseSpriteVersion(null);
+      setActiveBundleName("");
+      setLiveDemoSource({ type: "scratch" });
+      // Drop the paste-exclude hint too — the bundle is gone, so there's nothing left to hide.
+      if (pasteExcludeBundleName && pasteExcludeBundleName.toLowerCase() === name.toLowerCase()) {
+        setPasteExcludeBundleName("");
+      }
+      setDemoPreviewCssState(null);
+      lastSeededSourceKeyRef.current = null;
+      setInlineSave((current) => ({
+        ...current,
+        enabled: false,
+        name: "",
+        saveAsNew: false,
+        hasNameConflict: false,
+        isPublic: false,
+      }));
+    }
+    // Purge any cached CSS for the deleted library so a future save under the same name starts fresh.
+    setLibraryCssState((prev) => {
+      const next: Record<string, LiveDemoCssState> = {};
+      for (const [key, value] of Object.entries(prev)) {
+        if (key !== `library:${name}`) next[key] = value;
+      }
+      return next;
+    });
   }
 
   return (
@@ -1183,37 +1236,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               version: detail.version,
             });
           }}
-          onLibraryDeleted={({ name }) => {
-            if (activeBundleName && activeBundleName.toLowerCase() === name.toLowerCase()) {
-              showToast(`The active library “${name}” was deleted.`, "warning");
-              setBaseSpriteFile(null);
-              setBaseSpriteVersion(null);
-              setActiveBundleName("");
-              setLiveDemoSource({ type: "scratch" });
-              // Drop the paste-exclude hint too — the bundle is gone, so there's nothing left to hide.
-              if (pasteExcludeBundleName && pasteExcludeBundleName.toLowerCase() === name.toLowerCase()) {
-                setPasteExcludeBundleName("");
-              }
-              setDemoPreviewCssState(null);
-              lastSeededSourceKeyRef.current = null;
-              setInlineSave((current) => ({
-                ...current,
-                enabled: false,
-                name: "",
-                saveAsNew: false,
-                hasNameConflict: false,
-                isPublic: false,
-              }));
-            }
-            // Purge any cached CSS for the deleted library so a future save under the same name starts fresh.
-            setLibraryCssState((prev) => {
-              const next: Record<string, LiveDemoCssState> = {};
-              for (const [key, value] of Object.entries(prev)) {
-                if (key !== `library:${name}`) next[key] = value;
-              }
-              return next;
-            });
-          }}
+          onLibraryDeleted={({ name }) => handleBundleDeleted(name)}
         />
         )}
 
@@ -1455,6 +1478,18 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               return false;
             }
             try {
+              if (saveIds.length === 0) {
+                const { bundleName, remaining } = await deleteVersion(
+                  liveDemoSource.id,
+                );
+                setDemoSpriteXml(null);
+                setDemoSymbolIds([]);
+                notifyLibraryChanged();
+                if (remaining === 0) {
+                  handleBundleDeleted(bundleName);
+                }
+                return "deleted" as const;
+              }
               await updateContent(liveDemoSource.id, xml);
               setDemoSpriteXml(xml);
               setDemoSymbolIds(saveIds);
@@ -1465,7 +1500,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 err instanceof Error
                   ? err.message
                   : "Failed to save changes.",
-                "error"
+                "error",
               );
               return false;
             }
@@ -1497,7 +1532,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 err instanceof Error
                   ? err.message
                   : "Failed to save changes.",
-                "error"
+                "error",
               );
               return false;
             }
@@ -1517,7 +1552,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 err instanceof Error
                   ? err.message
                   : "Failed to save changes.",
-                "error"
+                "error",
               );
               return false;
             }
@@ -1566,6 +1601,38 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
               ? liveDemoSource.name
               : activeBundleName || undefined)
         }
+        // Surface which library/version/visibility the icons came from. Prefer the live demo's source (it has the full payload), fall back to a derived bundle+version when the user pasted from an "update mode" compile that wiped `liveDemoSource` but kept `pasteExcludeBundleName` + `baseSpriteVersion` set. As a final fallback, look up the bundle in `librarySprites` so we still show a real version + visibility when only the bundle name is available.
+        sourceInfo={
+          liveDemoSource.type === "library"
+            ? {
+                name: liveDemoSource.name,
+                version: liveDemoSource.version,
+                isPublic: !!liveDemoSource.isPublic,
+                isOwner: liveDemoSource.isOwner,
+              }
+            : (() => {
+                const name =
+                  pasteExcludeBundleName || activeBundleName || undefined;
+                if (!name) return undefined;
+                // Look up the latest version in the library cache so we can show a real version number + visibility flag even when the demo was opened in scratch mode. The match is case-insensitive + trimmed so incidental differences between the source label and the server-side bundle name don't break the lookup.
+                const lookupKey = name.trim().toLowerCase();
+                const matches = librarySprites.filter(
+                  (s) =>
+                    (s.bundleName || s.name || "").trim().toLowerCase() ===
+                    lookupKey,
+                );
+                const latest = matches.reduce<SpriteSummary | null>(
+                  (acc, s) => (!acc || s.version > acc.version ? s : acc),
+                  null,
+                );
+                return {
+                  name,
+                  version: baseSpriteVersion ?? latest?.version,
+                  isPublic: latest?.isPublic,
+                  isOwner: latest?.isOwner,
+                };
+              })()
+        }
         onPasteIntoWorkspace={(icons) => {
           setPasteBusy(true);
           try {
@@ -1612,7 +1679,12 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         conflicts={pendingConflicts ?? []}
         busy={conflictResolveBusy}
         onClose={handleCancelConflictModal}
-        onApply={(resolutions) => void handleApplyConflictResolutions(resolutions)}
+        onApply={(resolutions) => void handleApplyConflictResolutions(resolutions)}/>
+      <SelectFromLibraryModal
+        isOpen={selectFromLibraryOpen}
+        busy={selectFromLibraryBusy}
+        onClose={closeSelectFromLibrary}
+        onLoad={(summary) => void handleSelectFromLibraryLoad(summary)}
       />
     </div>
   );

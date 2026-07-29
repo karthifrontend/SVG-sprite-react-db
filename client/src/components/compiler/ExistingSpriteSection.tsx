@@ -1,6 +1,7 @@
 // Update-mode "Base Sprite File" picker. Lets the user choose the existing sprite to merge new icons into.
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { formatSize, isSpriteSvgFile } from "../../utils/sprite";
+import { CloseIcon } from "../icons";
 
 type ExistingSpriteSectionProps = {
   file: File | null;
@@ -19,18 +20,6 @@ function CheckCircleIcon({ className = "w-5 h-5" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  );
-}
-
-function RefreshIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M4 4v6h6M20 20v-6h-6M4 10a8 8 0 0114-3M20 14a8 8 0 01-14 3"
-      />
     </svg>
   );
 }
@@ -139,9 +128,8 @@ function ExistingSpriteSection({
               if (counter.current === 0) setIsActive(false);
             }}
             onDrop={handleDrop}
-            className={`cursor-pointer rounded-xl border border-dashed border-slate-300 p-5 text-center transition-all duration-200 hover:border-indigo-400 hover:bg-indigo-50/30 ${
-              isActive ? "dropzone-active" : ""
-            }`}
+            className={`cursor-pointer rounded-xl border border-dashed border-slate-300 p-5 text-center transition-all duration-200 hover:border-indigo-400 hover:bg-indigo-50/30 ${isActive ? "dropzone-active" : ""
+              }`}
           >
             <input
               ref={inputRef}
@@ -220,8 +208,8 @@ function ExistingSpriteSection({
               className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition-colors hover:bg-indigo-50 hover:text-indigo-600"
               title="Change base sprite"
             >
-              <RefreshIcon className="h-3.5 w-3.5" />
-              Change
+              <CloseIcon className="h-3.5 w-3.5" />
+              Remove
             </button>
           </div>
         </div>

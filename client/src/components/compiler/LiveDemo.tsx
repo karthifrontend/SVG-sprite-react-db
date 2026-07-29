@@ -73,8 +73,10 @@ type LiveDemoProps = {
   onUpdate?: (next: { sprite: string; symbolIds: string[]; hasChanges: boolean }) => void;
   // Optional callback for "open the regular save modal" (fallback).
   onOpenSaveModal?: () => void;
-  // Persist the currently-mutated XML back to the library version the demo was opened from. The parent (Compiler) is expected to call `useLibrary().updateContent(sourceId, xml)` and return `true` on success / `false` on failure. Only used by the eye-icon preview flow (see `mode`); other entry points keep their existing save affordances untouched.
-  onSave?: (input: { xml: string; symbolIds: string[] }) => Promise<boolean> | boolean;
+  // Persist the currently-mutated XML back to the library version the demo was opened from. The parent (Compiler) is expected to call `useLibrary().updateContent(sourceId, xml)` and return `true` on success / `false` on failure. The parent may also return the literal string `"deleted"` when the save reduced the sprite to zero icons and the version was auto-removed in place of an update — in that case the demo closes and shows a different toast explaining what happened. Only used by the eye-icon preview flow (see `mode`); other entry points keep their existing save affordances untouched.
+  onSave?: (
+    input: { xml: string; symbolIds: string[] }
+  ) => Promise<boolean | "deleted"> | boolean | "deleted";
   // Optional callback for "copy the current sprite XML to the clipboard". The parent owns the canonical XML, so we delegate.
   onCopySprite?: () => Promise<boolean> | boolean;
   // Optional callback invoked when the user clicks "Copy N Selected". Receives the selected icons' raw XML/standalone SVG payloads.
@@ -346,9 +348,6 @@ export default function LiveDemoModal({
     syncSymbols(symbolsRef.current.filter((sym) => sym.getAttribute("id") !== iconId));
     rebuildSprite();
     showToast(`Removed #${iconId}`, "success");
-    if (symbolsRef.current.length === 0) {
-      showToast("All icons removed. The sprite is now empty.", "warning");
-    }
   }
 
   // Select every icon currently shown in the grid (i.e. the
@@ -436,15 +435,6 @@ export default function LiveDemoModal({
       });
       return;
     }
-    // Per UX request: the single-click copy is disabled whenever the
-    // user is renaming an icon. The card being clicked may or may not
-    // be the one being renamed — we suppress the copy whenever a
-    // rename is in progress on ANY card so the user can't accidentally
-    // copy an icon out from under their own rename-in-flight. When
-    // `renamingId === id` we also no-op because the card body itself
-    // is no longer clickable in the normal sense (the rename input
-    // has focus and stops propagation on its own click handler, but
-    // the surrounding card area is still clickable).
     if (renamingId !== null) {
       return;
     }
@@ -471,20 +461,10 @@ export default function LiveDemoModal({
   }
 
   function handleIconDoubleClick(id: string): void {
-    // Cancel the pending single-click copy so a true
-    // double-click is "strictly download, never copy".
     if (clickTimerRef.current !== null) {
       window.clearTimeout(clickTimerRef.current);
       clickTimerRef.current = null;
     }
-    // Per UX request: disable the double-click download in the same
-    // two cases the single-click copy is disabled.
-    //   • Select Icons ON — a double-click is conceptually a
-    //     multi-select gesture, not a download. Suppressing the
-    //     download keeps Select Icons and Download in mutually-
-    //     exclusive modes (matching the footer-button rule).
-    //   • Rename in progress on any card — same rationale as the
-    //     single-click case: the user is editing, not downloading.
     if (selectMode || renamingId !== null) {
       return;
     }
@@ -624,14 +604,6 @@ export default function LiveDemoModal({
     if (color.kind === "color") {
       return `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}" color="${color.hex}">${inner}</svg>`;
     }
-    // Gradient: bake a per-SVG <linearGradient> into the icon's own <defs>
-    // and point the icon's child fill/stroke at it via an inline <style>.
-    // The fill-via-CSS approach matches the in-modal preview exactly
-    // (see `buildGradientCss` in `DemoIconCard`) — the gradient paints
-    // the ICON SHAPE itself, not a background rectangle clipped by a
-    // mask. We attach a stable id to the standalone copy so the inline
-    // `<style>` can reference it without colliding with any other
-    // gradient id the page might define.
     const gradId = `grad-${Math.random().toString(36).slice(2, 9)}`;
     return (
       `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}">` +
@@ -797,12 +769,6 @@ export default function LiveDemoModal({
     onOpenSaveToLibrary?.({ suggestedName: fallbackName });
   }
 
-  // Persist the mutated sprite back to the source. Three source types support
-  // in-place edits via the `onSave` callback: "library" (writes back to the
-  // same library version), "baseSprite" (writes back to the in-memory
-  // base-sprite file the user loaded/uploaded in the "Upload Existing Sprite"
-  // section), and "results" (writes back to the compiler's generated sprite
-  // state so the Results panel reflects the rename/remove edits).
   async function handleSaveChanges(): Promise<void> {
     if (saveBusy) return;
     if (
@@ -828,17 +794,28 @@ export default function LiveDemoModal({
     const xml = serializeLiveSprite(symbolsRef.current);
     setSaveBusy(true);
     try {
-      const ok = await onSave({ xml, symbolIds: nextIds });
-      if (ok === false) {
+      const result = await onSave({ xml, symbolIds: nextIds });
+      if (result === false) {
         return;
       }
       setHasPendingChanges(false);
       setHasChanges(false);
-      const successMessage =
-        source.type === "library"
-          ? `Saved changes to ${source.name} v${source.version ?? 1}.`
-          : "Saved changes to the preview.";
-      showToast(successMessage, "success");
+      if (result === "deleted") {
+        const label =
+          source.type === "library"
+            ? `${source.name} v${source.version ?? 1}`
+            : "the preview";
+        showToast(
+          `All icons removed. ${label} was deleted from the library.`,
+          "warning"
+        );
+      } else {
+        const successMessage =
+          source.type === "library"
+            ? `Saved changes to ${source.name} v${source.version ?? 1}.`
+            : "Saved changes to the preview.";
+        showToast(successMessage, "success");
+      }
       onClose?.();
     } catch (err) {
       showToast(

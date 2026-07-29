@@ -485,111 +485,117 @@ function LibraryPanel({
                         {formatDate(version.updatedAt)}
                       </span>
                     </div>
-                    <div className="mt-2 flex items-center gap-1.5">
-                      {version.isOwner && (
+                    <div className="mt-2 flex items-center justify-between gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => version.isOwner && handleLoad(version)}
+                        disabled={!version.isOwner}
+                        className="inline-flex items-center justify-center gap-1 rounded bg-indigo-50 px-8 py-1 text-[11px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-60"
+                        title={
+                          version.isOwner
+                            ? undefined
+                            : "Access is limited to viewing only, as you do not own this library."
+                        }
+                      >
+                        {"Update"}
+                      </button>
+                      <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handleLoad(version)}
-                          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-100"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              const detail = await getSpriteById(version.id);
+                              onOpenDemo?.({
+                                sprite: detail.xml,
+                                symbolIds: detail.symbolIds,
+                                source: {
+                                  type: "library",
+                                  id: detail.id,
+                                  name: detail.bundleName || detail.name,
+                                  version: detail.version,
+                                  isOwner: version.isOwner,
+                                  isPublic: version.isPublic,
+                                },
+                              });
+                            } catch (err) {
+                              showToast(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Failed to open demo",
+                                "error",
+                              );
+                            }
+                          }}
+                          className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-500"
+                          title="Preview icons"
+                          aria-label={`Preview ${group.bundleName} v${version.version}`}
                         >
-                          Update
+                          <EyeIcon className="h-3.5 w-3.5" />
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            const detail = await getSpriteById(version.id);
-                            onOpenDemo?.({
-                              sprite: detail.xml,
-                              symbolIds: detail.symbolIds,
-                              source: {
-                                type: "library",
-                                id: detail.id,
-                                name: detail.bundleName || detail.name,
-                                version: detail.version,
-                                isOwner: version.isOwner,
-                                isPublic: version.isPublic,
-                              },
-                            });
-                          } catch (err) {
-                            showToast(
-                              err instanceof Error
-                                ? err.message
-                                : "Failed to open demo",
-                              "error",
-                            );
-                          }
-                        }}
-                        className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-500"
-                        title="Preview icons"
-                        aria-label={`Preview ${group.bundleName} v${version.version}`}
-                      >
-                        <EyeIcon className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleDownloadVersion(version);
-                        }}
-                        disabled={downloadBusyId === version.id}
-                        className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-                        title={`Download v${version.version} bundle`}
-                        aria-label={`Download ${group.bundleName} v${version.version} bundle`}
-                      >
-                        <DownloadIcon
-                          className={`h-3.5 w-3.5 ${
-                            downloadBusyId === version.id ? "animate-spin" : ""
-                          }`}
-                        />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            const detail = await getSpriteById(version.id);
-                            const ok = await navigator.clipboard
-                              ?.writeText(detail.xml)
-                              .then(() => true)
-                              .catch(() => false);
-                            showToast(
-                              ok
-                                ? `Copied sprite code for ${group.bundleName}(v${version.version})`
-                                : "Failed to copy sprite",
-                              ok ? "success" : "error",
-                            );
-                          } catch (err) {
-                            showToast(
-                              err instanceof Error
-                                ? err.message
-                                : "Failed to copy sprite",
-                              "error",
-                            );
-                          }
-                        }}
-                        className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-500"
-                        title="Copy sprite XML"
-                        aria-label={`Copy ${group.bundleName} v${version.version}`}
-                      >
-                        <DuplicateIcon className="h-3.5 w-3.5" />
-                      </button>
-                      {version.isOwner && (
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            openDeleteModal(version);
+                            void handleDownloadVersion(version);
                           }}
-                          className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
-                          title={`Delete v${version.version}`}
-                          aria-label={`Delete ${group.bundleName} v${version.version}`}
+                          disabled={downloadBusyId === version.id}
+                          className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                          title={`Download v${version.version} bundle`}
+                          aria-label={`Download ${group.bundleName} v${version.version} bundle`}
                         >
-                          <TrashIcon className="h-3.5 w-3.5" />
+                          <DownloadIcon
+                            className={`h-3.5 w-3.5 ${
+                              downloadBusyId === version.id ? "animate-spin" : ""
+                            }`}
+                          />
                         </button>
-                      )}
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              const detail = await getSpriteById(version.id);
+                              const ok = await navigator.clipboard
+                                ?.writeText(detail.xml)
+                                .then(() => true)
+                                .catch(() => false);
+                              showToast(
+                                ok
+                                  ? `Copied sprite code for ${group.bundleName}(v${version.version})`
+                                  : "Failed to copy sprite",
+                                ok ? "success" : "error",
+                              );
+                            } catch (err) {
+                              showToast(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Failed to copy sprite",
+                                "error",
+                              );
+                            }
+                          }}
+                          className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-500"
+                          title="Copy sprite XML"
+                          aria-label={`Copy ${group.bundleName} v${version.version}`}
+                        >
+                          <DuplicateIcon className="h-3.5 w-3.5" />
+                        </button>
+                        {version.isOwner && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDeleteModal(version);
+                            }}
+                            className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
+                            title={`Delete v${version.version}`}
+                            aria-label={`Delete ${group.bundleName} v${version.version}`}
+                          >
+                            <TrashIcon className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
