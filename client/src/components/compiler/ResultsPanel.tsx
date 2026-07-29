@@ -1,14 +1,17 @@
 // Right-hand results panel. Shows the generated sprite XML, symbol count, and copy/demo/download actions.
-import { useState } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 
 type ResultsPanelProps = {
   visible: boolean;
+  statusLabel: string;
   symbolCount: number;
   spriteUrl: string | null;
   spriteXml: string | null;
   symbolIds: string[];
   onCopy: () => void;
   onDemo: () => void;
+  onAddIcons: (files: File[]) => Promise<void>;
+  addIconDisabled?: boolean;
   // Build a zip bundle (sprite + demo.html + preview.png) and trigger a browser download. Used for the "Download zip" CTA.
   onDownloadZip: () => void;
   // Disable the Download zip button while the bundle is being generated (e.g. preview.png render in flight).
@@ -17,23 +20,46 @@ type ResultsPanelProps = {
 
 function ResultsPanel({
   visible,
+  statusLabel,
   symbolCount,
   spriteUrl,
   spriteXml,
   symbolIds,
   onCopy,
   onDemo,
+  onAddIcons,
+  addIconDisabled,
   onDownloadZip,
   downloadBusy,
 }: ResultsPanelProps) {
   // Independent "Copied" feedback state for the main "Copy Sprite" button and the inline "Copy" inside the code preview. Each tracks its own button so clicking one doesn't flip the other's label (a single shared flag would make both labels change together, which felt misleading).
   const [mainCopied, setMainCopied] = useState(false);
   const [inlineCopied, setInlineCopied] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const addIconInputRef = useRef<HTMLInputElement | null>(null);
 
   async function handleMainCopy() {
     await onCopy();
     setMainCopied(true);
     window.setTimeout(() => setMainCopied(false), 1500);
+  }
+
+  function handleAddIconClick() {
+    if (!addIconInputRef.current) return;
+    addIconInputRef.current.click();
+    setMenuOpen(false);
+  }
+
+  async function handleAddIconFiles(event: ChangeEvent<HTMLInputElement>) {
+    const files = event.target.files;
+    if (!files || files.length === 0) {
+      setMenuOpen(false);
+      return;
+    }
+    const fileArray = Array.from(files);
+    event.target.value = "";
+    setMenuOpen(false);
+    await onAddIcons(fileArray);
   }
 
   async function handleInlineCopy() {
@@ -54,7 +80,7 @@ function ResultsPanel({
           </svg>
         </div>
         <div>
-          <h2 className="text-base font-bold text-slate-800">Sprite Generated</h2>
+          <h2 className="text-base font-bold text-slate-800">{statusLabel}</h2>
           <p className="text-xs text-slate-400">
             {symbolCount} symbol{symbolCount === 1 ? "" : "s"}
           </p>
@@ -90,17 +116,55 @@ function ResultsPanel({
           </svg>
           <span>{mainCopied ? "Copied" : "Copy Sprite"}</span>
         </button>
-        <button
-          type="button"
-          onClick={onDemo}
-          className="flex-1 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100/80 text-indigo-700 font-medium py-3 px-4 rounded-xl border border-indigo-100 hover:border-indigo-200 transition-all duration-150"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-          </svg>
-          <span>Live Demo</span>
-        </button>
+        <div className="flex w-full items-center gap-3 sm:w-auto">
+          <button
+            type="button"
+            onClick={onDemo}
+            className="flex-1 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100/80 text-indigo-700 font-medium py-3 px-4 rounded-xl border border-indigo-100 hover:border-indigo-200 transition-all duration-150"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+            <span>Live Demo</span>
+          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((current) => !current)}
+              disabled={addIconDisabled}
+              className={`h-12 w-12 flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-all duration-150 hover:bg-slate-50 ${
+                addIconDisabled ? "cursor-not-allowed opacity-60" : ""
+              }`}
+              aria-label="More options"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="5" r="1.5" />
+                <circle cx="12" cy="12" r="1.5" />
+                <circle cx="12" cy="19" r="1.5" />
+              </svg>
+            </button>
+            {menuOpen && !addIconDisabled && (
+              <div className="absolute right-0 top-full z-10 mt-2 w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                <button
+                  type="button"
+                  onClick={handleAddIconClick}
+                  className="w-full px-4 py-3 text-left text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50"
+                >
+                  Add more icons
+                </button>
+              </div>
+            )}
+            <input
+              ref={addIconInputRef}
+              type="file"
+              accept=".svg,image/svg+xml"
+              multiple
+              className="hidden"
+              onChange={handleAddIconFiles}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Symbol IDs */}
