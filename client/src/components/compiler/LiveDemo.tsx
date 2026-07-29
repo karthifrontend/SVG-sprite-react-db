@@ -10,8 +10,10 @@ import {
   DownloadIcon,
   PencilIcon,
   SadFaceIcon,
-  FolderIcon,
+  LockIcon,
+  TrashIcon,
 } from "../icons";
+import VisibilityBadge from "../VisibilityBadge";
 import { useToast } from "../../context/ToastContext";
 import { useAuth } from "../../context/AuthContext";
 import { buildDemoHtml, copyToClipboard } from "../../utils/sprite";
@@ -40,6 +42,18 @@ type ActiveGradient = {
 
 type Source =
   | { type: "library"; id: string; name: string; version?: number; isOwner?: boolean; isPublic?: boolean }
+  // The `baseSprite` source covers the "Upload Existing Sprite" section's
+  // Preview button, which is reached after either uploading a sprite from
+  // disk OR loading a library version into the update workspace. When the
+  // base sprite was loaded from a library we attach the library's
+  // identifying info (`name` / `version` / `isPublic`) so the Live Demo
+  // header can render the same "library name + version + visibility badge"
+  // affordance the eye-icon preview (`source.type === "library"`) shows.
+  // The fields are optional because the uploaded-from-disk case has no
+  // library identity to surface — in that scenario the header stays clean
+  // (just "Live Demo" + the standard subtitle).
+  | { type: "baseSprite"; name?: string; version?: number; isPublic?: boolean }
+  | { type: "results" }
   | { type: "scratch" };
 
 export type { Source };
@@ -59,8 +73,10 @@ type LiveDemoProps = {
   onUpdate?: (next: { sprite: string; symbolIds: string[]; hasChanges: boolean }) => void;
   // Optional callback for "open the regular save modal" (fallback).
   onOpenSaveModal?: () => void;
-  // Persist the currently-mutated XML back to the library version the demo was opened from. The parent (Compiler) is expected to call `useLibrary().updateContent(sourceId, xml)` and return `true` on success / `false` on failure. Only used by the eye-icon preview flow (see `mode`); other entry points keep their existing save affordances untouched.
-  onSave?: (input: { xml: string; symbolIds: string[] }) => Promise<boolean> | boolean;
+  // Persist the currently-mutated XML back to the library version the demo was opened from. The parent (Compiler) is expected to call `useLibrary().updateContent(sourceId, xml)` and return `true` on success / `false` on failure. The parent may also return the literal string `"deleted"` when the save reduced the sprite to zero icons and the version was auto-removed in place of an update — in that case the demo closes and shows a different toast explaining what happened. Only used by the eye-icon preview flow (see `mode`); other entry points keep their existing save affordances untouched.
+  onSave?: (
+    input: { xml: string; symbolIds: string[] }
+  ) => Promise<boolean | "deleted"> | boolean | "deleted";
   // Optional callback for "copy the current sprite XML to the clipboard". The parent owns the canonical XML, so we delegate.
   onCopySprite?: () => Promise<boolean> | boolean;
   // Optional callback invoked when the user clicks "Copy N Selected". Receives the selected icons' raw XML/standalone SVG payloads.
@@ -148,7 +164,6 @@ export default function LiveDemoModal({
   sprite,
   symbolIds,
   source,
-  mode,
   onUpdate,
   onOpenSaveModal,
   onSave,
@@ -184,6 +199,13 @@ export default function LiveDemoModal({
   const [internalCssState, setInternalCssState] = useState<LiveDemoCssState>(defaultCssState);
   const isControlled = cssState !== undefined && onCssStateChange !== undefined;
   const currentCss: LiveDemoCssState = isControlled ? (cssState as LiveDemoCssState) : internalCssState;
+  // Snapshot of the CSS state at modal-open time. `cssChanged` is derived by
+  // comparing the current CSS against this snapshot — when the user changes any
+  // custom-CSS control we flip the flag, and "Reset" restores the snapshot.
+  // Captured per-open (cleared by the `isOpen` effect below) so re-opening
+  // the same library starts from its stored CSS, not the literal default.
+  const initialCssRef = useRef<LiveDemoCssState>(defaultCssState);
+  const [cssChanged, setCssChanged] = useState<boolean>(false);
   const updateCss = (patch: Partial<LiveDemoCssState>) => {
     const next = { ...currentCss, ...patch };
     if (isControlled) {
@@ -191,6 +213,31 @@ export default function LiveDemoModal({
     } else {
       setInternalCssState(next);
     }
+    // Mark the CSS as user-modified so the "Reset" button enables and the
+    // action footer (Copy Sprite / Save Changes / Save to Library / Select
+    // Icons) disables until the user reverts via Reset.
+    if (!cssChanged) {
+      setCssChanged(true);
+    }
+    // UX rule: as soon as the user mutates the Custom CSS, force the
+    // "Select Icons" toggle OFF and discard any in-progress selection.
+    // This keeps selection and styling as two mutually-exclusive modes so
+    // the user can't accidentally carry a stale selection over a visual
+    // redesign, and matches the "off by default" intent whenever the CSS
+    // has been touched.
+    if (selectMode) {
+      setSelectMode(false);
+      setSelectedIcons(new Set());
+    }
+  };
+  const resetCss = () => {
+    const baseline = initialCssRef.current;
+    if (isControlled) {
+      onCssStateChange?.(baseline);
+    } else {
+      setInternalCssState(baseline);
+    }
+    setCssChanged(false);
   };
   const setIconSize = (n: number) => updateCss({ iconSize: n });
   const {
@@ -229,7 +276,15 @@ export default function LiveDemoModal({
       window.clearTimeout(clickTimerRef.current);
       clickTimerRef.current = null;
     }
-    if (!isOpen) return;
+    if (!isOpen) {
+      if (isControlled) {
+        onCssStateChange?.({ ...defaultCssState });
+      } else {
+        setInternalCssState({ ...defaultCssState });
+      }
+      setCssChanged(false);
+      return;
+    }
     setSearchTerm("");
     setSelectMode(false);
     setSelectedIcons(new Set());
@@ -238,9 +293,16 @@ export default function LiveDemoModal({
     setHasPendingChanges(false);
     setSaveBusy(false);
     setRenamingId(null);
-    if (!isControlled) {
-      setInternalCssState(defaultCssState);
-    }
+    // Capture the baseline CSS the modal opens with (either the parent's
+    // controlled `cssState` for the wired-in library case, or the local
+    // `defaultCssState` for the standalone case). The "Reset" button in the
+    // Custom CSS tab restores this snapshot. Because the close effect
+    // already reset the CSS to defaults, this capture will be the
+    // default state on a fresh open — matching the requested behaviour
+    // that "all are in default css styles" the next time the user opens
+    // the popup.
+    initialCssRef.current = { ...(isControlled ? (cssState as LiveDemoCssState) : defaultCssState) };
+    setCssChanged(false);
   }, [isOpen]);
 
   function syncSymbols(nextSymbols: Element[]): void {
@@ -286,6 +348,53 @@ export default function LiveDemoModal({
     syncSymbols(symbolsRef.current.filter((sym) => sym.getAttribute("id") !== iconId));
     rebuildSprite();
     showToast(`Removed #${iconId}`, "success");
+  }
+
+  // Select every icon currently shown in the grid (i.e. the
+  // search-filtered list, NOT every symbol in the sprite). Toggling
+  // the search filter to a narrower query and clicking "Select All"
+  // should only select the visible icons — that's the predictable
+  // "select what you see" behaviour the user expects.
+  function handleSelectAll(): void {
+    setSelectedIcons(new Set(filteredIds));
+  }
+  // Deselect every icon currently shown in the grid. Same
+  // search-filtered scoping as `handleSelectAll` — clicking "Deselect
+  // All" only affects what's visible. Icons hidden by the search
+  // filter are left in their existing selection state.
+  function handleDeselectAll(): void {
+    setSelectedIcons((current) => {
+      const next = new Set(current);
+      filteredIds.forEach((id) => next.delete(id));
+      return next;
+    });
+  }
+  // Remove every selected icon in a single batch. Confirms with the
+  // same `window.confirm` pattern that the per-card delete uses, then
+  // rebuilds the sprite once (instead of N times) so the
+  // pending-changes flag and the `onUpdate` callback fire exactly
+  // once for the batch — matching the existing single-delete flow
+  // semantically but as a single transaction.
+  function handleRemoveSelected(): void {
+    if (selectedIcons.size === 0) return;
+    const count = selectedIcons.size;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `Remove ${count} icon${count === 1 ? "" : "s"} from this sprite?`,
+      )
+    ) {
+      return;
+    }
+    syncSymbols(
+      symbolsRef.current.filter((sym) => {
+        const id = sym.getAttribute("id") || "";
+        return !selectedIcons.has(id);
+      }),
+    );
+    rebuildSprite();
+    setSelectedIcons(new Set());
+    showToast(`Removed ${count} icon${count === 1 ? "" : "s"}`, "success");
     if (symbolsRef.current.length === 0) {
       showToast("All icons removed. The sprite is now empty.", "warning");
     }
@@ -326,6 +435,9 @@ export default function LiveDemoModal({
       });
       return;
     }
+    if (renamingId !== null) {
+      return;
+    }
     if (clickTimerRef.current !== null) {
       window.clearTimeout(clickTimerRef.current);
     }
@@ -349,11 +461,12 @@ export default function LiveDemoModal({
   }
 
   function handleIconDoubleClick(id: string): void {
-    // Cancel the pending single-click copy so a true
-    // double-click is "strictly download, never copy".
     if (clickTimerRef.current !== null) {
       window.clearTimeout(clickTimerRef.current);
       clickTimerRef.current = null;
+    }
+    if (selectMode || renamingId !== null) {
+      return;
     }
     // Strictly download — never copy.
     downloadSingleIcon(id);
@@ -491,7 +604,6 @@ export default function LiveDemoModal({
     if (color.kind === "color") {
       return `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}" color="${color.hex}">${inner}</svg>`;
     }
-    // Gradient: emit an inline <defs> + a per-icon <linearGradient> and fill the icon via a mask. 
     const gradId = `grad-${Math.random().toString(36).slice(2, 9)}`;
     return (
       `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}">` +
@@ -500,12 +612,9 @@ export default function LiveDemoModal({
       `<stop offset="0%" stop-color="${color.start}"/>` +
       `<stop offset="100%" stop-color="${color.end}"/>` +
       `</linearGradient>` +
-      `<mask id="mask-${gradId}">` +
-      `<rect width="100%" height="100%" fill="white"/>` +
-      `${inner}` +
-      `</mask>` +
       `</defs>` +
-      `<rect width="100%" height="100%" fill="url(#${gradId})" mask="url(#mask-${gradId})"/>` +
+      `<style>svg * { fill: url(#${gradId}); stroke: url(#${gradId}); }</style>` +
+      `${inner}` +
       `</svg>`
     );
   }
@@ -586,7 +695,22 @@ export default function LiveDemoModal({
 
   const cssSnippet = useMemo<string>(() => {
     if (activeGradient) {
-      return `.icon-gradient {\n  width: ${iconSize}px;\n  height: ${iconSize}px;\n  --icon-color: url(#demo-icon-gradient);\n}`;
+      // Bake the gradient stops into the snippet itself so the user's
+      // copy-paste is self-contained (no external #demo-icon-gradient
+      // id required). The class applies the inline <linearGradient>
+      // to every descendant of `.icon-gradient` — matching the way
+      // the modal previews gradient-coloured icons (the gradient is
+      // the icon's own fill, not a masked background rectangle).
+      return (
+        `.icon-gradient {\n` +
+        `  width: ${iconSize}px;\n` +
+        `  height: ${iconSize}px;\n` +
+        `}\n` +
+        `.icon-gradient * {\n` +
+        `  fill: url(#demo-icon-gradient);\n` +
+        `  stroke: url(#demo-icon-gradient);\n` +
+        `}`
+      );
     }
     const preset = SOLID_PRESETS.find((p) => p.color === activeColorClass);
     const hex = activeCustomColor || (preset ? preset.hex : "#334155");
@@ -645,11 +769,15 @@ export default function LiveDemoModal({
     onOpenSaveToLibrary?.({ suggestedName: fallbackName });
   }
 
-  // Persist the mutated sprite back to the source library version. 
   async function handleSaveChanges(): Promise<void> {
     if (saveBusy) return;
-    if (!source || source.type !== "library") {
-      showToast("No library source to save to.", "error");
+    if (
+      !source ||
+      (source.type !== "library" &&
+        source.type !== "baseSprite" &&
+        source.type !== "results")
+    ) {
+      showToast("No preview source to save to.", "error");
       return;
     }
     if (!onSave) {
@@ -666,16 +794,28 @@ export default function LiveDemoModal({
     const xml = serializeLiveSprite(symbolsRef.current);
     setSaveBusy(true);
     try {
-      const ok = await onSave({ xml, symbolIds: nextIds });
-      if (ok === false) {
+      const result = await onSave({ xml, symbolIds: nextIds });
+      if (result === false) {
         return;
       }
       setHasPendingChanges(false);
       setHasChanges(false);
-      showToast(
-        `Saved changes to ${source.name} v${source.version ?? 1}.`,
-        "success"
-      );
+      if (result === "deleted") {
+        const label =
+          source.type === "library"
+            ? `${source.name} v${source.version ?? 1}`
+            : "the preview";
+        showToast(
+          `All icons removed. ${label} was deleted from the library.`,
+          "warning"
+        );
+      } else {
+        const successMessage =
+          source.type === "library"
+            ? `Saved changes to ${source.name} v${source.version ?? 1}.`
+            : "Saved changes to the preview.";
+        showToast(successMessage, "success");
+      }
       onClose?.();
     } catch (err) {
       showToast(
@@ -733,6 +873,26 @@ export default function LiveDemoModal({
     }
   }
 
+  // Footer CTA visibility — derived from the current `source` so the parent
+  // doesn't have to know which button to render. Three sources qualify for
+  // "Save Changes" (in-place preview that persists rename/remove edits):
+  //   • "library" (eye-icon preview) — owned library versions only
+  //   • "baseSprite" (Upload Existing Sprite section's Preview button)
+  //   • "results" (Results panel's Live Demo button)
+  // "Save to Library" accompanies "Save Changes" for the `results` source
+  // (so the user can both commit in-place edits and persist the resulting
+  // sprite as a new library) and stands alone for the `scratch` source
+  // (ad-hoc paste-preview flows with no in-place persistence story).
+  const shouldShowSaveChanges =
+    !!source &&
+    !!onSave &&
+    (source.type === "baseSprite" ||
+      source.type === "results" ||
+      (source.type === "library" && source.isOwner !== false));
+  const shouldShowSaveToLibrary =
+    !!onOpenSaveToLibrary &&
+    (source?.type === "scratch" || source?.type === "results");
+
   if (!isOpen) return null;
 
   return (
@@ -748,20 +908,38 @@ export default function LiveDemoModal({
         <div className="flex flex-col border-b border-slate-100 shrink-0">
           <div className="flex items-center justify-between px-6 pt-4 pb-2">
             <div className="min-w-0 flex-1 pr-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-lg font-bold text-slate-900">Generated Sprite Live Demo</h3>
-                {source?.type === "library" && (
-                  <span
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700"
-                    title={`Previewing ${source.name} v${source.version ?? 1} from your library`}
-                  >
-                    <FolderIcon className="h-3 w-3 shrink-0 text-indigo-500" />
-                    <span className="truncate">{source.name}</span>
-                    <span className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[10px] text-indigo-600">
-                      v{source.version ?? 1}
-                    </span>
-                  </span>
-                )}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <h3 className="text-lg font-semibold text-slate-900">Live Demo</h3>
+                {(() => {
+                  const identity =
+                    source?.type === "library"
+                      ? { name: source.name, version: source.version, isPublic: !!source.isPublic }
+                      : source?.type === "baseSprite" && source.name
+                        ? { name: source.name, version: source.version, isPublic: !!source.isPublic }
+                        : null;
+                  if (!identity) return null;
+                  return (
+                    <>
+                      <span
+                        className="text-sm text-slate-500 truncate mt-0.5 max-w-[200px]"
+                        title={`${identity.name} (v${identity.version ?? 1})`}
+                      >
+                        {identity.name}
+                        <span className="text-sm text-slate-500">
+                          (v{identity.version ?? 1})
+                        </span>
+                      </span>
+                      <VisibilityBadge
+                        isPublic={identity.isPublic}
+                        title={
+                          identity.isPublic
+                            ? "Anyone with access can view and use this library."
+                            : "Only you can view and access this library."
+                        }
+                      />
+                    </>
+                  );
+                })()}
               </div>
               <p className="text-xs text-slate-400">Preview and test your compiled SVG symbols live</p>
             </div>
@@ -774,64 +952,185 @@ export default function LiveDemoModal({
               <CloseIcon className="w-6 h-6" />
             </button>
           </div>
-          <div className="flex px-6 gap-4 border-b border-slate-100">
+          <div className="flex items-end justify-between gap-4 px-6 border-b border-slate-100">
+            <div className="flex gap-4">
+              <button
+                type="button"
+                onClick={() => setActiveTab("grid")}
+                className={`px-1 py-2 text-sm font-semibold border-b-2 transition-colors ${activeTab === "grid" ? "text-indigo-600 border-indigo-600" : "text-slate-500 hover:text-slate-700 border-transparent"}`}
+              >
+                Icons Grid
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("css")}
+                className={`px-1 py-2 text-sm font-semibold border-b-2 transition-colors ${activeTab === "css" ? "text-indigo-600 border-indigo-600" : "text-slate-500 hover:text-slate-700 border-transparent"}`}
+              >
+                Custom CSS
+              </button>
+            </div>
+            {cssChanged &&
             <button
               type="button"
-              onClick={() => setActiveTab("grid")}
-              className={`px-1 py-2 text-sm font-semibold border-b-2 transition-colors ${activeTab === "grid" ? "text-indigo-600 border-indigo-600" : "text-slate-500 hover:text-slate-700 border-transparent"}`}
+              onClick={resetCss}
+              title={
+                cssChanged
+                  ? "Restore the size, color, and gradient values the modal opened with."
+                  : "No custom-CSS changes to reset."
+              }
+              className="mb-2 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:border-slate-200 disabled:hover:bg-slate-100 disabled:hover:text-slate-400"
             >
-              Icons Grid
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("css")}
-              className={`px-1 py-2 text-sm font-semibold border-b-2 transition-colors ${activeTab === "css" ? "text-indigo-600 border-indigo-600" : "text-slate-500 hover:text-slate-700 border-transparent"}`}
-            >
-              Custom CSS
-            </button>
+              <svg
+                className="h-3 w-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 4v6h6M20 20v-6h-6M4 10a8 8 0 0114-3M20 14a8 8 0 01-14 3"
+                />
+              </svg>
+              Reset custom css
+            </button>}
           </div>
         </div>
 
         {activeTab === "grid" && (
           <div className="flex flex-col flex-1 overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 py-3.5 bg-slate-50 border-b border-slate-100 text-sm shrink-0">
-              <div className="flex-1 relative max-w-md">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <SearchIcon className="w-4 h-4" />
-                </span>
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search symbol IDs..."
-                  className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-xs sm:text-sm"
-                />
+            {/* TOOLBAR LAYOUT. Split into two stacked rows so the
+                "Select Icons" toggle never shifts position when the
+                user toggles it on:
+                  • Row 1 — search input on the left, Select Icons
+                    toggle pinned to the right. The toggle stays in
+                    this slot whether the user is in select mode or
+                    not, so the toolbar doesn't visually "jump".
+                  • Row 2 — only renders when Select Icons is ON (and
+                    the current source isn't read-only). Hosts the
+                    "Select All / Deselect All" and "Remove (N)"
+                    actions, right-aligned to match the toggle's
+                    column. The two-row layout gives those actions
+                    room to breathe without squeezing the search
+                input or moving the toggle. */}
+            <div className="px-6 pt-3.5 pb-2 bg-slate-50 border-b border-slate-100 text-sm shrink-0">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex-1 relative max-w-md">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <SearchIcon className="w-4 h-4" />
+                  </span>
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Search symbol IDs..."
+                    className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-xs sm:text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {currentUser && (
+                    <label
+                      className={`flex items-center gap-2 group ${
+                        cssChanged
+                          ? "opacity-50 cursor-not-allowed"
+                          : "cursor-pointer"
+                      }`}
+                      title={
+                        cssChanged
+                          ? "Reset Custom CSS to enable Select Icons."
+                          : undefined
+                      }
+                    >
+                      {/* The `peer-disabled:cursor-not-allowed` on the visual
+                          track + dot mirrors the input's `disabled` state
+                          directly, so the not-allowed cursor is shown
+                          consistently across the whole toggle (track, dot,
+                          AND label text) when CSS is dirty. The label-level
+                          `cursor-not-allowed` alone relies on CSS
+                          inheritance, which doesn't reliably reach the
+                          visual elements through the peer-input layer —
+                          so we apply it explicitly via the peer state. */}
+                      <div className="relative">
+                        <input
+                          type="checkbox"
+                          checked={selectMode}
+                          disabled={cssChanged}
+                          onChange={(event) => {
+                            const next = event.target.checked;
+                            setSelectMode(next);
+                            if (!next) {
+                              setSelectedIcons(new Set());
+                            }
+                          }}
+                          className="peer sr-only disabled:cursor-not-allowed"
+                        />
+                        <div className="block h-6 w-10 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500 peer-disabled:cursor-not-allowed" />
+                        <div className="dot absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4 peer-disabled:cursor-not-allowed" />
+                      </div>
+                      <span
+                        className={`text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors ${cssChanged && 'cursor-not-allowed'}`}
+                      >
+                        Select Icons
+                      </span>
+                    </label>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                {currentUser && (
-                  <label className="flex items-center gap-2 cursor-pointer group">
-                    <div className="relative">
-                      <input
-                        type="checkbox"
-                        checked={selectMode}
-                        onChange={(event) => {
-                          const next = event.target.checked;
-                          setSelectMode(next);
-                          if (!next) {
-                            setSelectedIcons(new Set());
-                          }
-                        }}
-                        className="peer sr-only"
-                      />
-                      <div className="block h-6 w-10 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500" />
-                      <div className="dot absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
-                    </div>
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-700 transition-colors">
-                      Select Icons
-                    </span>
-                  </label>
-                )}
-              </div>
+              {/* "Select All" / "Deselect All" + "Remove (N)" toolbar.
+                  Sits on its own row, right-aligned to match the
+                  Select Icons toggle column above. Only renders when
+                  Select Icons is ON and the source isn't read-only.
+                  The "Select All" button toggles its label based on
+                  whether every VISIBLE icon (i.e. respecting the
+                  search filter) is already in the selection; clicking
+                  it selects all visible icons, clicking it again (now
+                  "Deselect All") unselects them. The "Remove (N)"
+                  button is disabled when nothing is selected, and
+                  confirms with the user before deleting the batch —
+                  matching the per-card `deleteIcon` confirmation
+                  pattern. Both buttons honour the existing
+                  `isReadOnly` flag (non-owned public library entries
+                  can't be mutated in place), which the per-card
+                  rename/delete controls already enforce. */}
+              {currentUser && selectMode && !isReadOnly && (
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // All-visible-selected → label is "Deselect All".
+                      // Otherwise → label is "Select All".
+                      if (filteredIds.every((id) => selectedIcons.has(id))) {
+                        handleDeselectAll();
+                      } else {
+                        handleSelectAll();
+                      }
+                    }}
+                    disabled={filteredIds.length === 0}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:border-slate-200 disabled:hover:bg-slate-100 disabled:hover:text-slate-400"
+                  >
+                    {filteredIds.every((id) => selectedIcons.has(id)) &&
+                    filteredIds.length > 0
+                      ? "Deselect All"
+                      : "Select All"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRemoveSelected}
+                    disabled={selectedIcons.size === 0}
+                    title={
+                      selectedIcons.size === 0
+                        ? "Select icons to remove."
+                        : `Remove ${selectedIcons.size} selected icon${selectedIcons.size === 1 ? "" : "s"} from this sprite.`
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:border-rose-100 disabled:bg-white disabled:text-rose-300 disabled:hover:border-rose-100 disabled:hover:bg-white disabled:hover:text-rose-300"
+                  >
+                    <TrashIcon className="h-3 w-3" />
+                    Remove ({selectedIcons.size})
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 custom-scrollbar">
@@ -865,6 +1164,7 @@ export default function LiveDemoModal({
                         onRenameCommit={commitRename}
                         onRenameCancel={() => setRenamingId(null)}
                         isReadOnly={isReadOnly}
+                        selectMode={selectMode}
                       />
                     );
                   })}
@@ -1007,13 +1307,23 @@ export default function LiveDemoModal({
         )}
 
         <div className="px-6 py-3 border-t border-slate-100 bg-white flex items-center justify-between text-xs text-slate-400 shrink-0">
-          <span>Click to copy SVG · Double-click to download · Hover ✕ to remove</span>
+          {isReadOnly && source?.type === "library" ? (
+            <span className="flex items-center gap-1.5 text-slate-500">
+              <LockIcon className="h-3 w-3 shrink-0 text-slate-400" />
+              Only the library owner can rename or remove icons in this shared
+              library.
+            </span>
+          ) : (
+            <span />
+          )}
           <div className="flex items-center gap-2">
             {currentUser && selectedIconsCount() > 0 && (
               <button
                 type="button"
                 onClick={() => void handleCopySelected()}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold border border-indigo-700 shadow-md transition-all flex items-center gap-1.5"
+                disabled={cssChanged}
+                title={cssChanged ? "Reset Custom CSS to enable this action." : undefined}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold border border-indigo-700 shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
               >
                 <ClipboardIcon className="w-3.5 h-3.5" />
                 Copy {selectedIconsCount()} Selected
@@ -1022,50 +1332,114 @@ export default function LiveDemoModal({
             <button
               type="button"
               onClick={() => void handleCopySprite()}
-              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-semibold border border-indigo-200 transition-all flex items-center gap-1.5"
+              disabled={cssChanged}
+              title={cssChanged ? "Reset Custom CSS to enable this action." : undefined}
+              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-semibold border border-indigo-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
             >
               <DuplicateIcon className="w-3.5 h-3.5" />
               {copySpriteCopied ? "Copied" : "Copy Sprite"}
             </button>
             {currentUser ? (
-              mode === "preview" && source?.type === "library" && onSave ? source.isOwner !==false && (
-                <button
-                  type="button"
-                  onClick={() => void handleSaveChanges()}
-                  disabled={!hasPendingChanges || saveBusy || selectMode}
-                  title={
-                    hasPendingChanges
-                      ? "Persist the renamed / removed icons back to this library version."
-                      : "No changes to save yet. Rename or remove an icon to enable this button."
-                  }
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <CheckIcon className="w-3.5 h-3.5" />
-                  {saveBusy ? "Saving…" : "Save Changes"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => handleOpenSaveToLibrary()}
-                  disabled={downloadBusy}
-                  title={
-                    selectMode && selectedIconsCount() > 0
-                      ? `Save ${selectedIconsCount()} selected icon${selectedIconsCount() === 1 ? "" : "s"} as a new library.`
-                      : "Save this sprite to the shared Syncfusion library."
-                  }
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <CheckIcon className="w-3.5 h-3.5" />
-                  {selectMode && selectedIconsCount() > 0
-                    ? `Save ${selectedIconsCount()} Selected to Library`
-                    : "Save to Library"}
-                </button>
-              )
+              <>
+                {/* "Save Changes" appears for any in-place preview source that has an
+                    `onSave` callback wired up. Three entry points qualify:
+                      • `source.type === "library"` (eye-icon preview) — persists to the same
+                        library version. Non-owned public libraries get no save button
+                        (the parent disables `onSave` / flags `isOwner === false`).
+                      • `source.type === "baseSprite"` (loaded-library or uploaded-sprite
+                        "Preview" button in the Upload Existing Sprite section) — persists
+                        back to the in-memory base sprite the user just opened.
+                      • `source.type === "results"` (Results panel's "Live Demo" button) —
+                        persists the renamed / removed icons back into the compiler's
+                        generated sprite state so the Results panel reflects them.
+                    "Save to Library" appears alongside "Save Changes" for the `results`
+                    source so the user can commit rename/remove edits (Save Changes) OR
+                    save the resulting sprite as a new library (Save to Library) — but
+                    the "hide Save Changes when Select Icons is on" rule ONLY applies
+                    to this post-generate popup (`source.type === "results"`). Other
+                    Live Demo entry points (library eye icon, base-sprite preview,
+                    paste previews) keep "Save Changes" visible at all times
+                    regardless of the Select Icons toggle, since the toggle is purely
+                    a multi-select helper in those flows. The `scratch` source — used
+                    by ad-hoc paste-preview flows — only ever shows "Save to
+                    Library". */}
+                {/* SCOPED VISIBILITY FOR SAVE CHANGES. Per UX request:
+                    the "hide Save Changes when Select Icons is on" rule
+                    ONLY applies to the post-generate Live Demo popup —
+                    i.e. the one opened from the Results panel's "Live
+                    Demo" button (`source.type === "results"`). All
+                    other Live Demo entry points (library eye icon,
+                    base-sprite preview, paste previews) keep "Save
+                    Changes" visible at all times regardless of the
+                    Select Icons toggle, because for those flows the
+                    user expects a stable in-place save affordance and
+                    the toggle is purely a multi-select helper.
+
+                    We therefore apply the "hide on Select Icons" rule
+                    only when `source?.type === "results"`. For every
+                    other source, "Save Changes" renders as soon as
+                    `shouldShowSaveChanges` is true and stays visible
+                    no matter what `selectMode` is.
+
+                    "Save to Library" still only renders when
+                    `selectMode` is on, regardless of source, so the
+                    "only one primary button at a time" guarantee is
+                    preserved for the post-generate popup while leaving
+                    the other popups unaffected. */}
+                {shouldShowSaveChanges &&
+                  !(source?.type === "results" && selectMode) && (
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveChanges()}
+                      disabled={!hasPendingChanges || saveBusy || cssChanged}
+                      title={
+                        cssChanged
+                          ? "Reset Custom CSS to enable this action."
+                          : hasPendingChanges
+                            ? source.type === "library"
+                              ? "Persist the renamed / removed icons back to this library version."
+                              : source.type === "results"
+                                ? "Persist the renamed / removed icons back to the generated sprite."
+                                : "Persist the renamed / removed icons back to this base sprite."
+                            : "No changes to save yet. Rename or remove an icon to enable this button."
+                      }
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <CheckIcon className="w-3.5 h-3.5" />
+                      {saveBusy ? "Saving…" : "Save Changes"}
+                    </button>
+                  )}
+                {shouldShowSaveToLibrary && selectMode && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenSaveToLibrary()}
+                    disabled={
+                      downloadBusy ||
+                      cssChanged ||
+                      selectedIconsCount() === 0
+                    }
+                    title={
+                      cssChanged
+                        ? "Reset Custom CSS to enable this action."
+                        : selectedIconsCount() === 0
+                          ? "Select at least one icon to save as a new library."
+                          : `Save ${selectedIconsCount()} selected icon${selectedIconsCount() === 1 ? "" : "s"} as a new library.`
+                    }
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <CheckIcon className="w-3.5 h-3.5" />
+                    {selectedIconsCount() > 0
+                      ? `Save ${selectedIconsCount()} Selected to Library`
+                      : "Save to Library"}
+                  </button>
+                )}
+              </>
             ) : (
               <button
                 type="button"
                 onClick={() => void handleDownloadBundle()}
-                disabled={downloadBusy || selectMode}
+                disabled={downloadBusy || selectMode || cssChanged}
+                title={cssChanged ? "Reset Custom CSS to enable this action." : undefined}
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <DownloadIcon className="w-3.5 h-3.5" />
@@ -1099,6 +1473,10 @@ type DemoIconCardProps = {
   onRenameCancel: () => void;
   // When true, hide the per-card rename and delete controls. Used for public library entries the current user does not own — the user can still preview and copy icons, but cannot mutate them in place.
   isReadOnly?: boolean;
+  // When true, the parent has the "Select Icons" toggle on. Rename and remove
+  // controls are hidden so the user can only multi-select icons for batch
+  // operations (Copy N Selected / Save N Selected to Library).
+  selectMode?: boolean;
 };
 
 function DemoIconCard({
@@ -1120,6 +1498,7 @@ function DemoIconCard({
   onRenameCommit,
   onRenameCancel,
   isReadOnly = false,
+  selectMode = false,
 }: DemoIconCardProps): ReactNode {
   const isRenaming = renamingId === id;
   const sizeStyle = { width: `${iconSize}px`, height: `${iconSize}px` } as const;
@@ -1138,10 +1517,34 @@ function DemoIconCard({
     const strokeRule = hasStroke ? ` stroke: ${hex} !important;` : "";
     return `[data-demo-icon-style="${id}"] * { ${fillRule}${strokeRule} }`;
   };
+  // Scoped CSS rule that paints every descendant of this icon card with
+  // the shared `#demo-icon-gradient` (injected by the modal into a hidden
+  // <svg> in the document body whenever `activeGradient` is non-null).
+  // This is the same approach the solid-color branch uses for the
+  // active color hex — we just point `fill`/`stroke` at a `url(#…)`
+  // paint server instead of a hex. Because we apply the gradient as
+  // the icon's actual `fill` (not as a masked rectangle), the gradient
+  // fills the ICON SHAPE — not a background rectangle clipped by a
+  // mask — so the visual result matches what the user expects from
+  // "apply gradient to icons" (the icon itself is gradient-coloured).
+  // The earlier `<rect mask="url(#mask-${id})">` approach looked like
+  // a background because the mask cut a rectangle to the icon's outline
+  // and the original (un-coloured) icon path was still drawn on top,
+  // producing a visible "dark icon + gradient patch behind it" effect.
+  const buildGradientCss = (): string => {
+    const fillRule = `fill: url(#demo-icon-gradient) !important;`;
+    const strokeRule = hasStroke
+      ? ` stroke: url(#demo-icon-gradient) !important;`
+      : "";
+    return `[data-demo-icon-style="${id}"] * { ${fillRule}${strokeRule} }`;
+  };
   const scopedColorStyle: ReactNode = activeHex ? (
     <style>{buildColorCss(activeHex)}</style>
   ) : (
     <style>{buildColorCss("#334155")}</style>
+  );
+  const scopedGradientStyle: ReactNode = (
+    <style>{buildGradientCss()}</style>
   );
   let inlineSvg: ReactNode;
   if (activeGradient) {
@@ -1153,17 +1556,8 @@ function DemoIconCard({
         preserveAspectRatio="xMidYMid meet"
         data-demo-icon-style={id}
       >
-        <defs>
-          <linearGradient id={`grad-${id}`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor={activeGradient.start} />
-            <stop offset="100%" stopColor={activeGradient.end} />
-          </linearGradient>
-          <mask id={`mask-${id}`}>
-            <rect width="100%" height="100%" fill="white" />
-            <g dangerouslySetInnerHTML={{ __html: symbolInnerHtml }} />
-          </mask>
-        </defs>
-        <rect width="100%" height="100%" fill={`url(#grad-${id})`} mask={`url(#mask-${id})`} />
+        {scopedGradientStyle}
+        <g dangerouslySetInnerHTML={{ __html: symbolInnerHtml }} />
       </svg>
     );
   } else {
@@ -1200,7 +1594,7 @@ function DemoIconCard({
           </svg>
         </div>
       )}
-      {!isReadOnly && (
+      {!isReadOnly && !selectMode && (
         <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
           <button
             type="button"

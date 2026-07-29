@@ -254,18 +254,20 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
       {isOpen && (
         <div
           className="fixed inset-0 z-40 bg-slate-900/50 opacity-100 backdrop-blur-sm transition-opacity duration-300"
-          onClick={onClose}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose?.();
+          }}
         />
       )}
 
-      <aside
-        className={`fixed top-0 right-0 z-50 flex h-full w-full max-w-lg flex-col bg-white shadow-2xl transition-transform duration-300 ease-out ${
-          isOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-        role="dialog"
-        aria-modal="true"
-        aria-label="User Guide"
-      >
+      {isOpen && (
+        <aside
+          className="fixed top-0 right-0 z-50 flex h-full w-full max-w-lg flex-col bg-white shadow-2xl transition-transform duration-300 ease-out translate-x-0"
+          role="dialog"
+          aria-modal="true"
+          aria-label="User Guide"
+        >
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-linear-to-r from-indigo-50 to-violet-50 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-linear-to-br from-indigo-500 to-violet-600 shadow-md shadow-indigo-200/50">
@@ -472,6 +474,7 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
           </section>
         </div>
       </aside>
+      )}
     </>
   );
 }

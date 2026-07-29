@@ -1,13 +1,14 @@
 // Renders a sprite sheet to a PNG by drawing each symbol onto its own card on a hidden <canvas>. We avoid adding an html-to-image dependency by inlining the sprite XML into a Blob URL, parsing each <symbol> and re-serialising it as a tiny data: URL we can drawImage onto the canvas. The result is a "preview.png" with one card per symbol, matching the on-screen design of the live demo / library panel.
 
 const SYMBOL_PX = 96;
-const CARD_PADDING_X = 16;
+const CARD_PADDING_X = 96;
 const CARD_PADDING_Y = 24;
-const CARD_GAP = 16;
-const PAGE_PADDING = 24;
-const TITLE_HEIGHT = 56;
+const CARD_GAP = 28;
+const PAGE_PADDING = 32;
+const TITLE_HEIGHT = 130; // to adjust space on top and bottom of title
 const FOOTER_HEIGHT = 20;
-const COLS = 6;
+const MAX_COLS = 4;
+const CARD_HEIGHT = 332;
 
 const BG = "#f8fafc";
 const CARD_BG = "#ffffff";
@@ -24,11 +25,12 @@ export async function renderSpritePreviewPng(
   if (typeof document === "undefined") return null;
   if (!spriteXml || symbolIds.length === 0) return null;
 
-  const rows = Math.max(1, Math.ceil(symbolIds.length / COLS));
+  const cols = Math.min(symbolIds.length, MAX_COLS);
+  const rows = Math.max(1, Math.ceil(symbolIds.length / cols));
   const cellWidth = CARD_PADDING_X * 2 + SYMBOL_PX;
-  const cellHeight = CARD_PADDING_Y * 2 + SYMBOL_PX + 20; // 20px for label
+  const cellHeight = CARD_HEIGHT;
   const width =
-    PAGE_PADDING * 2 + COLS * cellWidth + (COLS - 1) * CARD_GAP;
+    PAGE_PADDING * 2 + cols * cellWidth + (cols - 1) * CARD_GAP;
   const height =
     PAGE_PADDING * 2 +
     TITLE_HEIGHT +
@@ -51,14 +53,16 @@ export async function renderSpritePreviewPng(
 
   // Title.
   ctx.fillStyle = FG;
-  ctx.font = "600 22px system-ui, -apple-system, Segoe UI, sans-serif";
+  ctx.font = "700 44px system-ui, -apple-system, Segoe UI, sans-serif";
+  ctx.textAlign = "center";
   ctx.textBaseline = "top";
   const symbolWord = symbolIds.length === 1 ? "Symbol" : "Symbols";
   ctx.fillText(
     `SVG Sprite \u2014 ${symbolIds.length} ${symbolWord}`,
-    PAGE_PADDING,
-    PAGE_PADDING
+    width / 2,
+    PAGE_PADDING + 20
   );
+  ctx.textAlign = "left";
 
   // Parse the sprite so we can pull each symbol's viewBox + inner markup out individually.
   const parser = new DOMParser();
@@ -70,9 +74,8 @@ export async function renderSpritePreviewPng(
     const id = symbolIds[i];
     const symbolEl = symbolEls.find((el) => el.getAttribute("id") === id);
     if (!symbolEl) continue;
-
-    const col = i % COLS;
-    const row = Math.floor(i / COLS);
+    const col = i % cols;
+    const row = Math.floor(i / cols);
     const cellX = PAGE_PADDING + col * (cellWidth + CARD_GAP);
     const cellY =
       PAGE_PADDING + TITLE_HEIGHT + row * (cellHeight + CARD_GAP);
@@ -81,7 +84,7 @@ export async function renderSpritePreviewPng(
     drawCard(ctx, cellX, cellY, cellWidth, cellHeight);
 
     // Icon (centered inside the card's icon area).
-    const iconAreaY = cellY + CARD_PADDING_Y;
+    const iconAreaY = cellY + 40;
     const iconAreaX = cellX + (cellWidth - SYMBOL_PX) / 2;
     const viewBox = symbolEl.getAttribute("viewBox") || "0 0 24 24";
     const thisInner = Array.from(symbolEl.childNodes)
@@ -99,11 +102,18 @@ export async function renderSpritePreviewPng(
 
     // Label.
     ctx.fillStyle = MUTED;
-    ctx.font = "500 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    ctx.font = "500 22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
     ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.fillText(id, cellX + cellWidth / 2, cellY + CARD_PADDING_Y + SYMBOL_PX + 8);
+    ctx.textBaseline = "bottom";
+    const labelMaxWidth = cellWidth - CARD_PADDING_X;
+    const truncatedId = fitTextWithEllipsis(ctx, id, labelMaxWidth);
+    ctx.fillText(
+      truncatedId,
+      cellX + cellWidth / 2,
+      cellY + cellHeight - CARD_PADDING_Y
+    );
     ctx.textAlign = "left";
+    ctx.textBaseline = "top";
   }
 
   // Footer.
@@ -121,6 +131,28 @@ export async function renderSpritePreviewPng(
   return await new Promise<Blob | null>((resolve) => {
     canvas.toBlob((b) => resolve(b), "image/png");
   });
+}
+
+// Trim a string with an ellipsis until it fits within `maxWidth` pixels under the currently active context font. Used so long symbol ids never overflow their card.
+function fitTextWithEllipsis(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number
+): string {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ELLIPSIS = "\u2026";
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    const candidate = text.slice(0, mid) + ELLIPSIS;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return lo > 0 ? text.slice(0, lo) + ELLIPSIS : ELLIPSIS;
 }
 
 function drawCard(

@@ -111,6 +111,17 @@ export function EyeIcon({ className = "w-4 h-4", ...rest }: IconProps) {
   );
 }
 
+export function EyeOffIcon({ className = "w-4 h-4", ...rest }: IconProps) {
+  return (
+    <svg {...ICON_BASE} className={className} {...rest}>
+      <path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a18.45 18.45 0 014.06-5.06" />
+      <path d="M9.9 5.08A11.06 11.06 0 0112 5c7 0 11 7 11 7a18.5 18.5 0 01-2.16 3.19" />
+      <path d="M14.12 14.12A3 3 0 119.88 9.88" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  );
+}
+
 export function PencilIcon({ className = "w-4 h-4", ...rest }: IconProps) {
   return (
     <svg {...ICON_BASE} className={className} {...rest}>
