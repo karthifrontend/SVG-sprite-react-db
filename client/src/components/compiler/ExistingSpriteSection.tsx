@@ -181,7 +181,7 @@ function ExistingSpriteSection({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <p className="truncate text-sm font-medium text-slate-700" title={file.name}>
+                <p className="truncate text-sm font-medium text-slate-700 max-w-3xs" title={file.name}>
                   {file.name}
                 </p>
                 {version != null && (

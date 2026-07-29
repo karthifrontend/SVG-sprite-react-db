@@ -18,6 +18,8 @@ import LiveDemoModal, { type CopiedIcon, type LiveDemoCssState } from "./compile
 import type { Source as LiveDemoSource } from "./compiler/LiveDemo";
 import PasteIconsModal from "./compiler/PasteIconsModal";
 import SaveToLibraryModal from "./compiler/SaveToLibraryModal";
+import IconConflictModal from "./compiler/IconConflictModal";
+import type { ConflictResolution, IconConflict } from "../hooks/useSpriteCompiler";
 import { buildDemoHtml } from "../utils/sprite";
 import { createZip, triggerBrowserDownload } from "../utils/zipBundle";
 import { renderSpritePreviewPng } from "../utils/previewPng";
@@ -124,6 +126,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     symbolIds,
     error,
     generate,
+    applyConflictResolutions,
     loadFromLibrary,
     waitForSprite,
     reset: resetSprite,
@@ -156,6 +159,22 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   });
 
   const [saving, setSaving] = useState(false);
+
+  // Conflict-modal state. When `generate()` returns
+  // `needsConfirmation: true` we set `pendingConflicts` to the list
+  // it produced, stash the base sprite's raw text in
+  // `pendingExistingContent` (so we can re-merge after the user
+  // picks a resolution), and open the modal. The user resolves every
+  // conflict and clicks Continue; we then call
+  // `applyConflictResolutions()` and continue the same flow as a
+  // non-conflict generate. The modal can be cancelled — that just
+  // bails the whole generate, no state changes.
+  const [pendingConflicts, setPendingConflicts] = useState<IconConflict[] | null>(null);
+  const [pendingExistingContent, setPendingExistingContent] = useState<string | null>(null);
+  // True while the merge is running after the user clicks Continue
+  // in the conflict modal. Disables the modal's buttons so the user
+  // can't double-submit.
+  const [conflictResolveBusy, setConflictResolveBusy] = useState<boolean>(false);
 
   // Live demo modal. Opened from the Results panel's "Live Demo" button. When the modal mutates the sprite, it calls `onUpdate` which we wire to the demo preview buffer (demoSpriteXml / demoSymbolIds) only — the compiler's main result state (spriteXml / symbolIds / spriteUrl) is intentionally left untouched so the Results panel does NOT appear as a side effect of a preview-only rename / delete. The `source` tells the modal whether the "Save Changes" CTA should appear (only when the sprite came from a library version).
   const [liveDemoOpen, setLiveDemoOpen] = useState(false);
@@ -792,23 +811,52 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       const demoXml = buildSpriteXml(symbols);
       setDemoSpriteXml(demoXml);
       setDemoSymbolIds(symbols.map((s) => s.id));
+      // Both the loaded-library and the uploaded-sprite preview flows use the
+      // same `baseSprite` source so the LiveDemo footer renders a single
+      // "Save Changes" button (disabled until the user edits). The actual
+      // persistence is delegated to the `onSave` callback wired on the
+      // <LiveDemoModal> below — for both cases it replaces
+      // `baseSpriteFile` with a fresh `File` built from the new XML. The
+      // server-side library entry is intentionally left untouched so the
+      // side-panel preview, Results panel download/copy, etc. continue to
+      // show the original (server-side) content.
+      setLiveDemoSource(
+        baseSpriteSource === "library"
+          ? {
+              type: "baseSprite",
+              // Surface the library identity in the Live Demo header
+              // (name + version + visibility badge) so the user can
+              // tell which library they're previewing. We pull the
+              // values from the loaded library source when available
+              // (set during `handleLoadFromLibrary`); fall back to
+              // `activeBundleName` / `baseSpriteVersion` for the
+              // resync-after-failed-detail case.
+              name:
+                (liveDemoSource.type === "library"
+                  ? liveDemoSource.name
+                  : activeBundleName) || undefined,
+              version:
+                liveDemoSource.type === "library"
+                  ? liveDemoSource.version
+                  : baseSpriteVersion ?? undefined,
+              isPublic:
+                liveDemoSource.type === "library"
+                  ? liveDemoSource.isPublic
+                  : undefined,
+            }
+          : { type: "baseSprite" }
+      );
+      // Also remember the bundle name (if any) for the paste-exclude hint, so
+      // the "Copy N Selected" → "Paste Icons To..." flow keeps hiding the
+      // source library even after the preview closes.
       if (baseSpriteSource === "library") {
         const existing =
           liveDemoSource.type === "library" ? liveDemoSource : null;
         const resolvedName = existing?.name ?? activeBundleName;
-        setLiveDemoSource({
-          type: "library",
-          id: existing?.id ?? `preview-${activeBundleName}`,
-          name: resolvedName,
-          version: existing?.version ?? baseSpriteVersion ?? 1,
-          isOwner: existing?.isOwner ?? true,
-          isPublic: existing?.isPublic ?? false,
-        });
         if (resolvedName) {
           setPasteExcludeBundleName(resolvedName);
         }
       } else {
-        setLiveDemoSource({ type: "scratch" });
         setPasteExcludeBundleName("");
       }
       lastSeededSourceKeyRef.current = null;
@@ -823,37 +871,17 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   }
 
   // ── Generate ───────────────────────────────────────────────
-  async function handleGenerate() {
-    if (inlineSave.enabled && !currentUser) {
-      showToast("Please sign in to save to a library.", "warning");
-      onRequireAuth?.();
-      return;
-    }
-    if (mode === "update" && !baseSpriteFile) {
-      showToast("Please pick a base sprite to update.", "warning");
-      return;
-    }
-
-    let existingContent: string | undefined;
-    if (mode === "update" && baseSpriteFile) {
-      try {
-        existingContent = await baseSpriteFile.text();
-      } catch {
-        showToast("Failed to read the base sprite.", "error");
-        return;
-      }
-    }
-
-    const summary = await generate(files, existingContent ? { existingContent } : undefined);
-
-    if (summary.allDuplicates) {
-      showToast(
-        `All ${summary.duplicateCount} icon${summary.duplicateCount === 1 ? "" : "s"} already exist in the base sprite.`,
-        "warning"
-      );
-      return;
-    }
-
+  // Finalise the post-merge UI work (lock the Generate button, clear
+  // the update-mode inputs, surface the right toast, optionally save
+  // to the library). Pulled out of `handleGenerate` so the conflict
+  // path can reuse it after the user resolves every conflict in the
+  // modal — the conflict-resolved `GenerateSummary` has the same
+  // shape as the no-conflict one, so a single finaliser handles both.
+  async function finalizeGenerate(summary: {
+    duplicateCount: number;
+    newCount: number;
+    allDuplicates: boolean;
+  }): Promise<void> {
     // Lock the Generate button until new files are uploaded.
     setHasGenerated(true);
     if (mode === "update") {
@@ -863,10 +891,20 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       if (sourceBundle) {
         setPasteExcludeBundleName(sourceBundle);
       }
+      // Capture the library source BEFORE clearing it so we can keep the LiveDemo wired
+      // to the just-updated library version. Without this the Results panel's "Live Demo"
+      // button would reopen the modal with `source.type === "scratch"` and the footer
+      // would fall back to "Save to Library" instead of the expected "Save Changes".
+      const previousLibrarySource =
+        liveDemoSource.type === "library" ? liveDemoSource : null;
       setBaseSpriteFile(null);
       setBaseSpriteVersion(null);
       setActiveBundleName("");
-      setLiveDemoSource({ type: "scratch" });
+      if (previousLibrarySource) {
+        setLiveDemoSource(previousLibrarySource);
+      } else {
+        setLiveDemoSource({ type: "scratch" });
+      }
       setInlineSave({
         enabled: false,
         name: "",
@@ -932,6 +970,84 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     } finally {
       setSaving(false);
     }
+  }
+
+  // Apply the user's per-conflict resolutions and continue the
+  // generate flow. Wired to the conflict modal's "Continue" button.
+  async function handleApplyConflictResolutions(
+    resolutions: Record<string, ConflictResolution>,
+  ): Promise<void> {
+    if (!pendingConflicts || !pendingExistingContent) {
+      // Defensive — should be unreachable because the modal only
+      // renders when both states are set.
+      return;
+    }
+    setConflictResolveBusy(true);
+    try {
+      const summary = await applyConflictResolutions(
+        files,
+        { existingContent: pendingExistingContent },
+        resolutions,
+      );
+      // Wipe the conflict state so the modal can close cleanly even
+      // if `finalizeGenerate` throws (the modal's `onClose` checks
+      // `busy` but the state itself is the source of truth).
+      setPendingConflicts(null);
+      setPendingExistingContent(null);
+      await finalizeGenerate(summary);
+    } finally {
+      setConflictResolveBusy(false);
+    }
+  }
+
+  function handleCancelConflictModal(): void {
+    if (conflictResolveBusy) return;
+    setPendingConflicts(null);
+    setPendingExistingContent(null);
+  }
+
+  async function handleGenerate() {
+    if (inlineSave.enabled && !currentUser) {
+      showToast("Please sign in to save to a library.", "warning");
+      onRequireAuth?.();
+      return;
+    }
+    if (mode === "update" && !baseSpriteFile) {
+      showToast("Please pick a base sprite to update.", "warning");
+      return;
+    }
+
+    let existingContent: string | undefined;
+    if (mode === "update" && baseSpriteFile) {
+      try {
+        existingContent = await baseSpriteFile.text();
+      } catch {
+        showToast("Failed to read the base sprite.", "error");
+        return;
+      }
+    }
+
+    const summary = await generate(files, existingContent ? { existingContent } : undefined);
+
+    // CONFLICT PAUSE: in update mode, when the staged files contain
+    // one or more ids that already live in the base sprite — whether
+    // some are genuinely new or every single one is a duplicate —
+    // the hook pauses with a conflict list. We stash the conflict
+    // list + the base sprite's raw text, open the conflict modal,
+    // and bail. The user picks a per-conflict action; on Continue we
+    // call `handleApplyConflictResolutions` which re-merges with the
+    // chosen resolutions and continues the same flow as a
+    // no-conflict generate. No state changes happen here — the
+    // dropzone, base sprite, inline-save toggle, etc. all stay
+    // exactly as they were while the modal is open, so the user can
+    // keep editing if they change their mind.
+    if (summary.needsConfirmation && summary.conflicts && existingContent) {
+      setPendingConflicts(summary.conflicts);
+      setPendingExistingContent(existingContent);
+      return;
+    }
+
+    await finalizeGenerate(summary);
   }
 
   const handleClearAll = () => {
@@ -1236,7 +1352,16 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                     ok ? "success" : "error"
                   );
                 }}
-                onDemo={() => setLiveDemoOpen(true)}
+                onDemo={() => {
+                  // Mark the demo as opened from the generated sprite so the
+                  // footer exposes "Save Changes" (which commits rename/remove
+                  // edits back to the compiler's sprite state) and so the
+                  // auto-save in `onUpdate` is skipped — the user must click
+                  // "Save Changes" explicitly. Closing the demo without saving
+                  // discards the edits.
+                  setLiveDemoSource({ type: "results" });
+                  setLiveDemoOpen(true);
+                }}
                 onDownloadZip={() => void handleDownloadBundleForResults()}
                 downloadBusy={resultsDownloadBusy}
               />
@@ -1280,6 +1405,17 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           setDemoSpriteXml(null);
           setDemoSymbolIds([]);
           setLiveDemoSource({ type: "scratch" });
+          // Per UX request: "when the user closes the popup, all css
+          // should reset and when reopen the popup, all are in default
+          // css styles." Wipe the preview buffer (and the seed key) so
+          // the next time the user opens the demo — for ANY source —
+          // the Custom CSS tab starts from `defaultCssState`. The
+          // LiveDemo's own close effect also pushes `defaultCssState`
+          // through `onCssStateChange`; this is a belt-and-suspenders
+          // reset in case the callback runs after the modal has
+          // already unmounted and the parent still holds stale CSS.
+          setDemoPreviewCssState(null);
+          lastSeededSourceKeyRef.current = null;
         }}
         sprite={demoSpriteXml ?? spriteXml}
         symbolIds={demoSpriteXml ? demoSymbolIds : symbolIds}
@@ -1288,38 +1424,106 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         onUpdate={(next) => {
           setDemoSpriteXml(next.sprite);
           setDemoSymbolIds(next.symbolIds);
-          if (liveDemoMode !== "preview" && !liveDemoIsBaseSpritePreview) {
+          // Auto-persist rename/remove edits only for the legacy flow that
+          // doesn't have its own explicit "Save Changes" button (the in-place
+          // preview sources — library / baseSprite / results — all own their
+          // own save path and must wait for an explicit click).
+          if (
+            liveDemoMode !== "preview" &&
+            !liveDemoIsBaseSpritePreview &&
+            liveDemoSource.type !== "results"
+          ) {
             loadFromLibrary({ xml: next.sprite, symbolIds: next.symbolIds });
           }
         }}
        
         onSave={async ({ xml, symbolIds: saveIds }) => {
-          if (liveDemoSource.type !== "library") {
-            showToast("No library source to save to.", "error");
-            return false;
+          // Library eye-icon preview: persist to the same library version.
+          if (liveDemoSource.type === "library") {
+            if (!liveDemoSource.isOwner) {
+              showToast(
+                "Only the owner can save changes to this library version.",
+                "error"
+              );
+              return false;
+            }
+            if (!/^[a-f0-9]{24}$/i.test(liveDemoSource.id)) {
+              showToast(
+                "This preview isn't linked to a saved library version. Please reload the library from the side panel and try again.",
+                "error"
+              );
+              return false;
+            }
+            try {
+              await updateContent(liveDemoSource.id, xml);
+              setDemoSpriteXml(xml);
+              setDemoSymbolIds(saveIds);
+              notifyLibraryChanged();
+              return true;
+            } catch (err) {
+              showToast(
+                err instanceof Error
+                  ? err.message
+                  : "Failed to save changes.",
+                "error"
+              );
+              return false;
+            }
           }
-          if (!liveDemoSource.isOwner) {
-            showToast(
-              "Only the owner can save changes to this library version.",
-              "error"
-            );
-            return false;
+          // Base-sprite preview (loaded from library OR uploaded from disk):
+          // "Save Changes" only persists the edits into the in-memory
+          // `baseSpriteFile` so re-opening the preview reflects them. The
+          // actual library on the server is left untouched — that way the
+          // side-panel eye-icon preview, the Results panel's Download/Copy
+          // sprite, and any other place that reads the library entry
+          // continue to show the original (server-side) content. To commit
+          // the edits back to the library the user has to generate a new
+          // version from the updated base sprite.
+          if (liveDemoSource.type === "baseSprite") {
+            try {
+              if (!baseSpriteFile) {
+                showToast("Base sprite file is no longer available.", "error");
+                return false;
+              }
+              const newFile = new File([xml], baseSpriteFile.name, {
+                type: baseSpriteFile.type || "image/svg+xml",
+              });
+              setBaseSpriteFile(newFile);
+              setDemoSpriteXml(xml);
+              setDemoSymbolIds(saveIds);
+              return true;
+            } catch (err) {
+              showToast(
+                err instanceof Error
+                  ? err.message
+                  : "Failed to save changes.",
+                "error"
+              );
+              return false;
+            }
           }
-          try {
-            await updateContent(liveDemoSource.id, xml);
-            setDemoSpriteXml(xml);
-            setDemoSymbolIds(saveIds);
-            notifyLibraryChanged();
-            return true;
-          } catch (err) {
-            showToast(
-              err instanceof Error
-                ? err.message
-                : "Failed to save changes.",
-              "error"
-            );
-            return false;
+          // Results panel "Live Demo": persist the rename/remove edits back
+          // into the compiler's generated sprite state so the Results panel
+          // (and its Download/Copy buttons) reflect them. Re-opening the
+          // demo from the Results panel will read the updated sprite.
+          if (liveDemoSource.type === "results") {
+            try {
+              loadFromLibrary({ xml, symbolIds: saveIds });
+              setDemoSpriteXml(xml);
+              setDemoSymbolIds(saveIds);
+              return true;
+            } catch (err) {
+              showToast(
+                err instanceof Error
+                  ? err.message
+                  : "Failed to save changes.",
+                "error"
+              );
+              return false;
+            }
           }
+          showToast("No preview source to save to.", "error");
+          return false;
         }}
         onCopySprite={async () => {
           const xmlToCopy = demoSpriteXml ?? spriteXml;
@@ -1392,6 +1596,23 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           if (!saveModalBusy) setSaveModalOpen(false);
         }}
         onSubmit={handleSaveToLibraryConfirm}
+      />
+
+      {/* "Replace or skip conflicting icons" modal. Opens in update
+          mode when the user's staged files contain one or more
+          symbol ids that already live in the base sprite. The user
+          picks a per-confict action (Replace / Skip / Compare); on
+          Continue we re-merge with the chosen resolutions and
+          continue the same flow as a no-conflict generate. Closing
+          the modal without clicking Continue bails the whole
+          generate — no state changes happen while the modal is
+          open. */}
+      <IconConflictModal
+        isOpen={pendingConflicts !== null}
+        conflicts={pendingConflicts ?? []}
+        busy={conflictResolveBusy}
+        onClose={handleCancelConflictModal}
+        onApply={(resolutions) => void handleApplyConflictResolutions(resolutions)}
       />
     </div>
   );

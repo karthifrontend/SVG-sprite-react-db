@@ -4,7 +4,6 @@ import { useLibrary } from "../../hooks/useLibrary";
 import { getSpriteById } from "../../api/sprites";
 import {
   UnlockIcon,
-  LockIcon,
   RefreshIcon,
   ChevronDoubleLeftIcon,
   ChevronDownIcon,
@@ -15,6 +14,7 @@ import {
   DuplicateIcon,
   DownloadIcon,
 } from "../icons";
+import VisibilityBadge from "../VisibilityBadge";
 import type { Source as LiveDemoSource } from "./LiveDemo";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
@@ -401,17 +401,15 @@ function LibraryPanel({
                 </div>
               )}
               {!group.isPublic && (
-                <span
-                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500"
+                <VisibilityBadge
+                  isPublic={false}
+                  size="compact"
                   title={
                     group.isOwner
                       ? "Only you can see and access this library."
                       : "Private — only the owner can access this library."
                   }
-                >
-                  <LockIcon className="h-3 w-3" />
-                  Private
-                </span>
+                />
               )}
               {group.versions.length > COLLAPSED_VERSION_COUNT && (
                 <button

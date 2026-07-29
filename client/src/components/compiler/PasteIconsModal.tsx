@@ -4,7 +4,7 @@ import Modal from "../Modal";
 import { useLibrary } from "../../hooks/useLibrary";
 import { useAuth } from "../../context/AuthContext";
 import type { CopiedIcon } from "./LiveDemo";
-import { EyeIcon, LockIcon } from "../icons";
+import VisibilityBadge from "../VisibilityBadge";
 
 type PasteIconsModalProps = {
   isOpen: boolean;
@@ -233,16 +233,13 @@ export default function PasteIconsModal({
                       {group.bundleName}
                     </h4>
                     {group.isPublic && (
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600">
-                        <EyeIcon className="h-3 w-3" />
-                        Public
-                      </span>
+                      <VisibilityBadge
+                        isPublic={true} title={""}/>
                     )}
                     {!group.isPublic && (
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                        <LockIcon className="h-3 w-3" />
-                        Private
-                      </span>
+                      <VisibilityBadge
+                        isPublic={false} title={""}                      />
+                      
                     )}
                   </div>
                   <div className="mt-0.5 text-[11px] font-medium text-slate-400">
