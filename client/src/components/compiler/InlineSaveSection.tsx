@@ -130,12 +130,27 @@ function InlineSaveSection({
 
   return (
     <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <label className="group flex cursor-pointer items-center gap-3">
+      {/* Click target is intentionally narrow: only the toggle pill and the label text trigger the toggle. The rest of the row/card stays inert. The native <label> would have made the whole row clickable, so we bind the click manually on a tight inline-flex wrapper instead. */}
+      <div
+        className="group inline-flex cursor-pointer items-center gap-3 self-start"
+        onClick={() => handleToggle(!masterOn)}
+        role="button"
+        tabIndex={0}
+        aria-pressed={masterOn}
+        onKeyDown={(event) => {
+          if (event.key === " " || event.key === "Enter") {
+            event.preventDefault();
+            handleToggle(!masterOn);
+          }
+        }}
+      >
         <div className="relative">
           <input
             type="checkbox"
             checked={masterOn}
             onChange={(event) => handleToggle(event.target.checked)}
+            // Suppress the native double-toggle: the checkbox is visually hidden inside a custom div, and we already handle the click on the wrapper above. Letting the input's onChange fire would flip the state twice.
+            onClick={(event) => event.stopPropagation()}
             className="peer sr-only"
           />
           <div className="block h-6 w-10 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500" />
@@ -144,7 +159,7 @@ function InlineSaveSection({
         <div className="text-sm font-semibold text-slate-700 transition-colors group-hover:text-slate-900">
           {toggleLabel}
         </div>
-      </label>
+      </div>
 
       {value?.enabled && (
         <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
@@ -154,12 +169,26 @@ function InlineSaveSection({
 
       {showSaveAsNewToggle && (
         <div className="mt-4 border-t border-slate-200/60 pt-3">
-          <label className="group flex cursor-pointer items-center gap-3">
+          {/* Same narrow click-target treatment as the master toggle: only the pill + label fire the change. The surrounding divider/padding does not. */}
+          <div
+            className="group inline-flex cursor-pointer items-center gap-3 self-start"
+            onClick={() => handleSaveAsNew(!newLibraryOn)}
+            role="button"
+            tabIndex={0}
+            aria-pressed={newLibraryOn}
+            onKeyDown={(event) => {
+              if (event.key === " " || event.key === "Enter") {
+                event.preventDefault();
+                handleSaveAsNew(!newLibraryOn);
+              }
+            }}
+          >
             <div className="relative">
               <input
                 type="checkbox"
                 checked={newLibraryOn}
                 onChange={(event) => handleSaveAsNew(event.target.checked)}
+                onClick={(event) => event.stopPropagation()}
                 className="peer sr-only"
               />
               <div className="block h-6 w-10 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500" />
@@ -168,7 +197,7 @@ function InlineSaveSection({
             <span className="text-sm font-semibold text-slate-700 transition-colors group-hover:text-slate-900">
               Save as a new library instead
             </span>
-          </label>
+          </div>
         </div>
       )}
 
@@ -202,12 +231,26 @@ function InlineSaveSection({
 
       {showPublicOption && (
         <div className="mt-4 border-t border-slate-200/60 pt-3">
-          <label className="group flex cursor-pointer items-center gap-2.5">
+          {/* Narrow click target again — only the pill + label trigger the public toggle. The info icon's tooltip wrapper is left outside so it doesn't accidentally capture clicks. */}
+          <div
+            className="group inline-flex cursor-pointer items-center gap-2.5 self-start"
+            onClick={() => handlePublic(!isPublic)}
+            role="button"
+            tabIndex={0}
+            aria-pressed={isPublic}
+            onKeyDown={(event) => {
+              if (event.key === " " || event.key === "Enter") {
+                event.preventDefault();
+                handlePublic(!isPublic);
+              }
+            }}
+          >
             <div className="relative">
               <input
                 type="checkbox"
                 checked={isPublic}
                 onChange={(event) => handlePublic(event.target.checked)}
+                onClick={(event) => event.stopPropagation()}
                 className="peer sr-only"
               />
               <div className="block h-6 w-10 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500" />
@@ -220,6 +263,7 @@ function InlineSaveSection({
               className="mt-px group/info relative inline-flex"
               tabIndex={0}
               aria-label="What does public mean?"
+              onClick={(event) => event.stopPropagation()}
             >
               <InfoIcon className="h-3.5 w-3.5 cursor-pointer text-slate-400 transition-colors group-hover/info:text-indigo-500" />
               {/* Tooltip — appears on hover/focus so screen readers can discover the explanation via the focusable wrapper. */}
@@ -234,7 +278,7 @@ function InlineSaveSection({
                 />
               </span>
             </span>
-          </label>
+          </div>
         </div>
       )}
     </div>

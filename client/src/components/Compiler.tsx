@@ -24,6 +24,7 @@ import SelectFromLibraryModal from "./compiler/SelectFromLibraryModal";
 import { buildDemoHtml } from "../utils/sprite";
 import { createZip, triggerBrowserDownload } from "../utils/zipBundle";
 import { renderSpritePreviewPng } from "../utils/previewPng";
+import { truncateLibName } from "../utils/toastFormat";
 import ModeTabs, { type CompilerMode } from "./compiler/ModeTabs";
 import ResultsPanel from "./compiler/ResultsPanel";
 import StagedFilesList from "./compiler/StagedFilesList";
@@ -277,6 +278,88 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setPendingPasteIcons(null);
   }
 
+  // Logged-out user clicked "Save Changes" in the Live Demo footer. The
+  // flow has a single responsibility: commit the in-progress demo edits
+  // back to whatever surface the preview was opened from, so closing &
+  // reopening the popup (and the surrounding UI) shows the user's
+  // changes. The login modal is NOT triggered here — per UX request,
+  // the guest "Save Changes" button silently applies the edits without
+  // interrupting the user with a popup. To turn the edited sprite into
+  // a real library entry the user can still use the dedicated "Save
+  // to Library" footer button (which is the only path that does
+  // require authentication).
+  //
+  // Branches by the demo's `source.type` so each entry point persists
+  // the edits into the right place:
+  //   • `baseSprite` (Upload Existing Sprite section's Preview) —
+  //     rebuild `baseSpriteFile` from the new XML so the next Preview
+  //     reopens with the edited sprite. The compiler's main
+  //     `spriteXml` / `symbolIds` are intentionally NOT touched, so
+  //     the Results section does NOT auto-populate as a side effect
+  //     of the base-sprite preview save. `demoSpriteXml` /
+  //     `demoSymbolIds` are still updated so the just-saved state
+  //     matches what the user saw in the demo.
+  //   • `scratch` / `results` (ad-hoc paste previews and the Results
+  //     panel's Live Demo button) — keep the previous behaviour of
+  //     calling `loadFromLibrary`, which writes the edits into the
+  //     compiler's generated sprite state. The Results section is
+  //     already visible in both of those flows, so updating
+  //     `spriteXml` / `symbolIds` simply keeps it in sync with the
+  //     preview.
+  function handleGuestSaveChanges(input: {
+    xml: string;
+    symbolIds: string[];
+  }): void {
+    if (!input.xml) return;
+    if (liveDemoSource.type === "baseSprite") {
+      // Persist the edits into the in-memory base sprite file so the
+      // next Preview reopen parses the edited XML, not the original
+      // one. We rebuild a fresh `File` from the supplied XML using
+      // the same name as the source file (so the existing UI text
+      // like "Loaded from: <filename>.svg" stays accurate). Mirroring
+      // the authenticated `onSave` for `baseSprite` keeps the two
+      // flows behaviourally identical from the user's perspective —
+      // the only difference is that logged-out users can't persist
+      // to a real library, only to the in-memory base sprite.
+      try {
+        const fileName = baseSpriteFile?.name || "sprite.svg";
+        const mimeType =
+          baseSpriteFile?.type || "image/svg+xml";
+        const newFile = new File([input.xml], fileName, { type: mimeType });
+        setBaseSpriteFile(newFile);
+        // Keep the demo buffer in sync so the LiveDemo's already-open
+        // instance reflects the just-saved state on the next re-seed
+        // (its close effect resets `lastSeededSourceRef`, so the next
+        // open re-parses `sprite` from props — these values).
+        setDemoSpriteXml(input.xml);
+        setDemoSymbolIds(input.symbolIds);
+        // Deliberately do NOT call `loadFromLibrary` here. That
+        // would write the edits into `spriteXml` / `symbolIds`,
+        // which is what flips `hasResult` on and reveals the
+        // Results section. For a base-sprite preview save the
+        // user is editing the source sprite, not the compiler's
+        // generated output, so the Results section should stay
+        // hidden — turning it on as a side effect of a preview
+        // edit is surprising UX.
+      } catch (err) {
+        showToast(
+          err instanceof Error
+            ? err.message
+            : "Failed to apply the preview edits.",
+          "error",
+        );
+      }
+      return;
+    }
+    // `scratch` / `results` (and any future non-base-sprite source):
+    // mirror the demo's edits into the compiler's generated sprite
+    // state so the Results section (and its download / copy buttons)
+    // reflect them.
+    if (input.xml !== spriteXml) {
+      loadFromLibrary({ xml: input.xml, symbolIds: input.symbolIds });
+    }
+  }
+
   // Custom-CSS state shared with the live demo. The state is held in a single "preview" buffer that mirrors whatever the user is currently looking at. The buffer is seeded: from the saved library's CSS when the user opens that library's preview, or from the default CSS when the user opens a fresh scratch compile. While the user is tweaking the demo, only the preview buffer is updated — the source library's stored CSS is never touched. The new CSS is only persisted back to a library key when the user explicitly clicks Save to Library, at which point we copy the preview buffer to the newly-created library's key. The previously-loaded library keeps its original CSS untouched.
   const defaultCssState: LiveDemoCssState = {
     iconSize: 24,
@@ -447,7 +530,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       // Recompute the next version so the modal, if reopened, defaults to the new "v4" (or whatever).
       setSaveModalNextVersion(resolveNextVersionFor(saved.bundleName));
       showToast(
-        `Saved "${saved.bundleName}" v${saved.version} to your library.`,
+        `Saved "${truncateLibName(saved.bundleName)}" v${saved.version} to your library.`,
         "success"
       );
       setSaveModalOpen(false);
@@ -526,7 +609,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     if (newIcons.length === 0) {
       // Every pasted id already exists in the destination — bail out without saving a new version. The user gets a warning toast that names the bundle so they know which library rejected the paste.
       showToast(
-        `Selected icon(s) already exist in ${detail.bundleName}, No version created.`,
+        `Selected icon(s) already exist in ${truncateLibName(detail.bundleName)}, No version created.`,
         "warning"
       );
       return;
@@ -573,8 +656,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     const previewIds = sortedMerged.map((s) => s.id);
     const successMessage =
       duplicateCount > 0
-        ? `Pasted ${pastedCount} icon${pastedCount === 1 ? "" : "s"} into ${bundleName} v${newVersion} (skipped ${duplicateCount} duplicate${duplicateCount === 1 ? "" : "s"}).`
-        : `Pasted ${pastedCount} icon${pastedCount === 1 ? "" : "s"} into ${bundleName} v${newVersion}.`;
+        ? `Pasted ${pastedCount} icon${pastedCount === 1 ? "" : "s"} into ${truncateLibName(bundleName)} v${newVersion} (skipped ${duplicateCount} duplicate${duplicateCount === 1 ? "" : "s"}).`
+        : `Pasted ${pastedCount} icon${pastedCount === 1 ? "" : "s"} into ${truncateLibName(bundleName)} v${newVersion}.`;
     showToast(
       successMessage,
       "success",
@@ -715,7 +798,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     // Surface the bundle + version in the success toast so the user knows exactly what they just downloaded. Logged-out users (or scratch compiles) have no bundle context, so we fall back to a generic message instead of printing raw "undefined" tokens.
     if (bundleName && version != null) {
       showToast(
-        `Sprite bundle ${bundleName} (v${version}) downloaded successfully.`,
+        `Sprite bundle ${truncateLibName(bundleName)} (v${version}) downloaded successfully.`,
         "success",
       );
     } else {
@@ -1836,6 +1919,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           );
         }}
         onCopySelectedRequest={(icons) => openPasteModal(icons)}
+        onOpenSaveModal={() => onRequireAuth?.()}
+        onGuestSaveChanges={handleGuestSaveChanges}
         onOpenSaveToLibrary={({ suggestedName }) =>
           openSaveToLibraryModal({ suggestedName })
         }

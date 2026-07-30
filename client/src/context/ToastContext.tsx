@@ -117,7 +117,7 @@ function ToastCard({
     <div
       role="alert"
       aria-live="polite"
-      className={`${cfg.bg} text-white px-5 py-3.5 rounded-xl toast-shadow flex items-center min-w-65 pointer-events-auto animate-slide-in`}
+      className={`${cfg.bg} text-white px-5 py-3.5 rounded-xl toast-shadow flex items-center min-w-65 max-w-md pointer-events-auto animate-slide-in`}
     >
       <svg
         className="w-5 h-5 shrink-0 mr-3"
@@ -128,7 +128,7 @@ function ToastCard({
       >
         <path strokeLinecap="round" strokeLinejoin="round" d={cfg.iconPath} />
       </svg>
-      <span className="text-sm font-medium leading-snug flex-1">{message}</span>
+      <span className="text-sm font-medium leading-snug flex-1 min-w-0" title={message}>{message}</span>
       {buttons && buttons.length > 0 && (
         <div className="flex gap-2 ml-4 border-l border-white/20 pl-4 py-1">
           {buttons.map((button, index) => (
