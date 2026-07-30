@@ -1,6 +1,6 @@
 // useSpriteCompiler. Owns the compile state machine: queue icons, merge/update, build sprite XML, and emit demo HTML.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { buildDemoHtml, buildSpriteXml, extractSymbolsFromSprite, svgFileToSymbol, type SpriteSymbol } from "../utils/sprite";
+import { buildDemoHtml, buildSpriteXml, extractSymbolsFromSprite, sortSymbolsById, svgFileToSymbol, type SpriteSymbol } from "../utils/sprite";
 
 type CompilerState = {
   generating: boolean;
@@ -172,14 +172,21 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
           merged.push(s);
         }
 
-        const xml = buildSpriteXml(merged);
+        // Sort the merged symbols by id so the live demo, downloaded sprite and
+        // library save all list icons in a human-friendly sequence
+        // (`icon`, `icon-1`, `icon-2`, `icon-10`) rather than appending new
+        // icons to the end of the existing order. The sort is stable and pure
+        // — it doesn't mutate the input arrays above.
+        const sortedMerged = sortSymbolsById(merged);
+
+        const xml = buildSpriteXml(sortedMerged);
         const blob = new Blob([xml], { type: "image/svg+xml" });
         const url = URL.createObjectURL(blob);
         replaceUrl(url);
         setSpriteXml(xml);
-        setSymbolIds(merged.map(s => s.id));
+        setSymbolIds(sortedMerged.map(s => s.id));
         xmlRef.current = xml;
-        symbolIdsRef.current = merged.map(s => s.id);
+        symbolIdsRef.current = sortedMerged.map(s => s.id);
         return { duplicateCount, newCount: trulyNewSymbols.length, allDuplicates: false };
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to generate sprite.");
@@ -276,14 +283,22 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
           }
         }
 
-        const xml = buildSpriteXml(merged);
+        // Sort the merged symbols by id so the live demo, downloaded sprite
+        // and library save all list icons in a human-friendly sequence
+        // (`icon`, `icon-1`, `icon-2`, `icon-10`) rather than carrying over
+        // the original base-sprite order followed by the freshly-added
+        // symbols. The sort is stable and pure — it doesn't mutate the
+        // `merged` array above.
+        const sortedMerged = sortSymbolsById(merged);
+
+        const xml = buildSpriteXml(sortedMerged);
         const blob = new Blob([xml], { type: "image/svg+xml" });
         const url = URL.createObjectURL(blob);
         replaceUrl(url);
         setSpriteXml(xml);
-        setSymbolIds(merged.map((s) => s.id));
+        setSymbolIds(sortedMerged.map((s) => s.id));
         xmlRef.current = xml;
-        symbolIdsRef.current = merged.map((s) => s.id);
+        symbolIdsRef.current = sortedMerged.map((s) => s.id);
         return { duplicateCount, newCount, allDuplicates: false };
       } catch (err) {
         setError(
@@ -348,10 +363,21 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
       const blob = new Blob([input.xml], { type: "image/svg+xml" });
       const url = URL.createObjectURL(blob);
       replaceUrl(url);
+      // Re-derive the id list from the XML rather than trusting the input
+      // order. Libraries saved before the natural-sort fix ship with icons
+      // in their upload order (`icon`, `icon-1`, `icon-3`, …, `icon-2`),
+      // and the caller's `symbolIds` mirrors that stale order. Re-parsing
+      // and re-sorting gives the live demo, download zip, and any later
+      // "save to library" round-trip a consistent human-friendly sequence
+      // (`icon`, `icon-1`, `icon-2`, `icon-10`) regardless of when the
+      // library version was saved.
+      const sortedIds = sortSymbolsById(extractSymbolsFromSprite(input.xml)).map(
+        (s) => s.id,
+      );
       setSpriteXml(input.xml);
-      setSymbolIds(input.symbolIds);
+      setSymbolIds(sortedIds);
       xmlRef.current = input.xml;
-      symbolIdsRef.current = input.symbolIds;
+      symbolIdsRef.current = sortedIds;
     },
     [replaceUrl]
   );

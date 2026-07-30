@@ -426,6 +426,20 @@ export default function LiveDemoModal({
   }
 
   function handleSingleClick(id: string): void {
+    // While the Custom CSS tab has unsaved edits, suppress the
+    // single-click copy gesture. The footer info text and the
+    // per-card rename/remove buttons are already hidden in this
+    // state (see DemoIconCard's `!cssChanged` guards), so the user
+    // expects the entire icon grid to be inert — copy and download
+    // would both contradict that, and the per-card CSS they see is
+    // still the in-progress preview, not the persisted sprite.
+    // Silent no-op (no toast) per UX request: the per-card CSS
+    // already visually reflects the dirty state and the footer
+    // primary buttons are visibly disabled, so the grid reads as
+    // inert on its own and a toast would be noise.
+    if (cssChanged) {
+      return;
+    }
     if (selectMode) {
       setSelectedIcons((current) => {
         const next = new Set(current);
@@ -448,12 +462,10 @@ export default function LiveDemoModal({
         showToast("Symbol element not found", "error");
         return;
       }
-      const viewBox = sym.getAttribute("viewBox") || "0 0 24 24";
-      const innerHTML = sym.innerHTML;
-      const svgCode = buildStyledStandaloneSvg(viewBox, innerHTML);
-      void copyToClipboard(svgCode).then((ok) => {
+      const useCode = `<svg class="w-6 h-6"><use href="#${id}"></use></svg>`;
+      void copyToClipboard(useCode).then((ok) => {
         showToast(
-          ok ? `Copied SVG code for #${id}` : "Failed to copy to clipboard",
+          ok ? `Copied use snippet for #${id}` : "Failed to copy to clipboard",
           ok ? "success" : "error"
         );
       });
@@ -464,6 +476,16 @@ export default function LiveDemoModal({
     if (clickTimerRef.current !== null) {
       window.clearTimeout(clickTimerRef.current);
       clickTimerRef.current = null;
+    }
+    // While the Custom CSS tab has unsaved edits, suppress the
+    // double-click download gesture — same rationale as
+    // `handleSingleClick`: the visible icon CSS is the in-progress
+    // preview, so the standalone SVG we'd hand the user would not
+    // match what the sprite will look like once the CSS is applied
+    // to the consuming project. Silent no-op (no toast) per UX
+    // request, matching the single-click path.
+    if (cssChanged) {
+      return;
     }
     if (selectMode || renamingId !== null) {
       return;
@@ -909,25 +931,35 @@ export default function LiveDemoModal({
           <div className="flex items-center justify-between px-6 pt-4 pb-2">
             <div className="min-w-0 flex-1 pr-4">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <h3 className="text-lg font-semibold text-slate-900">Live Demo</h3>
+                <h3 className="text-lg font-semibold text-slate-900">
+                  Live Demo
+                </h3>
                 {(() => {
                   const identity =
                     source?.type === "library"
-                      ? { name: source.name, version: source.version, isPublic: !!source.isPublic }
+                      ? {
+                          name: source.name,
+                          version: source.version,
+                          isPublic: !!source.isPublic,
+                        }
                       : source?.type === "baseSprite" && source.name
-                        ? { name: source.name, version: source.version, isPublic: !!source.isPublic }
+                        ? {
+                            name: source.name,
+                            version: source.version,
+                            isPublic: !!source.isPublic,
+                          }
                         : null;
                   if (!identity) return null;
                   return (
                     <>
                       <span
-                        className="text-sm text-slate-500 truncate mt-0.5 max-w-[200px]"
+                        className="text-sm text-slate-500 truncate mt-0.5 max-w-50"
                         title={`${identity.name} (v${identity.version ?? 1})`}
                       >
                         {identity.name}
-                        <span className="text-sm text-slate-500">
-                          (v{identity.version ?? 1})
-                        </span>
+                      </span>
+                      <span className="inline-flex shrink-0 items-center rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-mono font-semibold text-indigo-600">
+                        v{identity.version ?? 1}
                       </span>
                       <VisibilityBadge
                         isPublic={identity.isPublic}
@@ -941,7 +973,9 @@ export default function LiveDemoModal({
                   );
                 })()}
               </div>
-              <p className="text-xs text-slate-400">Preview and test your compiled SVG symbols live</p>
+              <p className="text-xs text-slate-400">
+                Preview and test your compiled SVG symbols live
+              </p>
             </div>
             <button
               type="button"
@@ -969,33 +1003,34 @@ export default function LiveDemoModal({
                 Custom CSS
               </button>
             </div>
-            {cssChanged &&
-            <button
-              type="button"
-              onClick={resetCss}
-              title={
-                cssChanged
-                  ? "Restore the size, color, and gradient values the modal opened with."
-                  : "No custom-CSS changes to reset."
-              }
-              className="mb-2 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:border-slate-200 disabled:hover:bg-slate-100 disabled:hover:text-slate-400"
-            >
-              <svg
-                className="h-3 w-3"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
+            {cssChanged && (
+              <button
+                type="button"
+                onClick={resetCss}
+                title={
+                  cssChanged
+                    ? "Restore the size, color, and gradient values the modal opened with."
+                    : "No custom-CSS changes to reset."
+                }
+                className="mb-2 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:border-slate-200 disabled:hover:bg-slate-100 disabled:hover:text-slate-400"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M4 4v6h6M20 20v-6h-6M4 10a8 8 0 0114-3M20 14a8 8 0 01-14 3"
-                />
-              </svg>
-              Reset custom css
-            </button>}
+                <svg
+                  className="h-3 w-3"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 4v6h6M20 20v-6h-6M4 10a8 8 0 0114-3M20 14a8 8 0 01-14 3"
+                  />
+                </svg>
+                Reset custom css
+              </button>
+            )}
           </div>
         </div>
 
@@ -1070,7 +1105,7 @@ export default function LiveDemoModal({
                         <div className="dot absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4 peer-disabled:cursor-not-allowed" />
                       </div>
                       <span
-                        className={`text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors ${cssChanged && 'cursor-not-allowed'}`}
+                        className={`text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors ${cssChanged && "cursor-not-allowed"}`}
                       >
                         Select Icons
                       </span>
@@ -1136,8 +1171,13 @@ export default function LiveDemoModal({
             <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 custom-scrollbar">
               {filteredIds.length === 0 ? (
                 <div className="py-16 flex flex-col items-center justify-center text-slate-400">
-                  <SadFaceIcon className="w-12 h-12 mb-3 text-slate-300" strokeWidth={1.5} />
-                  <span className="text-sm font-medium">No matching symbols found</span>
+                  <SadFaceIcon
+                    className="w-12 h-12 mb-3 text-slate-300"
+                    strokeWidth={1.5}
+                  />
+                  <span className="text-sm font-medium">
+                    No matching symbols found
+                  </span>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-4">
@@ -1148,7 +1188,11 @@ export default function LiveDemoModal({
                         key={id}
                         id={id}
                         index={index}
-                        symbol={symbolsRef.current.find((sym) => sym.getAttribute("id") === id) ?? null}
+                        symbol={
+                          symbolsRef.current.find(
+                            (sym) => sym.getAttribute("id") === id,
+                          ) ?? null
+                        }
                         isSelected={isSelected}
                         iconSize={iconSize}
                         activeColorClass={activeColorClass}
@@ -1165,6 +1209,7 @@ export default function LiveDemoModal({
                         onRenameCancel={() => setRenamingId(null)}
                         isReadOnly={isReadOnly}
                         selectMode={selectMode}
+                        cssChanged={cssChanged}
                       />
                     );
                   })}
@@ -1177,25 +1222,37 @@ export default function LiveDemoModal({
         {activeTab === "css" && (
           <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 custom-scrollbar">
             <div className="max-w-2xl mx-auto w-full bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8 animate-fade-in-up">
-              <h4 className="text-lg font-bold text-slate-800 mb-6">Customize CSS Variables</h4>
+              <h4 className="text-lg font-bold text-slate-800 mb-6">
+                Customize CSS Variables
+              </h4>
               <div className="space-y-8">
                 <div className="flex items-center gap-4">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider w-16">Size:</span>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider w-16">
+                    Size:
+                  </span>
                   <input
                     type="range"
                     min={16}
                     max={96}
                     value={iconSize}
-                    onChange={(event) => setIconSize(Number(event.target.value))}
+                    onChange={(event) =>
+                      setIconSize(Number(event.target.value))
+                    }
                     className="h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 flex-1"
                   />
-                  <span className="text-sm text-slate-600 font-mono font-bold w-12 text-right">{iconSize}px</span>
+                  <span className="text-sm text-slate-600 font-mono font-bold w-12 text-right">
+                    {iconSize}px
+                  </span>
                 </div>
 
                 <div className="flex flex-col gap-4 mt-2">
                   <div className="flex items-center gap-4">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider w-16">Solid:</span>
-                    <div className={`flex flex-wrap items-center gap-3 ${useGradient ? "opacity-50 pointer-events-none transition-opacity" : ""}`}>
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider w-16">
+                      Solid:
+                    </span>
+                    <div
+                      className={`flex flex-wrap items-center gap-3 ${useGradient ? "opacity-50 pointer-events-none transition-opacity" : ""}`}
+                    >
                       {SOLID_PRESETS.map((preset) => (
                         <button
                           key={preset.color}
@@ -1203,7 +1260,9 @@ export default function LiveDemoModal({
                           title={preset.label}
                           onClick={() => applyPreset(preset)}
                           className={`w-8 h-8 rounded-full ${preset.swatch} border border-slate-300 focus:outline-none transition-all active:scale-90 ${
-                            activeColorClass === preset.color && !useGradient && !activeCustomColor
+                            activeColorClass === preset.color &&
+                            !useGradient &&
+                            !activeCustomColor
                               ? "scale-110 ring-offset-2 ring-indigo-500 ring-2"
                               : ""
                           }`}
@@ -1212,14 +1271,18 @@ export default function LiveDemoModal({
                       <div className="border-l border-slate-200 pl-3 ml-1 h-6 flex items-center">
                         <div
                           className={`relative w-8 h-8 rounded-full overflow-hidden border border-slate-300 shadow-sm transition-all cursor-pointer focus-within:ring-indigo-500 ${
-                            activeCustomColor ? "scale-110 ring-offset-2 ring-indigo-500 ring-2" : "ring-2 ring-indigo-500/0"
+                            activeCustomColor
+                              ? "scale-110 ring-offset-2 ring-indigo-500 ring-2"
+                              : "ring-2 ring-indigo-500/0"
                           }`}
                           title="Custom Solid Color"
                         >
                           <input
                             type="color"
                             value={customColor}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) => applyCustomColor(event.target.value)}
+                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                              applyCustomColor(event.target.value)
+                            }
                             className="absolute -top-2 -left-2 w-12 h-12 cursor-pointer"
                           />
                         </div>
@@ -1232,10 +1295,14 @@ export default function LiveDemoModal({
                       <input
                         type="checkbox"
                         checked={useGradient}
-                        onChange={(event) => handleGradientToggle(event.target.checked)}
+                        onChange={(event) =>
+                          handleGradientToggle(event.target.checked)
+                        }
                         className="rounded text-indigo-600 focus:ring-indigo-500"
                       />
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Grad:</span>
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        Grad:
+                      </span>
                     </label>
                     <div
                       className={`flex flex-wrap items-center gap-3 ${useGradient ? "" : "opacity-50 pointer-events-none transition-opacity"}`}
@@ -1248,30 +1315,50 @@ export default function LiveDemoModal({
                             title={preset.id}
                             onClick={() => applyGradientPreset(preset)}
                             className="w-8 h-8 rounded-full border border-slate-300 focus:outline-none transition-all hover:scale-110 active:scale-95"
-                            style={{ background: `linear-gradient(135deg, ${preset.start}, ${preset.end})` }}
+                            style={{
+                              background: `linear-gradient(135deg, ${preset.start}, ${preset.end})`,
+                            }}
                           />
                         ))}
                       </div>
                       <div className="flex items-center gap-2 border-l border-slate-200 pl-3 ml-1 h-6">
                         <div className="flex items-center gap-2 bg-slate-50 px-2 py-1 rounded-full border border-slate-200 shadow-inner">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase ml-1">Start</span>
+                          <span className="text-[10px] font-bold text-slate-500 uppercase ml-1">
+                            Start
+                          </span>
                           <div className="relative w-6 h-6 rounded-full overflow-hidden border border-slate-300 cursor-pointer">
                             <input
                               type="color"
                               value={gradientStart}
-                              onChange={(event) => handleGradientStart(event.target.value)}
+                              onChange={(event) =>
+                                handleGradientStart(event.target.value)
+                              }
                               className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer"
                             />
                           </div>
-                          <svg className="w-3 h-3 text-slate-300 mx-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                          <svg
+                            className="w-3 h-3 text-slate-300 mx-1"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="2"
+                              d="M14 5l7 7m0 0l-7 7m7-7H3"
+                            />
                           </svg>
-                          <span className="text-[10px] font-bold text-slate-500 uppercase">End</span>
+                          <span className="text-[10px] font-bold text-slate-500 uppercase">
+                            End
+                          </span>
                           <div className="relative w-6 h-6 rounded-full overflow-hidden border border-slate-300 cursor-pointer mr-1">
                             <input
                               type="color"
                               value={gradientEnd}
-                              onChange={(event) => handleGradientEnd(event.target.value)}
+                              onChange={(event) =>
+                                handleGradientEnd(event.target.value)
+                              }
                               className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer"
                             />
                           </div>
@@ -1282,7 +1369,9 @@ export default function LiveDemoModal({
                 </div>
 
                 <div className="mt-8 pt-6 border-t border-slate-100 w-full overflow-hidden">
-                  <h5 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Generated CSS Code</h5>
+                  <h5 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
+                    Generated CSS Code
+                  </h5>
                   <div className="relative group w-full overflow-hidden rounded-lg">
                     <pre className="bg-slate-900 text-slate-300 p-4 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre w-full">
                       {cssSnippet}
@@ -1314,15 +1403,24 @@ export default function LiveDemoModal({
               library.
             </span>
           ) : (
-            <span />
+            !selectMode && (
+              <span>
+                click to copy usage code · Double-click to download · Hover ✕
+                to remove
+              </span>
+            )
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 ml-auto">
             {currentUser && selectedIconsCount() > 0 && (
               <button
                 type="button"
                 onClick={() => void handleCopySelected()}
                 disabled={cssChanged}
-                title={cssChanged ? "Reset Custom CSS to enable this action." : undefined}
+                title={
+                  cssChanged
+                    ? "Reset Custom CSS to enable this action."
+                    : undefined
+                }
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold border border-indigo-700 shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
               >
                 <ClipboardIcon className="w-3.5 h-3.5" />
@@ -1333,7 +1431,11 @@ export default function LiveDemoModal({
               type="button"
               onClick={() => void handleCopySprite()}
               disabled={cssChanged}
-              title={cssChanged ? "Reset Custom CSS to enable this action." : undefined}
+              title={
+                cssChanged
+                  ? "Reset Custom CSS to enable this action."
+                  : undefined
+              }
               className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-semibold border border-indigo-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
             >
               <DuplicateIcon className="w-3.5 h-3.5" />
@@ -1414,9 +1516,7 @@ export default function LiveDemoModal({
                     type="button"
                     onClick={() => handleOpenSaveToLibrary()}
                     disabled={
-                      downloadBusy ||
-                      cssChanged ||
-                      selectedIconsCount() === 0
+                      downloadBusy || cssChanged || selectedIconsCount() === 0
                     }
                     title={
                       cssChanged
@@ -1439,7 +1539,11 @@ export default function LiveDemoModal({
                 type="button"
                 onClick={() => void handleDownloadBundle()}
                 disabled={downloadBusy || selectMode || cssChanged}
-                title={cssChanged ? "Reset Custom CSS to enable this action." : undefined}
+                title={
+                  cssChanged
+                    ? "Reset Custom CSS to enable this action."
+                    : undefined
+                }
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <DownloadIcon className="w-3.5 h-3.5" />
@@ -1477,6 +1581,16 @@ type DemoIconCardProps = {
   // controls are hidden so the user can only multi-select icons for batch
   // operations (Copy N Selected / Save N Selected to Library).
   selectMode?: boolean;
+  // When true, the user has uncommitted edits in the Custom CSS tab. Rename
+  // and remove controls are hidden because mutating the icon list would
+  // conflict with the still-applied CSS preview (the Custom CSS section
+  // already gates every primary action — Copy Sprite, Save Changes, Save to
+  // Library, Download — on `disabled={cssChanged}` with the same
+  // "Reset Custom CSS to enable this action." tooltip). Hiding the
+  // per-card mutation controls here keeps that contract consistent: while
+  // CSS edits are unsaved, the user can only inspect / preview / copy, not
+  // rename or remove icons.
+  cssChanged?: boolean;
 };
 
 function DemoIconCard({
@@ -1499,6 +1613,7 @@ function DemoIconCard({
   onRenameCancel,
   isReadOnly = false,
   selectMode = false,
+  cssChanged = false,
 }: DemoIconCardProps): ReactNode {
   const isRenaming = renamingId === id;
   const sizeStyle = { width: `${iconSize}px`, height: `${iconSize}px` } as const;
@@ -1512,8 +1627,7 @@ function DemoIconCard({
   const hasStroke =
     /\bstroke\s*=\s*"(?!none)[^"]*"/i.test(symbolInnerHtml) ||
     (symbol ? /\bstroke\s*=\s*"(?!none)[^"]*"/i.test(symbol.outerHTML) : false);
-  const buildColorCss = (hex: string): string => {
-    const fillRule = `fill: ${hex} !important;`;
+  const buildColorCss = (hex: string): string => {    const fillRule = `fill: ${hex} !important;`;
     const strokeRule = hasStroke ? ` stroke: ${hex} !important;` : "";
     return `[data-demo-icon-style="${id}"] * { ${fillRule}${strokeRule} }`;
   };
@@ -1546,34 +1660,28 @@ function DemoIconCard({
   const scopedGradientStyle: ReactNode = (
     <style>{buildGradientCss()}</style>
   );
-  let inlineSvg: ReactNode;
-  if (activeGradient) {
-    inlineSvg = (
-      <svg
-        className="transition-all duration-200"
-        style={sizeStyle}
-        viewBox={viewBox}
-        preserveAspectRatio="xMidYMid meet"
-        data-demo-icon-style={id}
-      >
-        {scopedGradientStyle}
-        <g dangerouslySetInnerHTML={{ __html: symbolInnerHtml }} />
-      </svg>
-    );
-  } else {
-    inlineSvg = (
-      <svg
-        className="transition-all duration-200"
-        style={sizeStyle}
-        viewBox={viewBox}
-        preserveAspectRatio="xMidYMid meet"
-        data-demo-icon-style={id}
-      >
-        {scopedColorStyle}
-        <g dangerouslySetInnerHTML={{ __html: symbolInnerHtml }} />
-      </svg>
-    );
-  }
+  // Render each preview as a real `<use href="#id">` reference to the
+  // sprite symbol instead of inlining the symbol's inner HTML. The
+  // sprite is mounted into a hidden host in `document.body` (see the
+  // `useEffect` in the parent that writes the sprite XML into
+  // `#live-demo-sprite-host`), so the `<use>` resolves against the
+  // same symbols the user will reference in their own code. The
+  // visible DOM therefore shows the snippet form
+  // (`<svg><use href="#icon-id"/></svg>`) rather than the full
+  // `<path>`/`<g>` payload — matching the output the user copies and
+  // the way SVG sprites are normally consumed in production.
+  const useSnippet: ReactNode = (
+    <svg
+      className="transition-all duration-200"
+      style={sizeStyle}
+      viewBox={viewBox}
+      preserveAspectRatio="xMidYMid meet"
+      data-demo-icon-style={id}
+    >
+      {activeGradient ? scopedGradientStyle : scopedColorStyle}
+      <use href={`#${id}`} />
+    </svg>
+  );
 
   return (
     <div
@@ -1594,7 +1702,7 @@ function DemoIconCard({
           </svg>
         </div>
       )}
-      {!isReadOnly && !selectMode && (
+      {!isReadOnly && !selectMode && !cssChanged && (
         <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
           <button
             type="button"
@@ -1622,7 +1730,7 @@ function DemoIconCard({
         </div>
       )}
       <div className="flex items-center justify-center bg-slate-50 group-hover:bg-indigo-50/50 rounded-lg transition-colors p-4 mb-2.5 w-full h-27.5">
-        {inlineSvg}
+        {useSnippet}
       </div>
       {isRenaming ? (
         <input

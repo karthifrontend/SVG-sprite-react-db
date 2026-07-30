@@ -5,6 +5,58 @@ export type SpriteSymbol = {
   inner: string;
 };
 
+// Natural-order comparator for symbol ids so the live demo, downloaded sprite, and saved
+// library version all list icons in a human-friendly sequence (`icon`, `icon-1`, `icon-2`,
+// `icon-10` rather than the lexicographic `icon-1`, `icon-10`, `icon-2`). The id is split
+// into alternating text / number runs; text segments are compared with `localeCompare` and
+// number segments numerically. The `icon-` prefix is normalised away before the stem is
+// compared so the rest of the name drives the ordering.
+const ICON_PREFIX = "icon-";
+export function compareSymbolId(a: string, b: string): number {
+  if (a === b) return 0;
+  const stripPrefix = (id: string): string =>
+    id.toLowerCase().startsWith(ICON_PREFIX) ? id.slice(ICON_PREFIX.length) : id;
+  const left = stripPrefix(a);
+  const right = stripPrefix(b);
+  const re = /(\d+)|(\D+)/g;
+  const aParts: Array<{ num: number; text: string }> = [];
+  const bParts: Array<{ num: number; text: string }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(left)) !== null) {
+    aParts.push(m[1] !== undefined ? { num: parseInt(m[1], 10), text: "" } : { num: NaN, text: m[2] });
+  }
+  re.lastIndex = 0;
+  while ((m = re.exec(right)) !== null) {
+    bParts.push(m[1] !== undefined ? { num: parseInt(m[1], 10), text: "" } : { num: NaN, text: m[2] });
+  }
+  const len = Math.min(aParts.length, bParts.length);
+  for (let i = 0; i < len; i += 1) {
+    const ap = aParts[i];
+    const bp = bParts[i];
+    if (Number.isNaN(ap.num) && Number.isNaN(bp.num)) {
+      const c = ap.text.localeCompare(bp.text, undefined, { numeric: true, sensitivity: "base" });
+      if (c !== 0) return c;
+      continue;
+    }
+    if (Number.isNaN(ap.num)) return -1;
+    if (Number.isNaN(bp.num)) return 1;
+    if (ap.num !== bp.num) return ap.num - bp.num;
+  }
+  if (aParts.length !== bParts.length) return aParts.length - bParts.length;
+  return a.localeCompare(b);
+}
+
+// Returns a new array of symbols sorted by id using `compareSymbolId`. Pure / non-mutating
+// so callers can keep the original merge order around for diffing.
+export function sortSymbolsById<T extends { id: string }>(symbols: T[]): T[] {
+  // Coerce each element's id through `String(...)` so the comparator's
+  // `(a: string, b: string) => number` signature is satisfied even if a
+  // caller hands in a subtype whose `id` is wider than `string` (e.g. a
+  // branded string alias). The cast is type-only at the call site and
+  // has no runtime cost.
+  return [...symbols].sort((a, b) => compareSymbolId(a.id, b.id));
+}
+
 // Lightweight, locale-aware date formatter used in the library panel.
 export function formatDate(value?: string): string {
   if (!value) return "—";

@@ -53,7 +53,7 @@ function VisibilityBadge({
       {isPublic ? (
         <EyeIcon className="h-3 w-3 shrink-0 text-indigo-500" />
       ) : (
-        <EyeOffIcon className="h-3 w-3 shrink-0 text-amber-600" />
+        <EyeOffIcon className="h-2.5 w-2.5 shrink-0 text-amber-700" />
       )}
       {isPublic ? "Public" : "Private"}
     </span>

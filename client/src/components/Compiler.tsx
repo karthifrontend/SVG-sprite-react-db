@@ -6,7 +6,7 @@ import { useLibrary, notifyLibraryChanged } from "../hooks/useLibrary";
 import { getSpriteById, saveSprite, type SpriteSummary } from "../api/sprites";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
-import { buildSpriteXml, extractSymbolsFromSprite } from "../utils/sprite";
+import { buildSpriteXml, extractSymbolsFromSprite, sortSymbolsById } from "../utils/sprite";
 import { copyToClipboard } from "../utils/sprite";
 import CompilerHeader from "./compiler/CompilerHeader";
 import ExistingSpriteSection from "./compiler/ExistingSpriteSection";
@@ -34,6 +34,13 @@ type CompilerProps = {
   libraryOpen: boolean;
   onLibraryToggle: (next: boolean) => void;
 };
+
+// Stable empty set used as the "no base sprite loaded yet" value for
+// the conflict modal's `existingIds` prop. Hoisted to a module-level
+// constant so the reference is stable across renders — the modal's
+// `takenIds` memo depends on it, and a fresh `new Set()` on every
+// render would invalidate the memo on every parent render.
+const EMPTY_ID_SET: ReadonlySet<string> = new Set<string>();
 
 // Compiler — page-level orchestrator. Owns mode/base-sprite state, inline save state, and the guide drawer. The library panel collapse state is owned by `App` so the Navbar's expand button and the panel can stay in sync. All UI sections are composed from `./compiler`.
 function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps) {
@@ -176,6 +183,28 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // in the conflict modal. Disables the modal's buttons so the user
   // can't double-submit.
   const [conflictResolveBusy, setConflictResolveBusy] = useState<boolean>(false);
+
+  // Every symbol id that exists in the base sprite we're about to
+  // merge into. Extracted from `pendingExistingContent` so the
+  // conflict modal can pick a collision-free `<base>-<n>` rename
+  // against the entire merged sprite — not just the conflicting
+  // ids. Without this, the "keep both" path could silently
+  // overwrite an unrelated existing icon (e.g. base sprite has
+  // `icon`, `icon-1`, `icon-2` and the user stages only `icon`:
+  // the conflict list is just `icon`, so a `taken` set built from
+  // the conflict list would propose `icon-1` as the rename and
+  // clobber the existing `icon-1`). Recomputed only when the base
+  // sprite content changes.
+  const existingSpriteIds = useMemo<ReadonlySet<string>>(() => {
+    if (!pendingExistingContent) return EMPTY_ID_SET;
+    try {
+      return new Set(
+        extractSymbolsFromSprite(pendingExistingContent).map((s) => s.id),
+      );
+    } catch {
+      return EMPTY_ID_SET;
+    }
+  }, [pendingExistingContent]);
 
   // Live demo modal. Opened from the Results panel's "Live Demo" button. When the modal mutates the sprite, it calls `onUpdate` which we wire to the demo preview buffer (demoSpriteXml / demoSymbolIds) only — the compiler's main result state (spriteXml / symbolIds / spriteUrl) is intentionally left untouched so the Results panel does NOT appear as a side effect of a preview-only rename / delete. The `source` tells the modal whether the "Save Changes" CTA should appear (only when the sprite came from a library version).
   const [liveDemoOpen, setLiveDemoOpen] = useState(false);
@@ -480,13 +509,18 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       seen.add(s.id);
       return true;
     });
-    const xml = buildSpriteXml(merged);
+    // Sort the merged symbols by id so the resulting library version lists
+    // icons in a human-friendly sequence (`icon`, `icon-1`, `icon-2`,
+    // `icon-10`) rather than appending the new icons to the end of the base
+    // order. The sort is stable and pure — it doesn't mutate `merged`.
+    const sortedMerged = sortSymbolsById(merged);
+    const xml = buildSpriteXml(sortedMerged);
     const saved = await saveSprite({
       name: detail.bundleName,
       bundleName: detail.bundleName,
       xml,
-      symbolIds: merged.map((s) => s.id),
-      symbolCount: merged.length,
+      symbolIds: sortedMerged.map((s) => s.id),
+      symbolCount: sortedMerged.length,
       isPublic: detail.isPublic,
     });
     await refetchLibrary();
@@ -498,7 +532,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     const newVersion = saved.version;
     const bundleName = detail.bundleName;
     const previewXml = xml;
-    const previewIds = merged.map((s) => s.id);
+    const previewIds = sortedMerged.map((s) => s.id);
     const successMessage =
       duplicateCount > 0
         ? `Pasted ${pastedCount} icon${pastedCount === 1 ? "" : "s"} into ${bundleName} v${newVersion} (skipped ${duplicateCount} duplicate${duplicateCount === 1 ? "" : "s"}).`
@@ -593,9 +627,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           symbols.push({ id: baseName, viewBox, inner });
         }
         if (symbols.length === 0) return;
-        const xml = buildSpriteXml(symbols);
+        // Sort the preview symbols by id so the live demo lists icons in a
+        // human-friendly sequence (`icon`, `icon-1`, `icon-2`, `icon-10`)
+        // rather than the upload order. The sort is stable and pure — it
+        // doesn't mutate `symbols`.
+        const sortedSymbols = sortSymbolsById(symbols);
+        const xml = buildSpriteXml(sortedSymbols);
         setDemoSpriteXml(xml);
-        setDemoSymbolIds(symbols.map((s) => s.id));
+        setDemoSymbolIds(sortedSymbols.map((s) => s.id));
         setLiveDemoSource({ type: "scratch" });
         // Force a re-seed of the preview buffer for scratch mode so the modal opens with the right CSS.
         lastSeededSourceKeyRef.current = null;
@@ -809,9 +848,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         return;
       }
       setLiveDemoIsBaseSpritePreview(true);
-      const demoXml = buildSpriteXml(symbols);
+      // Sort the base sprite symbols by id so the live demo lists icons in
+      // a human-friendly sequence (`icon`, `icon-1`, `icon-2`, `icon-10`)
+      // rather than the order they appear in the source sprite XML. The
+      // sort is stable and pure — it doesn't mutate `symbols`.
+      const sortedSymbols = sortSymbolsById(symbols);
+      const demoXml = buildSpriteXml(sortedSymbols);
       setDemoSpriteXml(demoXml);
-      setDemoSymbolIds(symbols.map((s) => s.id));
+      setDemoSymbolIds(sortedSymbols.map((s) => s.id));
       // Both the loaded-library and the uploaded-sprite preview flows use the
       // same `baseSprite` source so the LiveDemo footer renders a single
       // "Save Changes" button (disabled until the user edits). The actual
@@ -1677,6 +1721,18 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       <IconConflictModal
         isOpen={pendingConflicts !== null}
         conflicts={pendingConflicts ?? []}
+        // Full set of ids that already exist in the base sprite.
+        // Required for the "keep both" rename to pick a free
+        // `<base>-<n>` suffix against the ENTIRE merged sprite, not
+        // just the conflicting ids. Without this, the proposed
+        // rename could silently overwrite an unrelated existing icon
+        // (e.g. when the base sprite has `icon`, `icon-1`, `icon-2`
+        // and the user only stages `icon`, the conflict list is just
+        // `icon` — and a `taken` set built from that list would
+        // propose `icon-1` as the rename, clobbering the existing
+        // `icon-1`). Memoised on the underlying XML so it doesn't
+        // rebuild on every render.
+        existingIds={pendingExistingContent ? existingSpriteIds : EMPTY_ID_SET}
         busy={conflictResolveBusy}
         onClose={handleCancelConflictModal}
         onApply={(resolutions) => void handleApplyConflictResolutions(resolutions)}/>
