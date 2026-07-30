@@ -4,6 +4,7 @@ import Modal from "../Modal";
 import { useLibrary } from "../../hooks/useLibrary";
 import { useAuth } from "../../context/AuthContext";
 import type { CopiedIcon } from "./LiveDemo";
+import { EyeIcon, EyeOffIcon } from "../icons";
 import VisibilityBadge from "../VisibilityBadge";
 
 type PasteIconsModalProps = {
@@ -146,29 +147,51 @@ export default function PasteIconsModal({
       <div className="px-5 pt-4 pb-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1 pr-4">
-            <div className="flex flex-col">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h3 className="text-lg font-bold text-slate-900">
                 Insert{" "}
-                <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-xs text-indigo-700">
+                <span className="inline-flex shrink-0 items-center rounded bg-indigo-50 px-1.5  text-lg text-indigo-600">
                   {icons.length}
                 </span>{" "}
                 icons from
               </h3>
               {sourceInfo && (
-                <div
-                  className="inline-flex text-sm text-slate-500 truncate mt-0 max-w-50 gap-1.5 items-center"
-                  title={
-                    sourceInfo.isPublic
-                      ? `Public library: ${sourceInfo.name}`
-                      : `Private library: ${sourceInfo.name}`
-                  }
-                >
-                  <span className="max-w-30 truncate">{sourceInfo.name}</span>
-                  <VisibilityBadge
-                    isPublic={!!sourceInfo.isPublic}
-                    title=""
-                  />
-                </div>
+                <>
+                  <span
+                    className="text-sm text-slate-500 truncate mt-0.5 max-w-24"
+                    title={
+                      sourceInfo.isPublic
+                        ? `Public library: ${sourceInfo.name}`
+                        : `Private library: ${sourceInfo.name}`
+                    }
+                  >
+                    {sourceInfo.name}
+                  </span>
+                  {typeof sourceInfo.version === "number" && (
+                    <span
+                      className="inline-flex shrink-0 items-center rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-mono font-semibold text-indigo-600"
+                      title={`${sourceInfo.name} (v${sourceInfo.version})`}
+                    >
+                      v{sourceInfo.version}
+                    </span>
+                  )}
+                  <span
+                    className={`inline-flex shrink-0 items-center justify-center
+                    }`}
+                    title={
+                      sourceInfo.isPublic
+                        ? `Public library: ${sourceInfo.name}`
+                        : `Private library: ${sourceInfo.name}`
+                    }
+                    aria-label={sourceInfo.isPublic ? "Public" : "Private"}
+                  >
+                    {sourceInfo.isPublic ? (
+                      <EyeIcon className="h-5 w-5 shrink-0 pt-1 text-indigo-700" />
+                    ) : (
+                      <EyeOffIcon className="h-4 w-4 shrink-0 text-amber-700" />
+                    )}
+                  </span>
+                </>
               )}
             </div>
           </div>
@@ -227,7 +250,7 @@ export default function PasteIconsModal({
               >
                 <div className="min-w-0 flex-1 pr-3">
                   <div className="flex items-center gap-2">
-                    <h4 className="truncate text-sm font-bold text-slate-800">
+                    <h4 className="truncate max-w-40 text-sm font-bold text-slate-800">
                       {group.bundleName}
                     </h4>
                     {group.isPublic && (

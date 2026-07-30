@@ -19,6 +19,7 @@ import type { Source as LiveDemoSource } from "./LiveDemo";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { formatDate } from "../../utils/sprite";
+import { truncateLibName } from "../../utils/toastFormat";
 import type { SpriteSummary } from "../../api/sprites";
 import Modal from "../Modal";
 
@@ -656,7 +657,7 @@ function LibraryPanel({
                                 .catch(() => false);
                               showToast(
                                 ok
-                                  ? `Copied sprite code for ${group.bundleName}(v${version.version})`
+                                  ? `Copied sprite code for ${truncateLibName(group.bundleName)}(v${version.version})`
                                   : "Failed to copy sprite",
                                 ok ? "success" : "error",
                               );
@@ -708,7 +709,7 @@ function LibraryPanel({
   const handleLoad = (version: LibraryGroupVersion) => {
     onLoadToUpdate?.(version.summary);
     showToast(
-      `Loaded ${version.summary.bundleName || version.summary.name}(v${version.version})`,
+      `Loaded ${truncateLibName(version.summary.bundleName || version.summary.name)}(v${version.version})`,
       "success",
     );
   };
@@ -817,8 +818,8 @@ function LibraryPanel({
       const { bundleName, remaining } = await deleteVersion(pendingDelete.id);
       showToast(
         remaining > 0
-          ? `Deleted v${pendingDelete.version} of “${bundleName}”.`
-          : `Deleted the last version of “${bundleName}”.`,
+          ? `Deleted v${pendingDelete.version} of “${truncateLibName(bundleName)}”.`
+          : `Deleted the last version of “${truncateLibName(bundleName)}”.`,
         "success",
       );
       // Only notify the parent when there are no versions left
