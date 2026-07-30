@@ -136,6 +136,12 @@ export default function PasteIconsModal({
       onClose={busy ? () => undefined : onClose}
       maxWidth="max-w-md"
       ariaLabel="Paste icons into"
+      // Per UX request: the Paste Icons popup should not dismiss
+      // when the user clicks the backdrop — only the explicit
+      // close (×) affordance or Cancel button does. This avoids
+      // losing the user's pasted-icon selection if they
+      // accidentally click outside the modal.
+      dismissOnBackdrop={false}
     >
       <div className="px-5 pt-4 pb-5">
         <div className="flex items-start justify-between gap-3">
@@ -150,14 +156,14 @@ export default function PasteIconsModal({
               </h3>
               {sourceInfo && (
                 <div
-                  className="inline-flex text-sm text-slate-500 truncate mt-0 max-w-[200px] gap-1.5 items-center"
+                  className="inline-flex text-sm text-slate-500 truncate mt-0 max-w-50 gap-1.5 items-center"
                   title={
                     sourceInfo.isPublic
                       ? `Public library: ${sourceInfo.name}`
                       : `Private library: ${sourceInfo.name}`
                   }
                 >
-                  <span className="max-w-[120px] truncate">{sourceInfo.name}</span>
+                  <span className="max-w-30 truncate">{sourceInfo.name}</span>
                   <VisibilityBadge
                     isPublic={!!sourceInfo.isPublic}
                     title=""
