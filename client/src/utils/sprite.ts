@@ -176,10 +176,60 @@ export function extractSymbolsFromSprite(xml: string): SpriteSymbol[] {
   }
 }
 
+function extractColorValues(markup: string): string[] {
+  const values: string[] = [];
+  const attrRegex = /\b(fill|stroke)\s*=\s*(['"])(.*?)\2/gi;
+  const styleRegex = /\b(fill|stroke)\s*:\s*([^;"'\s]+)/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = attrRegex.exec(markup)) !== null) {
+    const value = match[3]?.trim();
+    if (!value) continue;
+    if (/^(none|transparent|currentcolor|inherit)$/i.test(value)) continue;
+    if (value.startsWith("url(")) continue;
+    values.push(value);
+  }
+
+  while ((match = styleRegex.exec(markup)) !== null) {
+    const value = match[2]?.trim();
+    if (!value) continue;
+    if (/^(none|transparent|currentcolor|inherit)$/i.test(value)) continue;
+    if (value.startsWith("url(")) continue;
+    values.push(value);
+  }
+
+  return values;
+}
+
+export function isTintableSymbolMarkup(markup: string): boolean {
+  const colors = extractColorValues(markup);
+  if (colors.length === 0) return true;
+  const uniqueColors = colors.filter(
+    (value, index) => colors.indexOf(value) === index
+  );
+  return uniqueColors.length <= 1;
+}
+
+function markTintableSymbols(spriteXml: string): string {
+  return spriteXml.replace(
+    /(<symbol\b[^>]*>)([\s\S]*?)(<\/symbol>)/g,
+    (_full, openTag, inner, closeTag) => {
+      const tintable = isTintableSymbolMarkup(inner);
+      const marker = ` data-tintable="${tintable ? "true" : "false"}"`;
+      const hasMarker = openTag.includes("data-tintable=");
+      const updatedOpenTag = hasMarker
+        ? openTag.replace(/data-tintable="(?:true|false)"/i, marker.trim())
+        : `${openTag.slice(0, -1)}${marker}>`;
+      return `${updatedOpenTag}${inner}${closeTag}`;
+    }
+  );
+}
+
 // Build a self-contained HTML demo page that renders every symbol with <use>.
 // The layout mirrors the on-screen live demo: centered header, color picker, a responsive grid of white cards (each with a rounded icon tile + monospace label) and a footer. Clicking a swatch re-tints every icon. Clicking a card copies a usage snippet to the clipboard.
 export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   const ids = symbolIds;
+  const tintableSpriteXml = markTintableSymbols(spriteXml);
   const iconCards = ids.map(id => `
       <div class="icon-card">
         <div class="icon-preview">
@@ -243,7 +293,7 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   </style>
 </head>
 <body>
-  ${spriteXml}
+  ${tintableSpriteXml}
   <div class="header">
     <h1>🎨 SVG Sprite Preview</h1>
     <p>${ids.length} symbol${ids.length !== 1 ? 's' : ''} in sprite.svg</p>
@@ -269,6 +319,9 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
     (function normalizeSymbols() {
       var symbols = document.querySelectorAll('symbol');
       symbols.forEach(function (sym) {
+        var tintable = sym.getAttribute('data-tintable') !== 'false';
+        if (!tintable) return;
+
         var nodes = sym.querySelectorAll('*');
         for (var i = 0; i < nodes.length; i++) {
           var n = nodes[i];
@@ -300,14 +353,17 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
         document.querySelectorAll('.color-btn').forEach(function (b) { b.classList.remove('active'); });
         btn.classList.add('active');
         var color = btn.getAttribute('data-color');
-        // Apply color to all SVGs in icon-preview divs by setting a CSS variable
-        var style = document.getElementById('icon-color-style');
-        if (!style) {
-          style = document.createElement('style');
-          style.id = 'icon-color-style';
-          document.head.appendChild(style);
-        }
-        style.textContent = '.icon-preview svg { color: ' + color + ' !important; }';
+        document.querySelectorAll('.icon-preview svg').forEach(function (svg) {
+          var use = svg.querySelector('use');
+          var symbolId = use && use.getAttribute('href') ? use.getAttribute('href').replace('#', '') : '';
+          var symbol = symbolId ? document.querySelector('symbol[id="' + symbolId + '"]') : null;
+          var tintable = symbol && symbol.getAttribute('data-tintable') !== 'false';
+          if (tintable) {
+            svg.style.color = color;
+          } else {
+            svg.style.color = '';
+          }
+        });
       });
     });
     document.querySelectorAll('.icon-card').forEach(function (card) {
