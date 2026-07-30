@@ -19,6 +19,7 @@ import { useAuth } from "../../context/AuthContext";
 import { buildDemoHtml, copyToClipboard } from "../../utils/sprite";
 import { createZip, triggerBrowserDownload } from "../../utils/zipBundle";
 import { renderSpritePreviewPng } from "../../utils/previewPng";
+import { truncateLibName } from "../../utils/toastFormat";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -73,6 +74,8 @@ type LiveDemoProps = {
   onUpdate?: (next: { sprite: string; symbolIds: string[]; hasChanges: boolean }) => void;
   // Optional callback for "open the regular save modal" (fallback).
   onOpenSaveModal?: () => void;
+  // Persist the in-progress rename/remove edits to the main compiler state. Wired to the footer "Save Changes" button that is rendered ONLY for logged-out users. The parent is expected to commit the supplied `xml` + `symbolIds` to the main compiler state so the Results section reflects the edits immediately. After the commit the LiveDemo shows a "Saved changes to the preview." success toast and closes the popup. No login modal is triggered from this flow — the guest "Save Changes" button silently applies the edits without interrupting the user; persisting to a real library remains a deliberate action via "Save to Library". Only used in the logged-out flow; authenticated users keep using `onSave` for in-place persistence.
+  onGuestSaveChanges?: (input: { xml: string; symbolIds: string[] }) => void;
   // Persist the currently-mutated XML back to the library version the demo was opened from. The parent (Compiler) is expected to call `useLibrary().updateContent(sourceId, xml)` and return `true` on success / `false` on failure. The parent may also return the literal string `"deleted"` when the save reduced the sprite to zero icons and the version was auto-removed in place of an update — in that case the demo closes and shows a different toast explaining what happened. Only used by the eye-icon preview flow (see `mode`); other entry points keep their existing save affordances untouched.
   onSave?: (
     input: { xml: string; symbolIds: string[] }
@@ -166,6 +169,7 @@ export default function LiveDemoModal({
   source,
   onUpdate,
   onOpenSaveModal,
+  onGuestSaveChanges,
   onSave,
   onCopySprite,
   onCopyIcons,
@@ -283,6 +287,19 @@ export default function LiveDemoModal({
         setInternalCssState({ ...defaultCssState });
       }
       setCssChanged(false);
+      // Reset the symbol-seed tracker so the next open always re-parses the
+      // (potentially updated) `sprite` prop into `symbolsRef` /
+      // `displayedSymbolIds`. Without this reset, if the user makes edits,
+      // clicks "Save Changes" (which updates the parent's `spriteXml`/
+      // `symbolIds`), closes the popup, and reopens it — the seed effect
+      // below would short-circuit because the `lastSeededSourceRef` key
+      // matches the same XML it was seeded with on the previous open. The
+      // icons shown would then come from the stale `displayedSymbolIds`
+      // captured before the save, not the freshly-saved `symbolIds` the
+      // parent just handed us. Clearing the ref on close forces a re-seed
+      // on every reopen, which is the safe default — the parent always
+      // owns the canonical sprite XML.
+      lastSeededSourceRef.current = null;
       return;
     }
     setSearchTerm("");
@@ -394,9 +411,11 @@ export default function LiveDemoModal({
     );
     rebuildSprite();
     setSelectedIcons(new Set());
-    showToast(`Removed ${count} icon${count === 1 ? "" : "s"}`, "success");
+    // When the bulk remove empties the sprite, skip the "Removed N icons" success toast — the "sprite is now empty" warning is the only signal that makes sense. Otherwise show the normal count.
     if (symbolsRef.current.length === 0) {
       showToast("All icons removed. The sprite is now empty.", "warning");
+    } else {
+      showToast(`Removed ${count} icon${count === 1 ? "" : "s"}`, "success");
     }
   }
 
@@ -535,7 +554,7 @@ export default function LiveDemoModal({
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    showToast(`Downloaded standalone ${id}.svg`, "success");
+    showToast(`Downloaded standalone ${truncateLibName(id)}.svg`, "success");
   }
 
   function applyPreset(preset: SolidPreset): void {
@@ -825,7 +844,7 @@ export default function LiveDemoModal({
       if (result === "deleted") {
         const label =
           source.type === "library"
-            ? `${source.name} v${source.version ?? 1}`
+            ? `${truncateLibName(source.name)} v${source.version ?? 1}`
             : "the preview";
         showToast(
           `All icons removed. ${label} was deleted from the library.`,
@@ -834,7 +853,7 @@ export default function LiveDemoModal({
       } else {
         const successMessage =
           source.type === "library"
-            ? `Saved changes to ${source.name} v${source.version ?? 1}.`
+            ? `Saved changes to ${truncateLibName(source.name)} v${source.version ?? 1}.`
             : "Saved changes to the preview.";
         showToast(successMessage, "success");
       }
@@ -1535,20 +1554,105 @@ export default function LiveDemoModal({
                 )}
               </>
             ) : (
-              <button
-                type="button"
-                onClick={() => void handleDownloadBundle()}
-                disabled={downloadBusy || selectMode || cssChanged}
-                title={
-                  cssChanged
-                    ? "Reset Custom CSS to enable this action."
-                    : undefined
-                }
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-200 transition-all flex items-center gap-1.5 disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <DownloadIcon className="w-3.5 h-3.5" />
-                {downloadBusy ? "Preparing…" : "Download sprite"}
-              </button>
+              <>
+                {/* "Save Changes" for logged-out users. The same button is
+                    shown to authenticated users in the `currentUser` branch
+                    above, where it routes through `onSave` to persist the
+                    edits in place. For unauthenticated users the action
+                    can't actually persist to a library, so we hand the
+                    parent the demo's mutated XML/symbolIds via
+                    `onGuestSaveChanges` — the parent commits them to the
+                    main compiler state (so the Results section reflects
+                    the edits immediately). After the commit we surface
+                    a success toast and close the popup, matching the
+                    authenticated flow's success behaviour. The login
+                    modal is NOT triggered from here; per UX request,
+                    the guest "Save Changes" button silently applies
+                    the edits without interrupting the user with a
+                    popup. Persisting to a real library remains a
+                    deliberate action via the "Save to Library" button.
+                    Falls back to the legacy `onOpenSaveModal` flow when
+                    the parent hasn't wired the new prop. Disabled while
+                    Custom CSS has unsaved changes, matching the rest of
+                    the footer CTAs. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    // The parent is expected to commit the demo edits
+                    // to the main compiler state so the Results section
+                    // reflects them — no login modal is shown from this
+                    // button. After the commit we surface a success
+                    // toast and close the popup, matching the
+                    // authenticated "Save Changes" flow's behaviour for
+                    // non-library sources. The compiled sprite is now
+                    // visible in the Results section, which is where
+                    // the user's attention is going next anyway.
+                    // If the parent didn't wire the new prop, fall back
+                    // to the legacy behaviour of just opening the login
+                    // modal — the edits will still be in the demo
+                    // buffer but won't propagate to the Results
+                    // section.
+                    if (onGuestSaveChanges) {
+                      const nextIds = symbolsRef.current
+                        .map((s) => s.getAttribute("id") || "")
+                        .filter(Boolean);
+                      const xml = serializeLiveSprite(symbolsRef.current);
+                      onGuestSaveChanges({ xml, symbolIds: nextIds });
+                      showToast("Saved changes to the preview.", "success");
+                      onClose?.();
+                      return;
+                    }
+                    onOpenSaveModal?.();
+                  }}
+                  // Disabled initially for logged-out users until they
+                  // actually mutate the icon list (rename / remove) — the
+                  // `hasPendingChanges` flag is flipped inside
+                  // `rebuildSprite()`, which fires from both `deleteIcon`
+                  // and `commitRename`. This matches the authenticated
+                  // "Save Changes" button's behaviour, so guest and
+                  // logged-in users see the same "no edits → button is
+                  // inert" contract. Applies to every logged-out entry
+                  // point (Live Demo from the Results panel, the
+                  // Upload Existing Sprite section's Preview, and any
+                  // scratch / paste-preview flow).
+                  disabled={!hasPendingChanges || cssChanged}
+                  title={
+                    cssChanged
+                      ? "Reset Custom CSS to enable this action."
+                      : !hasPendingChanges
+                        ? "Rename or remove an icon to enable this button."
+                        : "Apply your edits to the Results section."
+                  }
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-200 transition-all flex items-center gap-1.5 disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <CheckIcon className="w-3.5 h-3.5" />
+                  Save Changes
+                </button>
+                {/* "Download sprite" for logged-out users is hidden when the
+                    demo was opened from the Upload Existing Sprite section's
+                    Preview button (`source.type === "baseSprite"`) — that
+                    popup is a preview of the just-uploaded sprite, not a
+                    generated bundle, so there's nothing to export. For all
+                    other logged-out entry points (scratch / results) the
+                    button stays so the user can still grab a bundle of
+                    their generated sprite. */}
+                {source?.type !== "baseSprite" && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadBundle()}
+                    disabled={downloadBusy || selectMode || cssChanged}
+                    title={
+                      cssChanged
+                        ? "Reset Custom CSS to enable this action."
+                        : undefined
+                    }
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-200 transition-all flex items-center gap-1.5 disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <DownloadIcon className="w-3.5 h-3.5" />
+                    {downloadBusy ? "Preparing…" : "Download sprite"}
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
