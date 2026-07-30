@@ -116,7 +116,7 @@ function ResultsPanel({
           </svg>
           <span>{mainCopied ? "Copied" : "Copy Sprite"}</span>
         </button>
-        <div className="flex w-full items-center gap-3 sm:w-auto">
+        <div className="flex w-full flex-1 items-center gap-3 sm:w-auto">
           <button
             type="button"
             onClick={onDemo}

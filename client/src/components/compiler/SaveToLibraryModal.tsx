@@ -24,7 +24,6 @@ export default function SaveToLibraryModal({
   busy,
   existingNames,
   defaultName,
-  placeholder,
   nextVersion,
   initialIsPublic = false,
   onClose,
@@ -107,7 +106,7 @@ export default function SaveToLibraryModal({
               value={name}
               disabled={busy}
               onChange={(event) => setName(event.target.value)}
-              placeholder={placeholder ?? "eg. Bolddesk icons"}
+              placeholder= "eg. Bolddesk icons"
               className={`w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 ${
                 isNameConflict
                   ? "border-rose-500 focus:ring-rose-500"
@@ -163,7 +162,7 @@ export default function SaveToLibraryModal({
                 Make it as public
               </span>
 <span
-              className="group/info relative inline-flex"
+              className="mt-px group/info relative inline-flex"
               tabIndex={0}
               aria-label="What does public mean?"
             >

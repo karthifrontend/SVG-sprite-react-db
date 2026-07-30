@@ -185,7 +185,7 @@ function InlineSaveSection({
             type="text"
             value={name}
             onChange={(event) => handleName(event.target.value)}
-            placeholder={"New Sprite " + new Date().toLocaleDateString()}
+            placeholder="eg. Bolddesk icons"
             className={`w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 ${
               hasNameConflict
                 ? "border-rose-500 focus:ring-rose-500"
@@ -217,7 +217,7 @@ function InlineSaveSection({
               Make it public
             </span>
             <span
-              className="group/info relative inline-flex"
+              className="mt-px group/info relative inline-flex"
               tabIndex={0}
               aria-label="What does public mean?"
             >
