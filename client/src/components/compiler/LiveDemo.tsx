@@ -1031,7 +1031,7 @@ export default function LiveDemoModal({
                     ? "Restore the size, color, and gradient values the modal opened with."
                     : "No custom-CSS changes to reset."
                 }
-                className="mb-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-semibold border border-indigo-200 transition-all flex items-center gap-1.5"
+                className="mb-2 px-4 py-2 rounded-lg border text-xs font-medium flex items-center gap-1.5 bg-white border-slate-300 text-slate-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
               >
                 <svg
                   className="h-3 w-3"
@@ -1120,7 +1120,7 @@ export default function LiveDemoModal({
                           }}
                           className="peer sr-only disabled:cursor-not-allowed"
                         />
-                        <div className="block h-6 w-10 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500 peer-disabled:cursor-not-allowed" />
+                        <div className="block h-6 w-10 rounded-full bg-slate-200 transition-colors peer-checked:bg-indigo-600 peer-disabled:cursor-not-allowed" />
                         <div className="dot absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4 peer-disabled:cursor-not-allowed" />
                       </div>
                       <span
@@ -1455,7 +1455,7 @@ export default function LiveDemoModal({
                   ? "Reset Custom CSS to enable this action."
                   : undefined
               }
-              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-semibold border border-indigo-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
+              className="px-4 py-2 rounded-lg text-xs font-medium border flex items-center gap-1.5 bg-white border-slate-300 text-slate-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-50 disabled:hover:bg-white disabled:hover:border-slate-300 disabled:hover:text-slate-700 disabled:cursor-not-allowed"
             >
               <DuplicateIcon className="w-3.5 h-3.5 mt-px" />
               {copySpriteCopied ? "Copied" : "Copy Sprite"}
@@ -1524,7 +1524,7 @@ export default function LiveDemoModal({
                                 : "Persist the renamed / removed icons back to this base sprite."
                             : "No changes to save yet. Rename or remove an icon to enable this button."
                       }
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-200 transition-all flex items-center gap-1.5 disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <CheckIcon className="w-3.5 h-3.5" />
                       {saveBusy ? "Saving…" : "Save Changes"}
@@ -1544,7 +1544,7 @@ export default function LiveDemoModal({
                           ? "Select at least one icon to save as a new library."
                           : `Save ${selectedIconsCount()} selected icon${selectedIconsCount() === 1 ? "" : "s"} as a new library.`
                     }
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-200 transition-all flex items-center gap-1.5 disabled:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <CheckIcon className="w-3.5 h-3.5" />
                     {selectedIconsCount() > 0
@@ -1623,7 +1623,7 @@ export default function LiveDemoModal({
                         ? "Rename or remove an icon to enable this button."
                         : "Apply your edits to the Results section."
                   }
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-200 transition-all flex items-center gap-1.5 disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <CheckIcon className="w-3.5 h-3.5" />
                   Save Changes
@@ -1646,7 +1646,7 @@ export default function LiveDemoModal({
                         ? "Reset Custom CSS to enable this action."
                         : undefined
                     }
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-200 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-200 transition-all flex items-center gap-1.5 disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <DownloadIcon className="w-3.5 h-3.5" />
                     {downloadBusy ? "Preparing…" : "Download sprite"}

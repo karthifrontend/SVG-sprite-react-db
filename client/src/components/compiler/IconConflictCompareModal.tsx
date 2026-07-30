@@ -400,7 +400,7 @@ export default function IconConflictCompareModal({
               });
             }}
             disabled={busy || !canContinue}
-            className="px-4 py-2 rounded-lg bg-linear-to-r from-indigo-600 to-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-200/60 transition-all flex items-center gap-1.5 hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-300 disabled:shadow-none"
+            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-md shadow-indigo-200/60 transition-all flex items-center gap-1.5 disabled:cursor-not-allowed disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:shadow-none"
           >
             {busy ? "Applying…" : "Continue"}
           </button>

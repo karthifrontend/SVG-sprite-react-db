@@ -278,7 +278,7 @@ export default function PasteIconsModal({
                     })
                   }
                   disabled={busy}
-                  className="shrink-0 rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-emerald-100 hover:text-emerald-700 disabled:opacity-50"
+                  className="shrink-0 rounded-lg px-3 py-1.5 text-xs border font-medium bg-white border-slate-300 text-slate-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-50 disabled:hover:bg-white disabled:hover:border-slate-300 disabled:hover:text-slate-700 disabled:cursor-not-allowed"
                 >
                   Paste Here
                 </button>
