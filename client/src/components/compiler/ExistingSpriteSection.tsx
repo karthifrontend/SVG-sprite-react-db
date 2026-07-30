@@ -162,9 +162,9 @@ function ExistingSpriteSection({
       )}
 
       {file && (
-        <div className="mt-2 flex items-center justify-between gap-4 rounded-xl border border-emerald-200 bg-white p-3 text-left shadow-sm">
+        <div className="mt-2 flex items-center justify-between gap-4 rounded-xl border border-indigo-200 bg-white p-3 text-left shadow-sm">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-500">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-500">
               <CheckCircleIcon className="h-5 w-5" />
             </div>
             <div className="min-w-0">
@@ -205,7 +205,7 @@ function ExistingSpriteSection({
                 event.stopPropagation();
                 onClear();
               }}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-indigo-50 hover:text-indigo-600"
               title="Change base sprite"
             >
               <CloseIcon className="mt-px h-3.5 w-3.5" />
