@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent 
 import { useFileDropzone } from "../hooks/useFileDropzone";
 import { useSpriteCompiler } from "../hooks/useSpriteCompiler";
 import { useLibrary, notifyLibraryChanged } from "../hooks/useLibrary";
-import { getSpriteById, saveSprite, type SpriteSummary } from "../api/sprites";
+import { getSpriteById, putSprite, saveSprite, type SpriteSummary } from "../api/sprites";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { buildSpriteXml, extractSymbolsFromSprite, sortSymbolsById } from "../utils/sprite";
@@ -91,6 +91,12 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setLiveDemoSource({ type: "scratch" });
     // A fresh upload has no source library to hide from the paste popup, so drop the hint.
     setPasteExcludeBundleName("");
+    // Drop the in-place tracker too — a new upload means the user is
+    // starting a new compile, and the "Add More Icons" → update-version
+    // special case only applies immediately after the save that produced
+    // the tracker.
+    setAddIconsTargetVersionId(null);
+    setAddIconsTargetVersionNumber(null);
     setInlineSave({
       enabled: false,
       name: "",
@@ -167,6 +173,22 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   });
 
   const [saving, setSaving] = useState(false);
+  const [resultStatusLabel, setResultStatusLabel] = useState<string>("Sprite Generated");
+  // `updateVersionInPlace` + `versionSpriteId` + `versionNumber` are only set
+  // by the "More Options → Add More Icons" flow when the most-recently-saved
+  // sprite (v1 from create-mode or v2/v3/… from update-mode "new version")
+  // is still the live "current" target. They steer the post-merge
+  // persistence step to `putSprite` on that exact version row instead of
+  // `saveSprite` (which would create yet another version). `handleGenerate`
+  // and the library-load flow never set these, so they always fall through
+  // to the standard version-creating path.
+  const pendingFinalizeOptionsRef = useRef<{
+    successMessage?: string;
+    statusLabel?: string;
+    updateVersionInPlace?: boolean;
+    versionSpriteId?: string | null;
+    versionNumber?: number | null;
+  } | null>(null);
 
   // Conflict-modal state. When `generate()` returns
   // `needsConfirmation: true` we set `pendingConflicts` to the list
@@ -205,6 +227,22 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       return EMPTY_ID_SET;
     }
   }, [pendingExistingContent]);
+  // Tracks the id of the most-recently-saved sprite version that was created
+  // during this session via the inline "Save to library" flow — covers BOTH
+  // the create-mode path (which produces v1) and the update-mode "Save new
+  // version to library" path (which produces v2, v3, …). When set, the
+  // "More Options → Add More Icons" flow (handleAddIcons) updates that exact
+  // version in place via putSprite instead of creating yet another version,
+  // so freshly-generated icons are added to the very same library entry the
+  // user just produced. Cleared whenever the user moves on (mode change, new
+  // upload, library load, etc.) so the special case cannot leak into
+  // unrelated flows. Only the inline-save → add-more-icons path reads it;
+  // every other flow (Generate, library load, paste-into-library, etc.)
+  // ignores it and continues to use the standard saveSprite / versioning
+  // behaviour. The companion `addIconsTargetVersionNumber` is used only to
+  // render a human-readable label in the success toast.
+  const [addIconsTargetVersionId, setAddIconsTargetVersionId] = useState<string | null>(null);
+  const [addIconsTargetVersionNumber, setAddIconsTargetVersionNumber] = useState<number | null>(null);
 
   // Live demo modal. Opened from the Results panel's "Live Demo" button. When the modal mutates the sprite, it calls `onUpdate` which we wire to the demo preview buffer (demoSpriteXml / demoSymbolIds) only — the compiler's main result state (spriteXml / symbolIds / spriteUrl) is intentionally left untouched so the Results panel does NOT appear as a side effect of a preview-only rename / delete. The `source` tells the modal whether the "Save Changes" CTA should appear (only when the sprite came from a library version).
   const [liveDemoOpen, setLiveDemoOpen] = useState(false);
@@ -805,6 +843,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       // Reset the preview buffer too so the new compile starts from a clean custom-CSS slate, not a stale preview.
       setDemoPreviewCssState(null);
       lastSeededSourceKeyRef.current = null;
+      // Switching tabs is a navigation action — the in-place special case
+      // only applies to the "Add More Icons" call that immediately follows
+      // a save, so drop the tracker here too.
+      setAddIconsTargetVersionId(null);
+      setAddIconsTargetVersionNumber(null);
     } else if (next === "update" && mode !== "update") {
       // Entering the "Update Existing Sprite" tab. Reset the inline-save state to its default so the toggle starts OFF and the Library Name input starts empty. The user's explicit choice in the previous tab does not carry over — switching tabs is a navigation action, and the "Save to library" intent is something the user should re-confirm for the new mode.
     }
@@ -823,6 +866,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     setPasteExcludeBundleName("");
     setDemoPreviewCssState(null);
     lastSeededSourceKeyRef.current = null;
+    // Clearing the base sprite is a navigation away from the prior compile
+    // context, so the in-place tracker no longer applies.
+    setAddIconsTargetVersionId(null);
+    setAddIconsTargetVersionNumber(null);
     setInlineSave((current) => ({
       ...current,
       enabled: false,
@@ -922,11 +969,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // path can reuse it after the user resolves every conflict in the
   // modal — the conflict-resolved `GenerateSummary` has the same
   // shape as the no-conflict one, so a single finaliser handles both.
-  async function finalizeGenerate(summary: {
-    duplicateCount: number;
-    newCount: number;
-    allDuplicates: boolean;
-  }): Promise<void> {
+  async function finalizeGenerate(
+    summary: {
+      duplicateCount: number;
+      newCount: number;
+      allDuplicates: boolean;
+    },
+    options?: { successMessage?: string; statusLabel?: string }
+  ): Promise<void> {
     // Lock the Generate button until new files are uploaded.
     setHasGenerated(true);
     if (mode === "update") {
@@ -961,14 +1011,17 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
     if (!inlineSave.enabled) {
       const updatedMessage =
-        mode === "update" && summary.duplicateCount > 0
+        options?.successMessage ||
+        (mode === "update" && summary.duplicateCount > 0
           ? `Sprite updated in your browser! (skipped ${summary.duplicateCount} duplicate${summary.duplicateCount === 1 ? "" : "s"})`
           : mode === "update"
             ? "Sprite updated in your browser!"
-            : "Sprite generated instantly in your browser!";
+            : "Sprite generated instantly in your browser!");
       showToast(updatedMessage, "success");
+      setResultStatusLabel(options?.statusLabel ?? (mode === "update" ? "Sprite Updated" : "Sprite Generated"));
       return;
     }
+    setResultStatusLabel(options?.statusLabel ?? (mode === "update" ? "Sprite Updated" : "Sprite Generated"));
 
     const { xml, symbolIds: ids } = await waitForSprite();
     if (!xml) return;
@@ -1001,6 +1054,15 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       if (saved.bundleName) {
         setPasteExcludeBundleName(saved.bundleName);
       }
+      // Remember the just-saved sprite (any version) so the subsequent
+      // "More Options → Add More Icons" call can update it in place via
+      // putSprite instead of creating yet another version. Applies to v1
+      // (from the create-mode inline save) AND to v2/v3/… (from the
+      // update-mode "Save new version to library" path) — every
+      // inline-save flow that produced this version becomes the
+      // in-place target for the immediate next "Add More Icons" call.
+      setAddIconsTargetVersionId(saved.id);
+      setAddIconsTargetVersionNumber(saved.version);
       setInlineSave((current) => ({
         ...current,
         name: "",
@@ -1039,7 +1101,50 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       // `busy` but the state itself is the source of truth).
       setPendingConflicts(null);
       setPendingExistingContent(null);
-      await finalizeGenerate(summary);
+      const options = pendingFinalizeOptionsRef.current ?? {
+        statusLabel: mode === "update" ? "Sprite Updated" : "Sprite Generated",
+      };
+      pendingFinalizeOptionsRef.current = null;
+      // "More Options → Add More Icons" on a freshly-saved version (v1 from
+      // create-mode OR v2/v3/… from update-mode "new version"): persist the
+      // merged sprite to the same version row (in place) instead of
+      // creating yet another version.
+      if (options.updateVersionInPlace && options.versionSpriteId) {
+        const { xml: mergedXml, symbolIds: mergedIds } = await waitForSprite();
+        if (!mergedXml) {
+          showToast("Failed to read merged sprite.", "error");
+          return;
+        }
+        try {
+          await putSprite({
+            id: options.versionSpriteId,
+            xml: mergedXml,
+            symbolIds: mergedIds,
+            symbolCount: mergedIds.length,
+          });
+          notifyLibraryChanged();
+          void refetchLibrary();
+          setHasGenerated(true);
+          setResultStatusLabel(options.statusLabel ?? "Sprite Updated with New Icons");
+          const newCount = summary.newCount;
+          const versionLabel = options.versionNumber != null ? `v${options.versionNumber}` : "version";
+          showToast(
+            newCount > 0
+              ? `Added ${newCount} icon${newCount === 1 ? "" : "s"} to ${versionLabel}.`
+              : options.successMessage ?? "Sprite updated with new icons.",
+            "success",
+          );
+        } catch (err) {
+          showToast(
+            err instanceof Error
+              ? err.message
+              : "Failed to update the saved version with new icons.",
+            "error",
+          );
+        }
+        return;
+      }
+      await finalizeGenerate(summary, options);
     } finally {
       setConflictResolveBusy(false);
     }
@@ -1087,17 +1192,118 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     // exactly as they were while the modal is open, so the user can
     // keep editing if they change their mind.
     if (summary.needsConfirmation && summary.conflicts && existingContent) {
+      pendingFinalizeOptionsRef.current = { statusLabel: mode === "update" ? "Sprite Updated" : "Sprite Generated" };
       setPendingConflicts(summary.conflicts);
       setPendingExistingContent(existingContent);
       return;
     }
 
-    await finalizeGenerate(summary);
+    await finalizeGenerate(summary, { statusLabel: mode === "update" ? "Sprite Updated" : "Sprite Generated" });
   }
 
   const handleClearAll = () => {
     clearFiles();
   };
+
+  async function handleAddIcons(files: File[]) {
+    if (!spriteXml) {
+      showToast("No sprite generated yet. Generate a sprite before adding icons.", "warning");
+      return;
+    }
+    const acceptedFiles = files.filter(
+      (file) =>
+        file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg"),
+    );
+    const rejectedCount = files.length - acceptedFiles.length;
+    if (rejectedCount > 0) {
+      showToast(
+        `${rejectedCount} unsupported file${rejectedCount === 1 ? "" : "s"} ignored. Only SVG icons are accepted.`,
+        "warning",
+      );
+    }
+    if (acceptedFiles.length === 0) {
+      return;
+    }
+
+    const existingContent = spriteXml;
+    // "More Options → Add More Icons" + previously-saved-version special
+    // case: when the most-recently-saved sprite (v1 from create-mode OR
+    // v2/v3/… from update-mode "Save new version to library") is still the
+    // live "current" target in this session, we update that exact version
+    // in place via putSprite instead of creating yet another version. The
+    // generate() call below still runs the normal merge/conflict pipeline
+    // (so duplicates + conflict modal keep working exactly as before) —
+    // only the final persistence step changes. Once the version has been
+    // updated in place, the inline-save state for the next generate cycle
+    // is left alone so a follow-up Generate button click would still go
+    // through the normal save flow.
+    const updateVersionInPlace = !!addIconsTargetVersionId;
+    const summary = await generate(acceptedFiles, { existingContent });
+    if (summary.needsConfirmation && summary.conflicts && existingContent) {
+      // Conflict modal: stash the in-place target so the post-resolve path
+      // knows to update the same version instead of creating a new one.
+      pendingFinalizeOptionsRef.current = {
+        successMessage: "Sprite updated with new icons.",
+        statusLabel: "Sprite Updated with New Icons",
+        // Carried through to the conflict-resolved path below; only used
+        // when `updateVersionInPlace` is true.
+        updateVersionInPlace,
+        versionSpriteId: addIconsTargetVersionId,
+        versionNumber: addIconsTargetVersionNumber,
+      };
+      setPendingConflicts(summary.conflicts);
+      setPendingExistingContent(existingContent);
+      return;
+    }
+
+    if (updateVersionInPlace && addIconsTargetVersionId) {
+      // Persist the merged sprite into the same library version instead of
+      // creating a new version. The compile pipeline already updated the
+      // compiler's `spriteXml` / `symbolIds` via `generate()`; we just need
+      // to mirror those changes onto the saved version row on the server.
+      const { xml: mergedXml, symbolIds: mergedIds } = await waitForSprite();
+      if (!mergedXml) {
+        showToast("Failed to read merged sprite.", "error");
+        return;
+      }
+      try {
+        await putSprite({
+          id: addIconsTargetVersionId,
+          xml: mergedXml,
+          symbolIds: mergedIds,
+          symbolCount: mergedIds.length,
+        });
+        notifyLibraryChanged();
+        void refetchLibrary();
+        setHasGenerated(true);
+        setResultStatusLabel("Sprite Updated with New Icons");
+        const newCount = summary.newCount;
+        const versionLabel =
+          addIconsTargetVersionNumber != null
+            ? `v${addIconsTargetVersionNumber}`
+            : "version";
+        showToast(
+          newCount > 0
+            ? `Added ${newCount} icon${newCount === 1 ? "" : "s"} to ${versionLabel}.`
+            : "Sprite updated with new icons.",
+          "success",
+        );
+      } catch (err) {
+        showToast(
+          err instanceof Error
+            ? err.message
+            : "Failed to update the saved version with new icons.",
+          "error",
+        );
+      }
+      return;
+    }
+
+    await finalizeGenerate(summary, {
+      successMessage: "Sprite updated with new icons.",
+      statusLabel: "Sprite Updated with New Icons",
+    });
+  }
 
   // ── Library → Update flow ──────────────────────────────────
   async function handleLoadFromLibrary(summary: SpriteSummary) {
@@ -1110,7 +1316,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       const bundleName = detail.bundleName || detail.name;
       const isOwner = detail.isOwner !== false; // server defaults to true on writes
       const blob = new Blob([detail.xml], { type: "image/svg+xml" });
-      const file = new File([blob], `${bundleName}.svg`, { type: "image/svg+xml" });
+      const fileName = bundleName + ".svg";
+      const file = new File([blob], fileName, { type: "image/svg+xml" });
       setBaseSpriteFile(file);
       setBaseSpriteSource("library");
       setBaseSpriteVersion(detail.version);
@@ -1212,6 +1419,11 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       }
       setDemoPreviewCssState(null);
       lastSeededSourceKeyRef.current = null;
+      // The version row the tracker pointed at is gone (or about to be),
+      // so drop the reference too — any subsequent "Add More Icons" call
+      // would otherwise PUT to a now-stale id.
+      setAddIconsTargetVersionId(null);
+      setAddIconsTargetVersionNumber(null);
       setInlineSave((current) => ({
         ...current,
         enabled: false,
@@ -1403,6 +1615,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
               <ResultsPanel
                 visible={hasResult}
+                statusLabel={resultStatusLabel}
                 symbolCount={symbolIds.length}
                 spriteUrl={spriteUrl}
                 spriteXml={spriteXml}
@@ -1429,6 +1642,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                   setLiveDemoSource({ type: "results" });
                   setLiveDemoOpen(true);
                 }}
+                onAddIcons={handleAddIcons}
+                addIconDisabled={!hasResult || generating}
                 onDownloadZip={() => void handleDownloadBundleForResults()}
                 downloadBusy={resultsDownloadBusy}
               />
