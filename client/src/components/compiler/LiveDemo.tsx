@@ -43,16 +43,6 @@ type ActiveGradient = {
 
 type Source =
   | { type: "library"; id: string; name: string; version?: number; isOwner?: boolean; isPublic?: boolean }
-  // The `baseSprite` source covers the "Upload Existing Sprite" section's
-  // Preview button, which is reached after either uploading a sprite from
-  // disk OR loading a library version into the update workspace. When the
-  // base sprite was loaded from a library we attach the library's
-  // identifying info (`name` / `version` / `isPublic`) so the Live Demo
-  // header can render the same "library name + version + visibility badge"
-  // affordance the eye-icon preview (`source.type === "library"`) shows.
-  // The fields are optional because the uploaded-from-disk case has no
-  // library identity to surface — in that scenario the header stays clean
-  // (just "Live Demo" + the standard subtitle).
   | { type: "baseSprite"; name?: string; version?: number; isPublic?: boolean }
   | { type: "results" }
   | { type: "scratch" };
@@ -203,11 +193,6 @@ export default function LiveDemoModal({
   const [internalCssState, setInternalCssState] = useState<LiveDemoCssState>(defaultCssState);
   const isControlled = cssState !== undefined && onCssStateChange !== undefined;
   const currentCss: LiveDemoCssState = isControlled ? (cssState as LiveDemoCssState) : internalCssState;
-  // Snapshot of the CSS state at modal-open time. `cssChanged` is derived by
-  // comparing the current CSS against this snapshot — when the user changes any
-  // custom-CSS control we flip the flag, and "Reset" restores the snapshot.
-  // Captured per-open (cleared by the `isOpen` effect below) so re-opening
-  // the same library starts from its stored CSS, not the literal default.
   const initialCssRef = useRef<LiveDemoCssState>(defaultCssState);
   const [cssChanged, setCssChanged] = useState<boolean>(false);
   const updateCss = (patch: Partial<LiveDemoCssState>) => {
@@ -217,18 +202,9 @@ export default function LiveDemoModal({
     } else {
       setInternalCssState(next);
     }
-    // Mark the CSS as user-modified so the "Reset" button enables and the
-    // action footer (Copy Sprite / Save Changes / Save to Library / Select
-    // Icons) disables until the user reverts via Reset.
     if (!cssChanged) {
       setCssChanged(true);
     }
-    // UX rule: as soon as the user mutates the Custom CSS, force the
-    // "Select Icons" toggle OFF and discard any in-progress selection.
-    // This keeps selection and styling as two mutually-exclusive modes so
-    // the user can't accidentally carry a stale selection over a visual
-    // redesign, and matches the "off by default" intent whenever the CSS
-    // has been touched.
     if (selectMode) {
       setSelectMode(false);
       setSelectedIcons(new Set());
@@ -287,18 +263,6 @@ export default function LiveDemoModal({
         setInternalCssState({ ...defaultCssState });
       }
       setCssChanged(false);
-      // Reset the symbol-seed tracker so the next open always re-parses the
-      // (potentially updated) `sprite` prop into `symbolsRef` /
-      // `displayedSymbolIds`. Without this reset, if the user makes edits,
-      // clicks "Save Changes" (which updates the parent's `spriteXml`/
-      // `symbolIds`), closes the popup, and reopens it — the seed effect
-      // below would short-circuit because the `lastSeededSourceRef` key
-      // matches the same XML it was seeded with on the previous open. The
-      // icons shown would then come from the stale `displayedSymbolIds`
-      // captured before the save, not the freshly-saved `symbolIds` the
-      // parent just handed us. Clearing the ref on close forces a re-seed
-      // on every reopen, which is the safe default — the parent always
-      // owns the canonical sprite XML.
       lastSeededSourceRef.current = null;
       return;
     }
@@ -310,14 +274,6 @@ export default function LiveDemoModal({
     setHasPendingChanges(false);
     setSaveBusy(false);
     setRenamingId(null);
-    // Capture the baseline CSS the modal opens with (either the parent's
-    // controlled `cssState` for the wired-in library case, or the local
-    // `defaultCssState` for the standalone case). The "Reset" button in the
-    // Custom CSS tab restores this snapshot. Because the close effect
-    // already reset the CSS to defaults, this capture will be the
-    // default state on a fresh open — matching the requested behaviour
-    // that "all are in default css styles" the next time the user opens
-    // the popup.
     initialCssRef.current = { ...(isControlled ? (cssState as LiveDemoCssState) : defaultCssState) };
     setCssChanged(false);
   }, [isOpen]);
@@ -367,18 +323,9 @@ export default function LiveDemoModal({
     showToast(`Removed #${iconId}`, "success");
   }
 
-  // Select every icon currently shown in the grid (i.e. the
-  // search-filtered list, NOT every symbol in the sprite). Toggling
-  // the search filter to a narrower query and clicking "Select All"
-  // should only select the visible icons — that's the predictable
-  // "select what you see" behaviour the user expects.
   function handleSelectAll(): void {
     setSelectedIcons(new Set(filteredIds));
   }
-  // Deselect every icon currently shown in the grid. Same
-  // search-filtered scoping as `handleSelectAll` — clicking "Deselect
-  // All" only affects what's visible. Icons hidden by the search
-  // filter are left in their existing selection state.
   function handleDeselectAll(): void {
     setSelectedIcons((current) => {
       const next = new Set(current);
@@ -386,12 +333,6 @@ export default function LiveDemoModal({
       return next;
     });
   }
-  // Remove every selected icon in a single batch. Confirms with the
-  // same `window.confirm` pattern that the per-card delete uses, then
-  // rebuilds the sprite once (instead of N times) so the
-  // pending-changes flag and the `onUpdate` callback fire exactly
-  // once for the batch — matching the existing single-delete flow
-  // semantically but as a single transaction.
   function handleRemoveSelected(): void {
     if (selectedIcons.size === 0) return;
     const count = selectedIcons.size;
@@ -445,17 +386,6 @@ export default function LiveDemoModal({
   }
 
   function handleSingleClick(id: string): void {
-    // While the Custom CSS tab has unsaved edits, suppress the
-    // single-click copy gesture. The footer info text and the
-    // per-card rename/remove buttons are already hidden in this
-    // state (see DemoIconCard's `!cssChanged` guards), so the user
-    // expects the entire icon grid to be inert — copy and download
-    // would both contradict that, and the per-card CSS they see is
-    // still the in-progress preview, not the persisted sprite.
-    // Silent no-op (no toast) per UX request: the per-card CSS
-    // already visually reflects the dirty state and the footer
-    // primary buttons are visibly disabled, so the grid reads as
-    // inert on its own and a toast would be noise.
     if (cssChanged) {
       return;
     }
@@ -496,13 +426,6 @@ export default function LiveDemoModal({
       window.clearTimeout(clickTimerRef.current);
       clickTimerRef.current = null;
     }
-    // While the Custom CSS tab has unsaved edits, suppress the
-    // double-click download gesture — same rationale as
-    // `handleSingleClick`: the visible icon CSS is the in-progress
-    // preview, so the standalone SVG we'd hand the user would not
-    // match what the sprite will look like once the CSS is applied
-    // to the consuming project. Silent no-op (no toast) per UX
-    // request, matching the single-click path.
     if (cssChanged) {
       return;
     }
@@ -736,12 +659,6 @@ export default function LiveDemoModal({
 
   const cssSnippet = useMemo<string>(() => {
     if (activeGradient) {
-      // Bake the gradient stops into the snippet itself so the user's
-      // copy-paste is self-contained (no external #demo-icon-gradient
-      // id required). The class applies the inline <linearGradient>
-      // to every descendant of `.icon-gradient` — matching the way
-      // the modal previews gradient-coloured icons (the gradient is
-      // the icon's own fill, not a masked background rectangle).
       return (
         `.icon-gradient {\n` +
         `  width: ${iconSize}px;\n` +
@@ -914,16 +831,6 @@ export default function LiveDemoModal({
     }
   }
 
-  // Footer CTA visibility — derived from the current `source` so the parent
-  // doesn't have to know which button to render. Three sources qualify for
-  // "Save Changes" (in-place preview that persists rename/remove edits):
-  //   • "library" (eye-icon preview) — owned library versions only
-  //   • "baseSprite" (Upload Existing Sprite section's Preview button)
-  //   • "results" (Results panel's Live Demo button)
-  // "Save to Library" accompanies "Save Changes" for the `results` source
-  // (so the user can both commit in-place edits and persist the resulting
-  // sprite as a new library) and stands alone for the `scratch` source
-  // (ad-hoc paste-preview flows with no in-place persistence story).
   const shouldShowSaveChanges =
     !!source &&
     !!onSave &&
@@ -1055,20 +962,6 @@ export default function LiveDemoModal({
 
         {activeTab === "grid" && (
           <div className="flex flex-col flex-1 overflow-hidden">
-            {/* TOOLBAR LAYOUT. Split into two stacked rows so the
-                "Select Icons" toggle never shifts position when the
-                user toggles it on:
-                  • Row 1 — search input on the left, Select Icons
-                    toggle pinned to the right. The toggle stays in
-                    this slot whether the user is in select mode or
-                    not, so the toolbar doesn't visually "jump".
-                  • Row 2 — only renders when Select Icons is ON (and
-                    the current source isn't read-only). Hosts the
-                    "Select All / Deselect All" and "Remove (N)"
-                    actions, right-aligned to match the toggle's
-                    column. The two-row layout gives those actions
-                    room to breathe without squeezing the search
-                input or moving the toggle. */}
             <div className="px-6 pt-3.5 pb-2 bg-slate-50 border-b border-slate-100 text-sm shrink-0">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex-1 relative max-w-md">
@@ -1132,22 +1025,7 @@ export default function LiveDemoModal({
                   )}
                 </div>
               </div>
-              {/* "Select All" / "Deselect All" + "Remove (N)" toolbar.
-                  Sits on its own row, right-aligned to match the
-                  Select Icons toggle column above. Only renders when
-                  Select Icons is ON and the source isn't read-only.
-                  The "Select All" button toggles its label based on
-                  whether every VISIBLE icon (i.e. respecting the
-                  search filter) is already in the selection; clicking
-                  it selects all visible icons, clicking it again (now
-                  "Deselect All") unselects them. The "Remove (N)"
-                  button is disabled when nothing is selected, and
-                  confirms with the user before deleting the batch —
-                  matching the per-card `deleteIcon` confirmation
-                  pattern. Both buttons honour the existing
-                  `isReadOnly` flag (non-owned public library entries
-                  can't be mutated in place), which the per-card
-                  rename/delete controls already enforce. */}
+              
               {currentUser && selectMode && !isReadOnly && (
                 <div className="mt-2 flex items-center justify-end gap-2">
                   <button
@@ -1462,51 +1340,6 @@ export default function LiveDemoModal({
             </button>
             {currentUser ? (
               <>
-                {/* "Save Changes" appears for any in-place preview source that has an
-                    `onSave` callback wired up. Three entry points qualify:
-                      • `source.type === "library"` (eye-icon preview) — persists to the same
-                        library version. Non-owned public libraries get no save button
-                        (the parent disables `onSave` / flags `isOwner === false`).
-                      • `source.type === "baseSprite"` (loaded-library or uploaded-sprite
-                        "Preview" button in the Upload Existing Sprite section) — persists
-                        back to the in-memory base sprite the user just opened.
-                      • `source.type === "results"` (Results panel's "Live Demo" button) —
-                        persists the renamed / removed icons back into the compiler's
-                        generated sprite state so the Results panel reflects them.
-                    "Save to Library" appears alongside "Save Changes" for the `results`
-                    source so the user can commit rename/remove edits (Save Changes) OR
-                    save the resulting sprite as a new library (Save to Library) — but
-                    the "hide Save Changes when Select Icons is on" rule ONLY applies
-                    to this post-generate popup (`source.type === "results"`). Other
-                    Live Demo entry points (library eye icon, base-sprite preview,
-                    paste previews) keep "Save Changes" visible at all times
-                    regardless of the Select Icons toggle, since the toggle is purely
-                    a multi-select helper in those flows. The `scratch` source — used
-                    by ad-hoc paste-preview flows — only ever shows "Save to
-                    Library". */}
-                {/* SCOPED VISIBILITY FOR SAVE CHANGES. Per UX request:
-                    the "hide Save Changes when Select Icons is on" rule
-                    ONLY applies to the post-generate Live Demo popup —
-                    i.e. the one opened from the Results panel's "Live
-                    Demo" button (`source.type === "results"`). All
-                    other Live Demo entry points (library eye icon,
-                    base-sprite preview, paste previews) keep "Save
-                    Changes" visible at all times regardless of the
-                    Select Icons toggle, because for those flows the
-                    user expects a stable in-place save affordance and
-                    the toggle is purely a multi-select helper.
-
-                    We therefore apply the "hide on Select Icons" rule
-                    only when `source?.type === "results"`. For every
-                    other source, "Save Changes" renders as soon as
-                    `shouldShowSaveChanges` is true and stays visible
-                    no matter what `selectMode` is.
-
-                    "Save to Library" still only renders when
-                    `selectMode` is on, regardless of source, so the
-                    "only one primary button at a time" guarantee is
-                    preserved for the post-generate popup while leaving
-                    the other popups unaffected. */}
                 {shouldShowSaveChanges &&
                   !(source?.type === "results" && selectMode) && (
                     <button
@@ -1555,43 +1388,9 @@ export default function LiveDemoModal({
               </>
             ) : (
               <>
-                {/* "Save Changes" for logged-out users. The same button is
-                    shown to authenticated users in the `currentUser` branch
-                    above, where it routes through `onSave` to persist the
-                    edits in place. For unauthenticated users the action
-                    can't actually persist to a library, so we hand the
-                    parent the demo's mutated XML/symbolIds via
-                    `onGuestSaveChanges` — the parent commits them to the
-                    main compiler state (so the Results section reflects
-                    the edits immediately). After the commit we surface
-                    a success toast and close the popup, matching the
-                    authenticated flow's success behaviour. The login
-                    modal is NOT triggered from here; per UX request,
-                    the guest "Save Changes" button silently applies
-                    the edits without interrupting the user with a
-                    popup. Persisting to a real library remains a
-                    deliberate action via the "Save to Library" button.
-                    Falls back to the legacy `onOpenSaveModal` flow when
-                    the parent hasn't wired the new prop. Disabled while
-                    Custom CSS has unsaved changes, matching the rest of
-                    the footer CTAs. */}
                 <button
                   type="button"
                   onClick={() => {
-                    // The parent is expected to commit the demo edits
-                    // to the main compiler state so the Results section
-                    // reflects them — no login modal is shown from this
-                    // button. After the commit we surface a success
-                    // toast and close the popup, matching the
-                    // authenticated "Save Changes" flow's behaviour for
-                    // non-library sources. The compiled sprite is now
-                    // visible in the Results section, which is where
-                    // the user's attention is going next anyway.
-                    // If the parent didn't wire the new prop, fall back
-                    // to the legacy behaviour of just opening the login
-                    // modal — the edits will still be in the demo
-                    // buffer but won't propagate to the Results
-                    // section.
                     if (onGuestSaveChanges) {
                       const nextIds = symbolsRef.current
                         .map((s) => s.getAttribute("id") || "")
@@ -1604,17 +1403,6 @@ export default function LiveDemoModal({
                     }
                     onOpenSaveModal?.();
                   }}
-                  // Disabled initially for logged-out users until they
-                  // actually mutate the icon list (rename / remove) — the
-                  // `hasPendingChanges` flag is flipped inside
-                  // `rebuildSprite()`, which fires from both `deleteIcon`
-                  // and `commitRename`. This matches the authenticated
-                  // "Save Changes" button's behaviour, so guest and
-                  // logged-in users see the same "no edits → button is
-                  // inert" contract. Applies to every logged-out entry
-                  // point (Live Demo from the Results panel, the
-                  // Upload Existing Sprite section's Preview, and any
-                  // scratch / paste-preview flow).
                   disabled={!hasPendingChanges || cssChanged}
                   title={
                     cssChanged
@@ -1628,14 +1416,6 @@ export default function LiveDemoModal({
                   <CheckIcon className="w-3.5 h-3.5" />
                   Save Changes
                 </button>
-                {/* "Download sprite" for logged-out users is hidden when the
-                    demo was opened from the Upload Existing Sprite section's
-                    Preview button (`source.type === "baseSprite"`) — that
-                    popup is a preview of the just-uploaded sprite, not a
-                    generated bundle, so there's nothing to export. For all
-                    other logged-out entry points (scratch / results) the
-                    button stays so the user can still grab a bundle of
-                    their generated sprite. */}
                 {source?.type !== "baseSprite" && (
                   <button
                     type="button"
@@ -1681,19 +1461,7 @@ type DemoIconCardProps = {
   onRenameCancel: () => void;
   // When true, hide the per-card rename and delete controls. Used for public library entries the current user does not own — the user can still preview and copy icons, but cannot mutate them in place.
   isReadOnly?: boolean;
-  // When true, the parent has the "Select Icons" toggle on. Rename and remove
-  // controls are hidden so the user can only multi-select icons for batch
-  // operations (Copy N Selected / Save N Selected to Library).
   selectMode?: boolean;
-  // When true, the user has uncommitted edits in the Custom CSS tab. Rename
-  // and remove controls are hidden because mutating the icon list would
-  // conflict with the still-applied CSS preview (the Custom CSS section
-  // already gates every primary action — Copy Sprite, Save Changes, Save to
-  // Library, Download — on `disabled={cssChanged}` with the same
-  // "Reset Custom CSS to enable this action." tooltip). Hiding the
-  // per-card mutation controls here keeps that contract consistent: while
-  // CSS edits are unsaved, the user can only inspect / preview / copy, not
-  // rename or remove icons.
   cssChanged?: boolean;
 };
 
@@ -1735,20 +1503,6 @@ function DemoIconCard({
     const strokeRule = hasStroke ? ` stroke: ${hex} !important;` : "";
     return `[data-demo-icon-style="${id}"] * { ${fillRule}${strokeRule} }`;
   };
-  // Scoped CSS rule that paints every descendant of this icon card with
-  // the shared `#demo-icon-gradient` (injected by the modal into a hidden
-  // <svg> in the document body whenever `activeGradient` is non-null).
-  // This is the same approach the solid-color branch uses for the
-  // active color hex — we just point `fill`/`stroke` at a `url(#…)`
-  // paint server instead of a hex. Because we apply the gradient as
-  // the icon's actual `fill` (not as a masked rectangle), the gradient
-  // fills the ICON SHAPE — not a background rectangle clipped by a
-  // mask — so the visual result matches what the user expects from
-  // "apply gradient to icons" (the icon itself is gradient-coloured).
-  // The earlier `<rect mask="url(#mask-${id})">` approach looked like
-  // a background because the mask cut a rectangle to the icon's outline
-  // and the original (un-coloured) icon path was still drawn on top,
-  // producing a visible "dark icon + gradient patch behind it" effect.
   const buildGradientCss = (): string => {
     const fillRule = `fill: url(#demo-icon-gradient) !important;`;
     const strokeRule = hasStroke
@@ -1764,16 +1518,6 @@ function DemoIconCard({
   const scopedGradientStyle: ReactNode = (
     <style>{buildGradientCss()}</style>
   );
-  // Render each preview as a real `<use href="#id">` reference to the
-  // sprite symbol instead of inlining the symbol's inner HTML. The
-  // sprite is mounted into a hidden host in `document.body` (see the
-  // `useEffect` in the parent that writes the sprite XML into
-  // `#live-demo-sprite-host`), so the `<use>` resolves against the
-  // same symbols the user will reference in their own code. The
-  // visible DOM therefore shows the snippet form
-  // (`<svg><use href="#icon-id"/></svg>`) rather than the full
-  // `<path>`/`<g>` payload — matching the output the user copies and
-  // the way SVG sprites are normally consumed in production.
   const useSnippet: ReactNode = (
     <svg
       className="transition-all duration-200"

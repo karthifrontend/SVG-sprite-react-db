@@ -137,11 +137,6 @@ export default function PasteIconsModal({
       onClose={busy ? () => undefined : onClose}
       maxWidth="max-w-md"
       ariaLabel="Paste icons into"
-      // Per UX request: the Paste Icons popup should not dismiss
-      // when the user clicks the backdrop — only the explicit
-      // close (×) affordance or Cancel button does. This avoids
-      // losing the user's pasted-icon selection if they
-      // accidentally click outside the modal.
       dismissOnBackdrop={false}
     >
       <div className="px-5 pt-4 pb-5">

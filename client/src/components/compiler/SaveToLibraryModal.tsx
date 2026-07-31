@@ -65,11 +65,6 @@ export default function SaveToLibraryModal({
       onClose={busy ? () => undefined : onClose}
       maxWidth="max-w-md"
       ariaLabel="Save to organization library"
-      // Per UX request: the Save to Organization popup should not
-      // dismiss when the user clicks the backdrop — only the
-      // explicit close (×) affordance or Cancel button does. This
-      // avoids losing the user's typed library name / version
-      // description if they accidentally click outside the modal.
       dismissOnBackdrop={false}
     >
       <div className="p-6">
