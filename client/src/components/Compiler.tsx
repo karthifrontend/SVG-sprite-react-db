@@ -198,6 +198,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // Marks the base-sprite "Preview" button in ExistingSpriteSection as the opener's source. Independent of `liveDemoMode` so the base-sprite preview keeps the default "Save to Library" CTA (revert from the previous "Save Changes" experiment) while still preventing its rename/delete edits from leaking into the compiler's main result state via `onUpdate`. Only the library panel eye icon sets `liveDemoMode = "preview"` to expose the in-place "Save Changes" button; the base-sprite preview sets ONLY this flag. Both preview entry points are combined in the `onUpdate` gate below.
   const [liveDemoIsBaseSpritePreview, setLiveDemoIsBaseSpritePreview] =
     useState<boolean>(false);
+  // Set to `true` by `handleOpenSaveSelectedToLibrary` BEFORE the LiveDemo's `onClose` callback fires. The close handler in JSX checks this ref and skips the `setDemoSpriteXml(null)` / `setDemoSymbolIds([])` reset when it is true — otherwise the just-set selected-only XML/ids would be wiped on close, and `handleSaveToLibraryConfirm` (which reads from `demoSpriteXml`) would fall back to the FULL main `spriteXml` and save all icons instead of just the selected ones. Reset to `false` once the close handler has run so the next normal close behaves as before.
+  const preserveDemoStateOnCloseRef = useRef<boolean>(false);
+  // Set to `true` by `handleOpenSaveSelectedToLibrary` when it seeds `demoSpriteXml` with the selected-only sprite. The save modal's close handlers (both Cancel and the post-save success path) check this ref and, when true, clear `demoSpriteXml` / `demoSymbolIds` so re-opening the LiveDemo falls back to the FULL main `spriteXml` / `symbolIds` instead of showing the stale 2-icon subset that was used for the save. Without this, after a "Save Selected" flow the LiveDemo would only ever display the icons the user selected, even after the user cancels or successfully saves and re-opens it.
+  const saveModalOpenedFromSelectionRef = useRef<boolean>(false);
   const [demoSpriteXml, setDemoSpriteXml] = useState<string | null>(null);
   const [demoSymbolIds, setDemoSymbolIds] = useState<string[]>([]);
 
@@ -366,6 +370,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     // Seed the demo preview buffer with the selected-only sprite. `handleSaveToLibraryConfirm` reads from `demoSpriteXml` first, so this is what ends up in the saved library. The compiler's main `spriteXml` and `symbolIds` stay untouched, so the Results panel and the staged list are not affected.
     setDemoSpriteXml(xml);
     setDemoSymbolIds(ids);
+    // Mark the upcoming close as "preserve demo state" so the LiveDemo's `onClose` callback doesn't wipe the selected-only XML we just set. Without this, `handleSaveToLibraryConfirm` would fall back to the full main `spriteXml` and save every icon instead of just the selected ones. Cleared inside the close handler in JSX after the reset is skipped.
+    preserveDemoStateOnCloseRef.current = true;
+    // Mark the upcoming save-modal close (whether Cancel or post-save success) so it clears the demo state and re-opening the LiveDemo falls back to the full main `spriteXml`. Reset inside the save modal's close handlers (see `onClose` on `<SaveToLibraryModal>` and the success path of `handleSaveToLibraryConfirm`).
+    saveModalOpenedFromSelectionRef.current = true;
     const placeholder =
       `Selected ${ids.length} icon${ids.length === 1 ? "" : "s"} ` +
       new Date().toLocaleDateString();
@@ -426,6 +434,12 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         "success"
       );
       setSaveModalOpen(false);
+      // If the save modal was opened from the "Save Selected" flow, drop the selected-only demo state so re-opening the LiveDemo falls back to the full main `spriteXml` / `symbolIds` instead of the stale 2-icon subset. Reset the ref so the next normal save (no selection) is unaffected.
+      if (saveModalOpenedFromSelectionRef.current) {
+        saveModalOpenedFromSelectionRef.current = false;
+        setDemoSpriteXml(null);
+        setDemoSymbolIds([]);
+      }
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : "Failed to save sprite.",
@@ -1553,14 +1567,19 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       <LiveDemoModal
         isOpen={liveDemoOpen}
         onClose={() => {
+          // If a "Save Selected to Library" flow just set the demo buffer, keep it intact so `handleSaveToLibraryConfirm` can read the selected-only XML. The ref is set by `handleOpenSaveSelectedToLibrary` immediately before the LiveDemo fires `onClose?.()`; we read it, snapshot the value, then reset so the next plain close behaves as before.
+          const preserve = preserveDemoStateOnCloseRef.current;
+          preserveDemoStateOnCloseRef.current = false;
           setLiveDemoOpen(false);
           setLiveDemoMode("default");
           setLiveDemoIsBaseSpritePreview(false);
-          setDemoSpriteXml(null);
-          setDemoSymbolIds([]);
-          setLiveDemoSource({ type: "scratch" });
-          setDemoPreviewCssState(null);
-          lastSeededSourceKeyRef.current = null;
+          if (!preserve) {
+            setDemoSpriteXml(null);
+            setDemoSymbolIds([]);
+            setLiveDemoSource({ type: "scratch" });
+            setDemoPreviewCssState(null);
+            lastSeededSourceKeyRef.current = null;
+          }
         }}
         sprite={demoSpriteXml ?? spriteXml}
         symbolIds={demoSpriteXml ? demoSymbolIds : symbolIds}
@@ -1767,20 +1786,17 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         nextVersion={saveModalNextVersion}
         initialIsPublic={saveModalIsPublic}
         onClose={() => {
-          if (!saveModalBusy) setSaveModalOpen(false);
+          if (saveModalBusy) return;
+          setSaveModalOpen(false);
+          // If the save modal was opened from the "Save Selected" flow, the demo state still holds the selected-only XML/ids. Clear them here so a subsequent re-open of the LiveDemo falls back to the full main `spriteXml` / `symbolIds` instead of showing the stale subset. Reset the ref so the next normal save (no selection) doesn't trigger an unnecessary reset.
+          if (saveModalOpenedFromSelectionRef.current) {
+            saveModalOpenedFromSelectionRef.current = false;
+            setDemoSpriteXml(null);
+            setDemoSymbolIds([]);
+          }
         }}
         onSubmit={handleSaveToLibraryConfirm}
       />
-
-      {/* "Replace or skip conflicting icons" modal. Opens in update
-          mode when the user's staged files contain one or more
-          symbol ids that already live in the base sprite. The user
-          picks a per-confict action (Replace / Skip / Compare); on
-          Continue we re-merge with the chosen resolutions and
-          continue the same flow as a no-conflict generate. Closing
-          the modal without clicking Continue bails the whole
-          generate — no state changes happen while the modal is
-          open. */}
       <IconConflictModal
         isOpen={pendingConflicts !== null}
         conflicts={pendingConflicts ?? []}

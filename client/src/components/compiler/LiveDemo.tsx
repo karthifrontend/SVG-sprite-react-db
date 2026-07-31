@@ -562,16 +562,6 @@ export default function LiveDemoModal({
     return null;
   }
 
-  // Build a standalone `<svg>` payload that bakes in the active size + color/gradient.
-  // Multi-colored symbols (icons whose markup contains more than one distinct
-  // non-`none`/non-`currentColor` color) are emitted untouched so their
-  // original palette is preserved — the same rule the zip-bundle's
-  // `markTintableSymbols` applies to the `demo.html` it ships. Reuses
-  // `classifySymbolVariant` from `utils/sprite` as the single source of
-  // truth for the recolouring strategy:
-  //   - solid     → custom color lands on `fill` only (stroke is forced to none)
-  //   - outlined  → custom color lands on `stroke` only (fill is forced to none)
-  //   - multicolor→ no override at all
   function buildStyledStandaloneSvg(viewBox: string, inner: string): string {
     const variant = classifySymbolVariant(inner);
     const color = resolveActiveColor();
@@ -581,8 +571,7 @@ export default function LiveDemoModal({
     }
     if (color.kind === "color") {
       if (variant === "outlined") {
-        // Outlined icons: paint the stroke with the custom colour and null
-        // out the fill so the recoloured outline reads as a clean line.
+        // Outlined icons: paint the stroke with the custom colour and null out the fill so the recoloured outline reads as a clean line.
         return (
           `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}">` +
           `<style>svg * { fill: none !important; stroke: ${color.hex} !important; }</style>` +
@@ -590,8 +579,7 @@ export default function LiveDemoModal({
           `</svg>`
         );
       }
-      // Solid icons: paint the fill with the custom colour and null out
-      // the stroke so no leftover outline shows through.
+      // Solid icons: paint the fill with the custom colour and null out the stroke so no leftover outline shows through.
       return (
         `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}" color="${color.hex}">` +
         `<style>svg * { fill: ${color.hex} !important; stroke: none !important; }</style>` +
@@ -1334,7 +1322,7 @@ export default function LiveDemoModal({
               library.
             </span>
           ) : (
-            !selectMode && !cssChanged && (
+            !selectMode && !cssChanged && activeTab === "grid" && (
               <span>
                 click to copy usage code · Double-click to download · Hover ✕
                 to remove
@@ -1530,23 +1518,9 @@ function DemoIconCard({
     ? SOLID_PRESETS.find((p) => p.color === activeColorClass)
     : undefined;
   const activeHex = activeCustomColor || (preset ? preset.hex : null);
-  // Classify the icon into one of three recolouring strategies. The same
-  // classifier powers the standalone-svg payload (`buildStyledStandaloneSvg`)
-  // and the bundled `demo.html`, so the in-modal preview, the copy/paste
-  // payloads, and the downloaded bundle all agree on which paint attribute
-  // the custom colour should land on.
   const iconVariant = classifySymbolVariant(symbolInnerHtml);
   const isMulticolor = iconVariant === "multicolor";
   const isOutlinedIcon = iconVariant === "outlined";
-  // CSS rule applied to *real* DOM descendants of the inline svg. We inline
-  // the symbol's children directly (no <use>) so the selector actually
-  // matches — `<use>` references live in a shadow tree that document-level
-  // CSS can't reach, which is why solid icons weren't picking up the color.
-  //
-  // Per-variant rules:
-  //   - solid     → fill uses the custom colour, stroke is forced to none
-  //   - outlined  → stroke uses the custom colour, fill is forced to none
-  //   - multicolor→ no override; the original palette stays intact
   const inlineScopedCss = (): string => {
     if (isMulticolor) return "";
     const selector = `svg[data-demo-icon-style="${id}"] *`;
@@ -1565,12 +1539,6 @@ function DemoIconCard({
   const scopedStyle: ReactNode = isMulticolor ? null : (
     <style>{inlineScopedCss()}</style>
   );
-  // Inline the symbol's children directly so our scoped CSS rule actually
-  // targets them. Also set `color` on the wrapper — that property DOES
-  // inherit into `<use>` shadow trees, so any icon that uses
-  // `currentColor`/`stroke="currentColor"` picks up the color too. Skip the
-  // wrapper-color override for multi-colored icons so their original palette
-  // is preserved.
   const wrapperColorStyle =
     activeGradient || isMulticolor
       ? undefined
@@ -1582,8 +1550,6 @@ function DemoIconCard({
       viewBox={viewBox}
       preserveAspectRatio="xMidYMid meet"
       data-demo-icon-style={id}
-      // Tag the variant so downstream CSS / tests can distinguish single-color
-      // (solid/outlined) icons from multi-colored ones.
       data-icon-variant={iconVariant}
     >
       {scopedStyle}
