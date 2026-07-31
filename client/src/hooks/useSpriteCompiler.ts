@@ -30,25 +30,12 @@ type CompilerActions = {
   loadFromLibrary: (input: { xml: string; symbolIds: string[] }) => void;
 };
 
-// One row in the conflict UI: a symbol id that exists in BOTH the base
-// sprite and the staged files. Carries the full `SpriteSymbol` for each
-// side so the modal can render an inline SVG preview + size for both
-// without re-parsing the XML.
 export type IconConflict = {
   id: string;
   existing: SpriteSymbol;
   incoming: SpriteSymbol;
 };
 
-// Per-conflict resolution chosen by the user. The conflict UI lets the
-// user pick ONE of three actions per row:
-//   • "replace" — the new (incoming) symbol wins; the existing one is
-//     discarded. Same as the previous default behaviour.
-//   • "skip"    — the existing symbol wins; the new one is dropped. The
-//     sprite ends up identical to the base for this id.
-//   • "both"    — both symbols are kept. The incoming one is renamed to
-//     `renamedId` (which the modal computes with a numeric suffix so it
-//     doesn't collide with any other symbol in the merged sprite).
 export type ConflictResolution =
   | { kind: "replace" }
   | { kind: "skip" }
@@ -121,37 +108,13 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
         const existingById = new Map(existingSymbols.map((s) => [s.id, s]));
         const duplicateCount = newSymbols.filter((s) => existingIds.has(s.id)).length;
         const trulyNewSymbols = newSymbols.filter((s) => !existingIds.has(s.id));
-        // CONFLICT-MODAL PAUSE: when in update mode AND at least one
-        // staged file collides with an existing id, pause and return
-        // the conflict list. This covers BOTH the "some new + some
-        // duplicate" case AND the "all duplicates" case — the user
-        // gets the same Windows-Explorer-style "Replace or Skip
-        // Files" modal either way, so they can pick Replace / Skip /
-        // Compare per icon. We do NOT short-circuit on the all-
-        // duplicates case anymore: the user explicitly asked for the
-        // "all duplicates" case to show the conflict popup so they
-        // can choose whether to overwrite each existing icon with
-        // the new version, leave the base sprite untouched (skip
-        // all), or keep both. `allDuplicates` is kept on the summary
-        // shape for type back-compat but the value is always `false`
-        // now. The caller (Compiler) opens the conflict modal; once
-        // the user has chosen a per-confict action, the caller
-        // invokes `applyConflictResolutions` with the result to do
-        // the actual merge. We do NOT touch sprite state here — that
-        // way the user's in-progress dropzone / base-sprite /
-        // inline-save state is preserved across the modal
-        // interaction.
+
         if (existingSymbols.length > 0 && duplicateCount > 0) {
           const conflicts: IconConflict[] = newSymbols
             .filter((s) => existingIds.has(s.id))
             .map((s) => {
               const existing = existingById.get(s.id);
               if (!existing) {
-                // Defensive: existingIds and existingById are built
-                // from the same array so this is unreachable, but TS
-                // doesn't know that. Fall back to a placeholder
-                // SpriteSymbol — the modal would render an empty
-                // preview rather than crash.
                 return { id: s.id, existing: s, incoming: s };
               }
               return { id: s.id, existing, incoming: s };
@@ -172,11 +135,6 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
           merged.push(s);
         }
 
-        // Sort the merged symbols by id so the live demo, downloaded sprite and
-        // library save all list icons in a human-friendly sequence
-        // (`icon`, `icon-1`, `icon-2`, `icon-10`) rather than appending new
-        // icons to the end of the existing order. The sort is stable and pure
-        // — it doesn't mutate the input arrays above.
         const sortedMerged = sortSymbolsById(merged);
 
         const xml = buildSpriteXml(sortedMerged);
@@ -198,26 +156,7 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
     [replaceUrl]
   );
 
-  // Apply the user's per-conflict resolutions and produce the final
-  // merged sprite. The caller MUST have already opened the conflict
-  // modal via a `generate()` call that returned `needsConfirmation:
-  // true`; this function is the second half of that flow and does the
-  // actual merge / blob / state-update that `generate()` previously
-  // did automatically.
-  //
-  //   • `replace` — incoming symbol wins; existing is dropped.
-  //   • `skip`    — existing symbol wins; incoming is dropped.
-  //   • `both`    — existing is kept verbatim, incoming is renamed to
-  //     `resolutions[id].renamedId` (the modal computes this with a
-  //     numeric suffix so it never collides with any other id in the
-  //     merged sprite).
-  //
-  // The `duplicateCount` reported in the summary counts every conflict
-  // the modal showed (i.e. every staged file that collided with an
-  // existing id), regardless of how the user resolved it. The
-  // `newCount` counts the resulting freshly-added symbols: includes
-  // every "replace" (1 new), every "both" (1 new), and every
-  // genuinely-new staged file.
+  // Apply the user's per-conflict resolutions and produce the final merged sprite. 
   const applyConflictResolutions = useCallback(
     async (
       files: File[],
@@ -235,9 +174,6 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
           ? extractSymbolsFromSprite(options.existingContent)
           : [];
         const existingById = new Map(existingSymbols.map((s) => [s.id, s]));
-        // Build the merged output by walking the staged files in order
-        // and applying the user's resolution per id. New (non-colliding)
-        // files are always included verbatim.
         const merged: SpriteSymbol[] = [];
         const seen = new Set<string>();
         const pushUnique = (s: SpriteSymbol) => {
@@ -263,32 +199,17 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
           duplicateCount += 1;
           const resolution = resolutions[incoming.id];
           if (!resolution || resolution.kind === "replace") {
-            // Default to "replace" when the user closed the modal
-            // without explicitly answering (defensive — the modal
-            // forces an answer so this branch shouldn't fire in
-            // practice).
             pushUnique(incoming);
             newCount += 1;
           } else if (resolution.kind === "skip") {
             // Keep the existing symbol; the staged file is dropped.
             pushUnique(existing);
           } else {
-            // "both" — keep the existing one and add the incoming one
-            // under its renamed id. The modal guarantees
-            // `renamedId` is unique against the merged sprite, so we
-            // can `pushUnique` without further de-duplication work.
             pushUnique(existing);
             pushUnique({ ...incoming, id: resolution.renamedId });
             newCount += 1;
           }
         }
-
-        // Sort the merged symbols by id so the live demo, downloaded sprite
-        // and library save all list icons in a human-friendly sequence
-        // (`icon`, `icon-1`, `icon-2`, `icon-10`) rather than carrying over
-        // the original base-sprite order followed by the freshly-added
-        // symbols. The sort is stable and pure — it doesn't mutate the
-        // `merged` array above.
         const sortedMerged = sortSymbolsById(merged);
 
         const xml = buildSpriteXml(sortedMerged);
@@ -363,14 +284,6 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
       const blob = new Blob([input.xml], { type: "image/svg+xml" });
       const url = URL.createObjectURL(blob);
       replaceUrl(url);
-      // Re-derive the id list from the XML rather than trusting the input
-      // order. Libraries saved before the natural-sort fix ship with icons
-      // in their upload order (`icon`, `icon-1`, `icon-3`, …, `icon-2`),
-      // and the caller's `symbolIds` mirrors that stale order. Re-parsing
-      // and re-sorting gives the live demo, download zip, and any later
-      // "save to library" round-trip a consistent human-friendly sequence
-      // (`icon`, `icon-1`, `icon-2`, `icon-10`) regardless of when the
-      // library version was saved.
       const sortedIds = sortSymbolsById(extractSymbolsFromSprite(input.xml)).map(
         (s) => s.id,
       );

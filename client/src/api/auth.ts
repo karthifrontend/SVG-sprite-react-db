@@ -1,5 +1,4 @@
 // Auth API client for the /api/auth/* routes (sign-in, sign-out, session lookup).
-// Auth API client. Wraps the server's /api/auth/* routes so the rest of the app can stay provider-agnostic.
 import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
