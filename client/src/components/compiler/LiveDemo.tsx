@@ -610,11 +610,26 @@ export default function LiveDemoModal({
     if (typeof document === "undefined") return;
     const GRAD_ID = "demo-icon-gradient";
     const STYLE_ID = "live-demo-gradient-style";
+    // The primary <style> lives in the gradient host, but we also clone it
+    // into the sprite host (see below) so the <use> shadow trees can pick
+    // up the rules even when they're rendered outside the gradient host's
+    // SVG root. We give the clone a distinct, well-known id so the
+    // cleanup branch can reliably remove BOTH copies — otherwise the
+    // duplicate in the sprite host lingers after "Reset custom CSS" and
+    // keeps applying `fill: url(#demo-icon-gradient) !important` against
+    // a now-removed gradient, which silently nulls out the icon paint
+    // and hides every icon in the grid.
+    const SPRITE_STYLE_ID = "live-demo-gradient-style-sprite";
     const existingGrad = document.getElementById(GRAD_ID);
     const existingStyle = document.getElementById(STYLE_ID);
+    const existingSpriteStyle = document.getElementById(SPRITE_STYLE_ID);
     if (!activeGradient) {
       if (existingGrad) existingGrad.remove();
       if (existingStyle) existingStyle.remove();
+      // Remove the duplicate <style> we previously appended to the
+      // sprite host so the `url(#demo-icon-gradient)` references it
+      // contains no longer leak across the gradient → solid transition.
+      if (existingSpriteStyle) existingSpriteStyle.remove();
       // Reset any inline paint we previously forced on the symbol's
       // elements so a freshly returned solid colour mode shows the
       // icon's original paint (driven by the card's `color`).
@@ -689,10 +704,21 @@ export default function LiveDemoModal({
     // Append the style to the same svg that holds the gradient defs so
     // the use shadow tree picks it up. Also append a duplicate into the
     // sprite host in case the gradient host's <svg> isn't in the same
-    // document subtree as the <use> references.
+    // document subtree as the <use> references. The duplicate is tagged
+    // with `SPRITE_STYLE_ID` so the cleanup branch (when `activeGradient`
+    // is cleared, e.g. via the "Reset custom css" button) can locate and
+    // remove it; without this, the stale `url(#demo-icon-gradient)`
+    // references would survive and hide every icon in the grid.
     svg.appendChild(styleEl);
-    if (spriteHost && spriteHost !== svg.parentElement) {
+    if (spriteHost) {
+      // Remove any leftover clone from a previous gradient run before
+      // appending a fresh one — we want to be sure we never stack up
+      // stale duplicates if the effect re-runs while one is still
+      // attached.
+      const previousClone = document.getElementById(SPRITE_STYLE_ID);
+      if (previousClone) previousClone.remove();
       const dup = (styleEl.cloneNode(true) as unknown) as Element;
+      dup.setAttribute("id", SPRITE_STYLE_ID);
       spriteHost.appendChild(dup);
     }
   }, [activeGradient]);
@@ -1612,7 +1638,7 @@ function DemoIconCard({
     ? ({ color: "#1e293b" } as const)
     : activeGradient
       ? undefined
-      : ({ color: activeHex ?? "#334155" } as const);
+      : ({ color: activeHex ?? "#334155",fill: activeHex ?? "#334155", } as const);
   // Render via <use href="#id"> referencing the <symbol> element in the
   // modal's hidden host (`live-demo-sprite-host`). This matches the legacy
   // app.js approach: the browser resolves the symbol reference against the
