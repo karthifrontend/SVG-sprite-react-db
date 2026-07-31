@@ -605,13 +605,40 @@ export default function LiveDemoModal({
     );
   }
 
-  // Inject the active gradient definition into a hidden <svg> in the document body so <use href="#id"> can reference it. 
+  // Inject the active gradient definition into a hidden <svg> in the document body so <use href="#id"> can reference it. We also stage a per-variant scoped <style> in the SAME SVG as the gradient definition: CSS rules declared in the icon host cascade into the shadow tree of <use> references and apply the `url(#demo-icon-gradient)` paint server to the right attribute. Doing this in the card's <svg> doesn't work — the use shadow tree only inherits styles from its own SVG root, not from the card.
   useEffect(() => {
     if (typeof document === "undefined") return;
     const GRAD_ID = "demo-icon-gradient";
-    const existing = document.getElementById(GRAD_ID);
+    const STYLE_ID = "live-demo-gradient-style";
+    // The primary <style> lives in the gradient host, but we also clone it
+    // into the sprite host (see below) so the <use> shadow trees can pick
+    // up the rules even when they're rendered outside the gradient host's
+    // SVG root. We give the clone a distinct, well-known id so the
+    // cleanup branch can reliably remove BOTH copies — otherwise the
+    // duplicate in the sprite host lingers after "Reset custom CSS" and
+    // keeps applying `fill: url(#demo-icon-gradient) !important` against
+    // a now-removed gradient, which silently nulls out the icon paint
+    // and hides every icon in the grid.
+    const SPRITE_STYLE_ID = "live-demo-gradient-style-sprite";
+    const existingGrad = document.getElementById(GRAD_ID);
+    const existingStyle = document.getElementById(STYLE_ID);
+    const existingSpriteStyle = document.getElementById(SPRITE_STYLE_ID);
     if (!activeGradient) {
-      if (existing) existing.remove();
+      if (existingGrad) existingGrad.remove();
+      if (existingStyle) existingStyle.remove();
+      // Remove the duplicate <style> we previously appended to the
+      // sprite host so the `url(#demo-icon-gradient)` references it
+      // contains no longer leak across the gradient → solid transition.
+      if (existingSpriteStyle) existingSpriteStyle.remove();
+      // Reset any inline paint we previously forced on the symbol's
+      // elements so a freshly returned solid colour mode shows the
+      // icon's original paint (driven by the card's `color`).
+      const host = document.getElementById("live-demo-sprite-host");
+      if (host) {
+        host.querySelectorAll("[data-live-demo-paint]").forEach((el) => {
+          el.removeAttribute("data-live-demo-paint");
+        });
+      }
       return;
     }
     let host = document.getElementById("live-demo-gradient-host");
@@ -634,10 +661,11 @@ export default function LiveDemoModal({
     defs.innerHTML = "";
     const grad = document.createElementNS(SVG_NS, "linearGradient");
     grad.setAttribute("id", GRAD_ID);
-    grad.setAttribute("x1", "0%");
-    grad.setAttribute("y1", "0%");
-    grad.setAttribute("x2", "100%");
-    grad.setAttribute("y2", "100%");
+    grad.setAttribute("gradientUnits", "userSpaceOnUse");
+    grad.setAttribute("x1", "0");
+    grad.setAttribute("y1", "0");
+    grad.setAttribute("x2", "24");
+    grad.setAttribute("y2", "24");
     const stop1 = document.createElementNS(SVG_NS, "stop");
     stop1.setAttribute("offset", "0%");
     stop1.setAttribute("stop-color", activeGradient.start);
@@ -647,21 +675,99 @@ export default function LiveDemoModal({
     grad.appendChild(stop1);
     grad.appendChild(stop2);
     defs.appendChild(grad);
+    const styleEl = document.createElementNS(SVG_NS, "style") as unknown as HTMLStyleElement;
+    styleEl.setAttribute("id", STYLE_ID);
+    const spriteHost = document.getElementById("live-demo-sprite-host");
+    const cssChunks: string[] = [];
+    if (spriteHost) {
+      spriteHost.querySelectorAll("symbol").forEach((sym) => {
+        const symId = sym.getAttribute("id");
+        if (!symId) return;
+        const inner = sym.innerHTML;
+        // Re-classify against the raw inner markup to decide the rule.
+        // We don't have a DOMParser here, so re-use the in-memory helpers.
+        const variant = classifySymbolVariant(inner);
+        if (variant === "multicolor") return;
+        if (variant === "outlined") {
+          cssChunks.push(
+            `#${symId} * { fill: none !important; stroke: url(#${GRAD_ID}) !important; }`,
+          );
+        } else {
+          cssChunks.push(
+            `#${symId} * { fill: url(#${GRAD_ID}) !important; stroke: none !important; }`,
+          );
+        }
+      });
+    }
+    styleEl.textContent = cssChunks.join("\n");
+    if (existingStyle) existingStyle.remove();
+    // Append the style to the same svg that holds the gradient defs so
+    // the use shadow tree picks it up. Also append a duplicate into the
+    // sprite host in case the gradient host's <svg> isn't in the same
+    // document subtree as the <use> references. The duplicate is tagged
+    // with `SPRITE_STYLE_ID` so the cleanup branch (when `activeGradient`
+    // is cleared, e.g. via the "Reset custom css" button) can locate and
+    // remove it; without this, the stale `url(#demo-icon-gradient)`
+    // references would survive and hide every icon in the grid.
+    svg.appendChild(styleEl);
+    if (spriteHost) {
+      // Remove any leftover clone from a previous gradient run before
+      // appending a fresh one — we want to be sure we never stack up
+      // stale duplicates if the effect re-runs while one is still
+      // attached.
+      const previousClone = document.getElementById(SPRITE_STYLE_ID);
+      if (previousClone) previousClone.remove();
+      const dup = (styleEl.cloneNode(true) as unknown) as Element;
+      dup.setAttribute("id", SPRITE_STYLE_ID);
+      spriteHost.appendChild(dup);
+    }
   }, [activeGradient]);
 
-  // Ensure the sprite XML (symbols) is available in the document so <use href="#id"> inside the modal can resolve symbol references.
+  // Ensure the sprite XML (symbols) is available in the document so <use href="#id"> inside the modal can resolve symbol references. We host the sprite in a hidden <svg> container so the symbol elements stay in the SVG namespace and the browser can resolve <use> lookups against the live DOM 1:1 — matching the legacy app.js behaviour and avoiding the namespace re-scoping bugs that broke the previous "innerHTML into a <g>" rendering.
   useEffect(() => {
     if (typeof document === "undefined") return;
     const HOST_ID = "live-demo-sprite-host";
-    let host = document.getElementById(HOST_ID);
+    let host = document.getElementById(HOST_ID) as SVGSVGElement | null;
+    if (host && host.namespaceURI !== SVG_NS) {
+      // An older revision of the modal stored the host as a <div> in the
+      // HTML namespace. Symbols appended there were re-served as HTML
+      // nodes and <use> could not resolve them, so we throw the legacy
+      // host away and recreate it in the SVG namespace below.
+      host.remove();
+      host = null;
+    }
     if (!host) {
-      host = document.createElement("div");
-      host.id = HOST_ID;
-      host.style.cssText = "position:absolute;width:0;height:0;overflow:hidden;";
+      host = document.createElementNS(SVG_NS, "svg");
+      host.setAttribute("id", HOST_ID);
+      host.setAttribute("aria-hidden", "true");
+      host.setAttribute("focusable", "false");
+      host.style.cssText =
+        "position:absolute;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none;";
       document.body.appendChild(host);
     }
-    // Replace host content with the provided sprite XML (or clear)
-    host.innerHTML = sprite ?? "";
+    // Replace host children with the parsed sprite's children. Using
+    // DOMParser + replaceChildren preserves the SVG namespace of every
+    // <symbol> and its descendants so <use href="#id"> can resolve them
+    // without re-scoping. The legacy app.js took the same shortcut of
+    // dropping the whole sprite XML into a hidden div, but that worked
+    // there because the icons were only ever rendered as <use> against
+    // an HTML <body> — we follow the same approach but in the SVG
+    // namespace for the host so each <symbol> keeps its original markup.
+    host.replaceChildren();
+    if (sprite) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(sprite, "image/svg+xml");
+      if (!doc.querySelector("parsererror")) {
+        const symbols = Array.from(doc.querySelectorAll("symbol"));
+        // Clone every <symbol> from the parsed sprite into the live host.
+        // `importNode` keeps the SVG namespace so the cloned nodes are
+        // recognisable to <use href="#…"> lookups in the page.
+        symbols.forEach((sym) => {
+          const imported = document.importNode(sym, true);
+          host!.appendChild(imported);
+        });
+      }
+    }
     return () => {
       // Remove the host when the modal is closed to avoid leaking defs
       if (!isOpen) {
@@ -1520,29 +1626,26 @@ function DemoIconCard({
   const activeHex = activeCustomColor || (preset ? preset.hex : null);
   const iconVariant = classifySymbolVariant(symbolInnerHtml);
   const isMulticolor = iconVariant === "multicolor";
-  const isOutlinedIcon = iconVariant === "outlined";
-  const inlineScopedCss = (): string => {
-    if (isMulticolor) return "";
-    const selector = `svg[data-demo-icon-style="${id}"] *`;
-    if (activeGradient) {
-      if (isOutlinedIcon) {
-        return `${selector} { fill: none !important; stroke: url(#demo-icon-gradient) !important; }`;
-      }
-      return `${selector} { fill: url(#demo-icon-gradient) !important; stroke: none !important; }`;
-    }
-    const hex = activeHex ?? "#334155";
-    if (isOutlinedIcon) {
-      return `${selector} { fill: none !important; stroke: ${hex} !important; }`;
-    }
-    return `${selector} { fill: ${hex} !important; stroke: none !important; }`;
-  };
-  const scopedStyle: ReactNode = isMulticolor ? null : (
-    <style>{inlineScopedCss()}</style>
-  );
-  const wrapperColorStyle =
-    activeGradient || isMulticolor
+  // Drive the icon's colour via the card's `color` attribute. The symbol
+  // references live in the hidden host, and the upload pipeline stores
+  // paint as `var(--icon-color, currentColor)`, so the `currentColor`
+  // fallback resolves through the card's `color` value. For multicolor
+  // icons we leave the symbol untouched (no scoping) so the original
+  // palette stays intact. Gradient mode is handled via a global scoped
+  // <style> in the gradient host — see the activeGradient effect — so
+  // the card doesn't need to emit a per-card <style> here.
+  const wrapperColorStyle = isMulticolor
+    ? ({ color: "#1e293b" } as const)
+    : activeGradient
       ? undefined
-      : ({ color: activeHex ?? "#334155" } as const);
+      : ({ color: activeHex ?? "#334155",fill: activeHex ?? "#334155", } as const);
+  // Render via <use href="#id"> referencing the <symbol> element in the
+  // modal's hidden host (`live-demo-sprite-host`). This matches the legacy
+  // app.js approach: the browser resolves the symbol reference against the
+  // live DOM, so the symbol's original markup, viewBox, and namespace
+  // declarations are preserved 1:1 — no re-scoping inside a foreign <g>.
+  // That fixes the "icons render broken / wrong colour" issue that the
+  // previous `dangerouslySetInnerHTML` injection caused.
   const useSnippet: ReactNode = (
     <svg
       className="transition-all duration-200"
@@ -1552,11 +1655,7 @@ function DemoIconCard({
       data-demo-icon-style={id}
       data-icon-variant={iconVariant}
     >
-      {scopedStyle}
-      <g
-        data-demo-icon-content={id}
-        dangerouslySetInnerHTML={{ __html: symbolInnerHtml }}
-      />
+      <use href={`#${id}`} />
     </svg>
   );
 
