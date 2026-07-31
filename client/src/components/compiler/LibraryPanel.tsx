@@ -592,7 +592,8 @@ function LibraryPanel({
                             : "Access is limited to viewing only, as you do not own this library."
                         }
                       >
-                        {"Update"}
+                        { version.isOwner
+                            ? "Update" : "Read only"}
                       </button>
                       <div className="flex items-center gap-1.5">
                         <button
