@@ -1,4 +1,4 @@
-// Sprite utilities. Builds sprite XML, extracts symbols, validates SVG files, and formats sizes/dates.
+﻿// Sprite utilities. Builds sprite XML, extracts symbols, validates SVG files, and formats sizes/dates.
 export type SpriteSymbol = {
   id: string;
   viewBox: string;
@@ -228,6 +228,19 @@ export function extractSymbolsFromSprite(xml: string): SpriteSymbol[] {
   }
 }
 
+// Per-symbol colour strategy. The compiler distinguishes three flavours of
+// icon so the live preview can apply a custom colour to the *right* paint
+// attribute and never the wrong one:
+//   - `"solid"`     → the icon has a non-`none` fill and no paintable stroke.
+//                     Recolouring touches fill only; stroke is forced to none.
+//   - `"outlined"`  → the icon has a non-`none` stroke (and no fill, or
+//                     `fill="none"`). Recolouring touches stroke only; fill
+//                     is forced to none so the outline reads as a clean line.
+//   - `"multicolor"`→ the icon uses two or more distinct paintable colours.
+//                     Recolouring is skipped entirely so the original
+//                     palette (logos, badges, brand glyphs, …) is preserved.
+export type IconVariant = "solid" | "outlined" | "multicolor";
+
 function extractColorValues(markup: string): string[] {
   const values: string[] = [];
   const attrRegex = /\b(fill|stroke)\s*=\s*(['"])(.*?)\2/gi;
@@ -253,25 +266,95 @@ function extractColorValues(markup: string): string[] {
   return values;
 }
 
-export function isTintableSymbolMarkup(markup: string): boolean {
+// True when the markup contains a paintable fill (any fill other than
+// `none`/`transparent`/`currentColor`/`inherit`/a paint server). Inline
+// `style="fill:…"` and the `fill="…"` attribute both count.
+function hasPaintableFill(markup: string): boolean {
+  const attrRegex = /\bfill\s*=\s*(['"])(.*?)\1/gi;
+  const styleRegex = /\bfill\s*:\s*([^;"'\s]+)/gi;
+  let match: RegExpExecArray | null;
+  const isPaintable = (raw: string): boolean => {
+    const value = raw.trim();
+    if (!value) return false;
+    if (/^(none|transparent|currentcolor|inherit)$/i.test(value)) return false;
+    if (value.startsWith("url(")) return false;
+    return true;
+  };
+  while ((match = attrRegex.exec(markup)) !== null) {
+    if (isPaintable(match[2] ?? "")) return true;
+  }
+  while ((match = styleRegex.exec(markup)) !== null) {
+    if (isPaintable(match[1] ?? "")) return true;
+  }
+  return false;
+}
+
+// True when the markup contains a paintable stroke. Same rules as
+// `hasPaintableFill` but for the `stroke` attribute/style.
+function hasPaintableStroke(markup: string): boolean {
+  const attrRegex = /\bstroke\s*=\s*(['"])(.*?)\1/gi;
+  const styleRegex = /\bstroke\s*:\s*([^;"'\s]+)/gi;
+  let match: RegExpExecArray | null;
+  const isPaintable = (raw: string): boolean => {
+    const value = raw.trim();
+    if (!value) return false;
+    if (/^(none|transparent|currentcolor|inherit)$/i.test(value)) return false;
+    if (value.startsWith("url(")) return false;
+    return true;
+  };
+  while ((match = attrRegex.exec(markup)) !== null) {
+    if (isPaintable(match[2] ?? "")) return true;
+  }
+  while ((match = styleRegex.exec(markup)) !== null) {
+    if (isPaintable(match[1] ?? "")) return true;
+  }
+  return false;
+}
+
+// Classify a symbol's inner markup into the recolouring strategy that should
+// be applied. See `IconVariant` for the rationale.
+export function classifySymbolVariant(markup: string): IconVariant {
   const colors = extractColorValues(markup);
-  if (colors.length === 0) return true;
   const uniqueColors = colors.filter(
     (value, index) => colors.indexOf(value) === index
   );
-  return uniqueColors.length <= 1;
+  if (uniqueColors.length > 1) return "multicolor";
+  const hasFill = hasPaintableFill(markup);
+  const hasStroke = hasPaintableStroke(markup);
+  if (hasStroke && !hasFill) return "outlined";
+  // Default: a single paintable (or zero) fill with optional stroke that
+  // resolves to currentColor when recoloured → treat as a solid icon. This
+  // matches the previous "one color → safe to tint" rule but routes the
+  // recolouring to the fill attribute only.
+  return "solid";
+}
+
+// Backwards-compatible predicate: a symbol is "tintable" whenever the new
+// classifier doesn't flag it as multicolor. Solid + outlined icons both
+// return true so the existing `data-tintable` marker keeps working in the
+// zip's `demo.html` and inside the modal — the variant attribute is what
+// the new normalisation reads to decide which paint attribute to touch.
+export function isTintableSymbolMarkup(markup: string): boolean {
+  return classifySymbolVariant(markup) !== "multicolor";
 }
 
 function markTintableSymbols(spriteXml: string): string {
   return spriteXml.replace(
     /(<symbol\b[^>]*>)([\s\S]*?)(<\/symbol>)/g,
     (_full, openTag, inner, closeTag) => {
-      const tintable = isTintableSymbolMarkup(inner);
-      const marker = ` data-tintable="${tintable ? "true" : "false"}"`;
-      const hasMarker = openTag.includes("data-tintable=");
-      const updatedOpenTag = hasMarker
-        ? openTag.replace(/data-tintable="(?:true|false)"/i, marker.trim())
-        : `${openTag.slice(0, -1)}${marker}>`;
+      const variant = classifySymbolVariant(inner);
+      const tintable = variant !== "multicolor";
+      const markers = [
+        ` data-tintable="${tintable ? "true" : "false"}"`,
+        ` data-icon-variant="${variant}"`,
+      ];
+      // Insert the new markers before the closing `>` of the <symbol> open
+      // tag. If older revisions already wrote one of these markers, drop
+      // them first so the output never accumulates duplicates.
+      let updatedOpenTag = openTag
+        .replace(/\s+data-tintable="(?:true|false)"/i, "")
+        .replace(/\s+data-icon-variant="(?:solid|outlined|multicolor)"/i, "");
+      updatedOpenTag = `${updatedOpenTag.slice(0, -1)}${markers.join("")}>`;
       return `${updatedOpenTag}${inner}${closeTag}`;
     }
   );
@@ -363,16 +446,26 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   </div>
   <div class="footer">Generated by SVG Sprite Compiler</div>
   <script>
-    // Normalize every symbol so all fill/stroke values use currentColor.
-    // This guarantees that toggling the swatches re-tints every icon, even when
-    // the original SVGs had hardcoded colors that the generator's regex missed
-    // (e.g. styles set via the style attribute, single-quoted attributes, or
-    // values inherited from wrapper <g> elements).
+    // Normalize every symbol so its paint attributes use currentColor,
+    // which is the value the swatch buttons ultimately drive. The exact
+    // paint attribute we touch depends on the icon's variant — see
+    // classifySymbolVariant for the rules:
+    //   - solid     → fill uses currentColor, stroke is set to none so
+    //                 the recoloured shape doesn't pick up a leftover
+    //                 outline.
+    //   - outlined  → stroke uses currentColor, fill is set to none so
+    //                 the recoloured outline reads as a clean line.
+    //   - multicolor→ the original palette is preserved untouched.
+    // This guarantees that toggling the swatches re-tints every icon
+    // without ever pushing a colour onto the wrong paint attribute, even
+    // when the original SVGs had hardcoded colors that the generator's
+    // regex missed (e.g. styles set via the style attribute, single-quoted
+    // attributes, or values inherited from wrapper <g> elements).
     (function normalizeSymbols() {
       var symbols = document.querySelectorAll('symbol');
       symbols.forEach(function (sym) {
-        var tintable = sym.getAttribute('data-tintable') !== 'false';
-        if (!tintable) return;
+        if (sym.getAttribute('data-tintable') === 'false') return;
+        var variant = sym.getAttribute('data-icon-variant') || 'solid';
 
         var nodes = sym.querySelectorAll('*');
         for (var i = 0; i < nodes.length; i++) {
@@ -381,19 +474,53 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
           if (n.nodeType !== 1) continue;
           // Strip inline style fill/stroke (e.g. style="fill:#abc;stroke:#def")
           if (n.getAttribute('style')) {
-            var s = n.getAttribute('style').replace(/(^|;)\s*(fill|stroke)\s*:\s*[^;]+/gi, function (match, p, prop) { return p + prop + ':currentColor'; });
+            // Build the regex with new RegExp so the single-quoted JS
+            // string literal above doesn't terminate on the apostrophe
+            // inside the character class. The pattern matches a
+            // fill:…/stroke:… declaration within a style="…" body.
+            var inlineStyleRegex = new RegExp("(^|;)\\s*(fill|stroke)\\s*:\\s*[^;]+", "gi");
+            var s = n.getAttribute('style').replace(
+              inlineStyleRegex,
+              function (match, p, prop) {
+                var value;
+                if (variant === 'outlined') {
+                  value = prop === 'stroke' ? 'currentColor' : 'none';
+                } else {
+                  // 'solid' (default) — recolour the fill, nullify the stroke.
+                  value = prop === 'fill' ? 'currentColor' : 'none';
+                }
+                return p + prop + ':' + value;
+              }
+            );
             n.setAttribute('style', s);
           }
-          // Force attribute-based fill/stroke to currentColor (except 'none').
+          // Force attribute-based fill/stroke to currentColor / none
+          // depending on the icon variant.
           ['fill', 'stroke'].forEach(function (attr) {
             var v = n.getAttribute(attr);
-            if (v && v !== 'none') {
-              n.setAttribute(attr, 'currentColor');
+            // Skip values the author already neutralised (e.g. fill="none").
+            if (v === 'none') {
+              // For solid icons, the original fill="none" was almost
+              // certainly a hack to make the inner shapes transparent so
+              // the surrounding <path> does the painting. We must NOT
+              // promote it to currentColor — leave it as none and let
+              // the next block repaint only the fill.
+              return;
+            }
+            if (variant === 'outlined') {
+              n.setAttribute(attr, attr === 'stroke' ? 'currentColor' : 'none');
+            } else {
+              // 'solid' (default) — recolour the fill, nullify the stroke.
+              n.setAttribute(attr, attr === 'fill' ? 'currentColor' : 'none');
             }
           });
-          // For elements with no explicit fill/stroke and no style, set fill to currentColor
-          // This ensures even basic shapes like circles, rects, lines get colored
-          if (!n.getAttribute('fill') && !n.getAttribute('style')) {
+          // For elements with no explicit fill/stroke and no style, default
+          // the fill to currentColor so basic shapes (circle, rect, line)
+          // get coloured. Only do this for solid icons; outlined icons
+          // rely on the stroke and would look wrong with a sudden fill.
+          if (variant === 'solid'
+              && !n.getAttribute('fill')
+              && !n.getAttribute('style')) {
             n.setAttribute('fill', 'currentColor');
           }
         }
