@@ -208,17 +208,100 @@ function renderSymbolToDataUrl(
   size: number,
   color: string
 ): string {
-  // Re-color hard-coded fills / strokes to currentColor so the surrounding <svg color="..."> attribute can style the icon. We leave `none` and `currentColor` alone so transparent parts stay transparent.
-  const styled = inner
-    .replace(/\sfill="(?!none|currentColor)[^"]*"/gi, ' fill="currentColor"')
-    .replace(/\sstroke="(?!none|currentColor)[^"]*"/gi, ' stroke="currentColor"');
-
+  const styled = recolorSymbolInnerPerElement(inner);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${size}" height="${size}" color="${color}"><g>${styled}</g></svg>`;
   // Encode as a UTF-8 data URL.
   const encoded = encodeURIComponent(svg)
     .replace(/'/g, "%27")
     .replace(/"/g, "%22");
   return `data:image/svg+xml;charset=utf-8,${encoded}`;
+}
+
+function recolorSymbolInnerPerElement(inner: string): string {
+  if (!inner || !inner.trim()) return inner;
+
+  const parser = new DOMParser();
+  const wrapped = `<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+  const doc = parser.parseFromString(wrapped, "image/svg+xml");
+  if (doc.querySelector("parsererror")) return inner;
+
+  const root = doc.documentElement;
+  const all = root.querySelectorAll("*");
+  all.forEach((el) => {
+    const hasAttrFill = el.hasAttribute("fill");
+    const hasAttrStroke = el.hasAttribute("stroke");
+    const attrFill = el.getAttribute("fill") ?? "";
+    const attrStroke = el.getAttribute("stroke") ?? "";
+
+    const paintableFill = isPaintableValue(attrFill);
+    const paintableStroke = isPaintableValue(attrStroke);
+
+    if (paintableStroke && !paintableFill) {
+      el.setAttribute("stroke", "currentColor");
+      el.setAttribute("fill", "none");
+    } else if (paintableStroke && paintableFill) {
+      el.setAttribute("stroke", "currentColor");
+      el.setAttribute("fill", "currentColor");
+    } else if (paintableFill && !paintableStroke) {
+      // Solid body: colour the fill, nullify any leftover stroke.
+      el.setAttribute("fill", "currentColor");
+      if (hasAttrStroke) el.setAttribute("stroke", "none");
+    } else {
+      if (!hasAttrFill) el.setAttribute("fill", "currentColor");
+    }
+
+    const style = el.getAttribute("style");
+    if (style) {
+      const styleFillMatch = style.match(/(^|;)\s*fill\s*:\s*([^;"]+)/i);
+      const styleStrokeMatch = style.match(/(^|;)\s*stroke\s*:\s*([^;"]+)/i);
+      const styleFill = styleFillMatch ? styleFillMatch[2].trim() : null;
+      const styleStroke = styleStrokeMatch
+        ? styleStrokeMatch[2].trim()
+        : null;
+      const styleFillPaintable =
+        styleFill !== null && isPaintableValue(styleFill);
+      const styleStrokePaintable =
+        styleStroke !== null && isPaintableValue(styleStroke);
+
+      let next = style;
+      if (styleStrokePaintable && !styleFillPaintable) {
+        next = rewriteStyleDecl(next, "stroke", "currentColor");
+        next = rewriteStyleDecl(next, "fill", "none");
+      } else if (styleStrokePaintable && styleFillPaintable) {
+        next = rewriteStyleDecl(next, "stroke", "currentColor");
+        next = rewriteStyleDecl(next, "fill", "currentColor");
+      } else if (styleFillPaintable && !styleStrokePaintable) {
+        next = rewriteStyleDecl(next, "fill", "currentColor");
+        if (styleStroke !== null) {
+          next = rewriteStyleDecl(next, "stroke", "none");
+        }
+      }
+      el.setAttribute("style", next);
+    }
+  });
+
+  const serialised = new XMLSerializer().serializeToString(root);
+  const openTagEnd = serialised.indexOf(">");
+  const closeTagStart = serialised.lastIndexOf("</svg>");
+  if (openTagEnd < 0 || closeTagStart < 0) return inner;
+  return serialised.slice(openTagEnd + 1, closeTagStart);
+}
+
+function isPaintableValue(value: string | null | undefined): boolean {
+  if (value === null || value === undefined) return false;
+  const v = value.trim();
+  if (!v) return false;
+  if (/^(none|transparent|currentcolor|inherit)$/i.test(v)) return false;
+  if (v.toLowerCase().startsWith("url(")) return false;
+  return true;
+}
+function rewriteStyleDecl(
+  style: string,
+  prop: "fill" | "stroke",
+  value: string
+): string {
+  const re = new RegExp(`(^|;)\\s*${prop}\\s*:\\s*[^;"]+`, "gi");
+  return style.replace(re, (_match, lead) => `${lead}${prop}:${value}`);
 }
 
 function drawDataUrlImage(
