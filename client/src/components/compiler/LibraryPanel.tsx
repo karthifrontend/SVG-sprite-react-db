@@ -622,7 +622,7 @@ function LibraryPanel({
                               );
                             }
                           }}
-                          className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-500"
+                          className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-500"
                           title="Preview icons"
                           aria-label={`Preview ${group.bundleName} v${version.version}`}
                         >
@@ -635,7 +635,7 @@ function LibraryPanel({
                             void handleDownloadVersion(version);
                           }}
                           disabled={downloadBusyId === version.id}
-                          className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="rounded bg-slate-50 p-1 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
                           title={`Download v${version.version} bundle`}
                           aria-label={`Download ${group.bundleName} v${version.version} bundle`}
                         >

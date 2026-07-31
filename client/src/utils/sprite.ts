@@ -4,13 +4,6 @@ export type SpriteSymbol = {
   viewBox: string;
   inner: string;
 };
-
-// Natural-order comparator for symbol ids so the live demo, downloaded sprite, and saved
-// library version all list icons in a human-friendly sequence (`icon`, `icon-1`, `icon-2`,
-// `icon-10` rather than the lexicographic `icon-1`, `icon-10`, `icon-2`). The id is split
-// into alternating text / number runs; text segments are compared with `localeCompare` and
-// number segments numerically. The `icon-` prefix is normalised away before the stem is
-// compared so the rest of the name drives the ordering.
 const ICON_PREFIX = "icon-";
 export function compareSymbolId(a: string, b: string): number {
   if (a === b) return 0;

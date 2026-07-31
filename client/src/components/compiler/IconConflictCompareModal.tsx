@@ -1,14 +1,4 @@
-// Side-by-side compare view for a single icon conflict. Modelled after
-// the Windows File Explorer "1 File Conflict" popup. The user sees the
-// existing icon on the left ("Files already in base sprite") and the
-// newly uploaded icon on the right ("Files from uploads"), with
-// checkboxes on each side to indicate which version(s) to keep. Both
-// checkboxes start UNCHECKED so the user has to make an explicit
-// choice per side. When the user picks "keep both", the new icon is
-// saved with the parent-supplied auto-suggested `<base>-<n>` suffix
-// (no inline editor in this popup — the parent's collision-free
-// suffix is used directly, matching the per-row "keep both"
-// behaviour in the parent popup).
+// Side-by-side compare view for a single icon conflict.
 import { useEffect, useState } from "react";
 import Modal from "../Modal";
 import {
@@ -20,49 +10,14 @@ import { CloseIcon } from "../icons";
 type IconConflictCompareModalProps = {
   isOpen: boolean;
   conflict: IconConflict | null;
-  // The proposed `<base>-<n>` rename suggested by the parent for the
-  // "keep both" case. The Compare popup no longer exposes an inline
-  // editor — the value is used as-is when the user picks "keep both"
-  // and clicks Continue. The parent computes this against the union
-  // of every existing sprite id and every other "keep both" rename,
-  // so two conflicts with the same base id still get distinct
-  // suffixes (-1, -2, …).
   proposedRename: string;
-  // The current resolution for this row (if any), so the modal can
-  // seed the two checkboxes to the correct initial state. When the
-  // row is already in "both" mode both checkboxes are pre-checked;
-  // any other resolution state (or no resolution) starts with both
-  // checkboxes unchecked.
   resolution?: ConflictResolution;
-  // Every id that's already taken in the merged sprite. Kept in
-  // the prop signature for backwards compatibility with the
-  // parent (the parent still supplies the same prop), but no
-  // longer used directly in this popup — the inline rename
-  // editor was removed in favour of the parent's auto-suggested
-  // `<id>-<n>` suffix.
   takenIds: ReadonlySet<string>;
   busy: boolean;
   onClose: () => void;
-  // Fired when the user clicks "Continue". The compare modal hands
-  // back the chosen action — the parent updates the per-row
-  // resolution map and closes the compare modal.
   onApply: (input: { kind: "replace" | "skip" | "both"; renamedId: string }) => void;
 };
 
-// Side-by-side preview used in the compare modal. Sized to match
-// the per-row preview in the parent modal (`h-12 w-12` wrapper with
-// a `h-9 w-9` inner SVG) so the two popups look visually
-// consistent — the user gets the same icon footprint whether they
-// pick the side-by-side compare popup (1-conflict case) or the
-// per-row checkboxes (N>1 case). The wrapper and inner SVG are
-// still scaled the same way (`viewBox` + `preserveAspectRatio`)
-// so the icon shape is preserved regardless of the declared
-// viewBox. The `label` prop is optional: when omitted (the per-row
-// context), only the icon is rendered — matching the per-row
-// popup's [checkbox + icon] cell exactly. The icon background is
-// `bg-white` (not `bg-slate-50`) to match the per-row preview
-// exactly, since the row card already has a `bg-slate-50/40`
-// backdrop.
 function ComparePreview({
   viewBox,
   inner,
@@ -101,41 +56,14 @@ export default function IconConflictCompareModal({
   conflict,
   proposedRename,
   resolution,
-  // `takenIds` is unused since the inline rename editor was removed
-  // (the parent supplies the auto-suggested `<id>-<n>` suffix
-  // directly via `proposedRename`). Kept in the prop signature for
-  // backwards compatibility with the parent's callsite. The leading
-  // underscore is a TS convention to acknowledge the unused binding.
   takenIds: _takenIds,
   busy,
   onClose,
   onApply,
 }: IconConflictCompareModalProps) {
-  // Two checkboxes — one per side. The user can keep existing only,
-  // new only, or both. Both checkboxes start UNCHECKED so the user
-  // has to make an explicit choice per side. The "both" case uses
-  // the parent's `proposedRename` directly (auto-incremented
-  // suffix) — there is no inline editor in this popup. We seed
-  // from the current resolution so opening the compare modal for a
-  // row that's already in "both" mode shows both checkboxes
-  // pre-checked (and the user can uncheck one to downgrade to
-  // "replace" or "skip"); any other resolution state starts with
-  // both unchecked.
   const [keepExisting, setKeepExisting] = useState<boolean>(false);
   const [keepNew, setKeepNew] = useState<boolean>(false);
 
-  // Re-seed every time the compare modal opens (or the user switches
-  // to a different conflict). The current `resolution` drives the
-  // initial checkbox state so the modal is consistent with whatever
-  // answer the parent modal already has for the row — matching the
-  // per-row popup's tri-state pair exactly:
-  //   • `replace`  → source (Files from uploads) on,
-  //                  dest (Files already in base sprite) off
-  //   • `skip`     → source off, dest on
-  //   • `both`     → both on
-  //   • undefined  → both off (no decision yet — the per-row
-  //                  popup's "no resolution" case, which defaults
-  //                  to "skip" on Continue).
   useEffect(() => {
     if (!isOpen || !conflict) return;
     setKeepExisting(
@@ -146,23 +74,7 @@ export default function IconConflictCompareModal({
 
   if (!conflict) return null;
 
-  // The "Continue" button is enabled when the user has picked at
-  // least one version to keep. When neither side is checked the
-  // button is disabled — the user has to make an explicit choice
-  // per side (matching the per-row "unchecked by default"
-  // behaviour in the parent modal). The "keep both" branch uses
-  // the parent's `proposedRename` directly, so there's no inline
-  // collision check here — the parent computes a free
-  // `<id>-<n>` suffix against the rest of the merged sprite, and
-  // the hook re-validates it on Continue.
   const canContinue = keepExisting || keepNew;
-  // Combine into a single action. The priority order matches the
-  // Windows popup:
-  //   • both checked → "both" (with the parent's auto-suggested
-  //     `<id>-<n>` suffix passed through as `renamedId`)
-  //   • only new checked → "replace" (default Windows behaviour)
-  //   • only existing checked → "skip"
-  //   • neither checked → Continue is disabled
   const action: "both" | "replace" | "skip" | null = !keepExisting && !keepNew
     ? null
     : keepExisting && keepNew
@@ -177,25 +89,6 @@ export default function IconConflictCompareModal({
       onClose={busy ? () => undefined : onClose}
       maxWidth="max-w-lg"
       ariaLabel="Compare icon conflict"
-      // Per UX request: this stacked modal sits ON TOP of the
-      // parent Replace-or-Skip-Files popup, so its close (×)
-      // should only dismiss this surface — pressing Escape or
-      // clicking the close icon must NOT cascade into the
-      // parent conflict popup beneath it. We achieve that by
-      //   • `dismissOnBackdrop={false}` — backdrop click does
-      //     nothing (already disabled across all icon-conflict
-      //     popups).
-      //   • `stopEscapePropagation={true}` — Escape calls
-      //     `event.stopImmediatePropagation()` after invoking
-      //     `onClose`, so the parent modal's own Escape
-      //     listener (registered earlier in the DOM) is
-      //     suppressed for this keypress.
-      // We bump the z-index above the parent's `z-60` so the
-      // stacked modal sits visually on top, but otherwise use
-      // the same backdrop styling (default `bg-slate-900/60`)
-      // and the same `max-w-lg` panel size — so the 1-conflict
-      // popup and the N>1 per-row popup have visually
-      // identical surfaces.
       dismissOnBackdrop={false}
       stopEscapePropagation={true}
     >
@@ -222,13 +115,6 @@ export default function IconConflictCompareModal({
           <button
             type="button"
             onClick={(event) => {
-              // Per UX request: closing this modal must NOT cascade
-              // into the parent conflict popup beneath it. We stop
-              // event propagation so any synthetic bubbling path
-              // (or future parent-level listeners we don't yet
-              // know about) can't pick up this click. The local
-              // `onClose` prop (which clears `compareId` only) is
-              // still invoked.
               event.stopPropagation();
               onClose();
             }}
@@ -390,17 +276,11 @@ export default function IconConflictCompareModal({
               if (!action) return;
               onApply({
                 kind: action,
-                // Only the "both" branch uses renamedId; the other
-                // branches ignore it. We pass the parent's
-                // auto-suggested rename directly so the row's
-                // caption and the value the hook will use stay
-                // in sync — there is no inline editor in this
-                // popup.
                 renamedId: proposedRename,
               });
             }}
             disabled={busy || !canContinue}
-            className="px-4 py-2 rounded-lg bg-linear-to-r from-indigo-600 to-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-200/60 transition-all flex items-center gap-1.5 hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-300 disabled:shadow-none"
+            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-md shadow-indigo-200/60 transition-all flex items-center gap-1.5 disabled:cursor-not-allowed disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:shadow-none"
           >
             {busy ? "Applying…" : "Continue"}
           </button>

@@ -65,11 +65,6 @@ export default function SaveToLibraryModal({
       onClose={busy ? () => undefined : onClose}
       maxWidth="max-w-md"
       ariaLabel="Save to organization library"
-      // Per UX request: the Save to Organization popup should not
-      // dismiss when the user clicks the backdrop — only the
-      // explicit close (×) affordance or Cancel button does. This
-      // avoids losing the user's typed library name / version
-      // description if they accidentally click outside the modal.
       dismissOnBackdrop={false}
     >
       <div className="p-6">
@@ -155,7 +150,7 @@ export default function SaveToLibraryModal({
                   className="peer sr-only"
                   aria-label="Make this library public"
                 />
-                <div className="block h-6 w-10 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500 peer-disabled:opacity-60" />
+                <div className="block h-6 w-10 rounded-full bg-slate-200 transition-colors peer-checked:bg-indigo-500 peer-disabled:opacity-60" />
                 <div className="dot absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
               </div>
               <span className="text-sm font-semibold text-slate-700 transition-colors group-hover:text-slate-900">
@@ -188,7 +183,7 @@ export default function SaveToLibraryModal({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600  disabled:hover:border-slate-300 disabled:hover:text-slate-700 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -196,7 +191,7 @@ export default function SaveToLibraryModal({
             type="button"
             onClick={() => onSubmit({ name: trimmedName, version: trimmedVersion, isPublic })}
             disabled={busy || isInvalid}
-            className="rounded-lg bg-emerald-600 px-6 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-indigo-600 px-6 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? "Saving…" : "Save"}
           </button>
