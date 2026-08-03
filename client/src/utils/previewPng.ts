@@ -1,5 +1,7 @@
 // Renders a sprite sheet to a PNG by drawing each symbol onto its own card on a hidden <canvas>. We avoid adding an html-to-image dependency by inlining the sprite XML into a Blob URL, parsing each <symbol> and re-serialising it as a tiny data: URL we can drawImage onto the canvas. The result is a "preview.png" with one card per symbol, matching the on-screen design of the live demo / library panel.
 
+import { classifySymbolVariant } from "./sprite";
+
 const SYMBOL_PX = 96;
 const CARD_PADDING_X = 96;
 const CARD_PADDING_Y = 24;
@@ -220,6 +222,11 @@ function renderSymbolToDataUrl(
 function recolorSymbolInnerPerElement(inner: string): string {
   if (!inner || !inner.trim()) return inner;
 
+  const variant = classifySymbolVariant(inner);
+  if (variant === "multicolor") {
+    return inner;
+  }
+
   const parser = new DOMParser();
   const wrapped = `<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
   const doc = parser.parseFromString(wrapped, "image/svg+xml");
@@ -236,18 +243,30 @@ function recolorSymbolInnerPerElement(inner: string): string {
     const paintableFill = isPaintableValue(attrFill);
     const paintableStroke = isPaintableValue(attrStroke);
 
-    if (paintableStroke && !paintableFill) {
-      el.setAttribute("stroke", "currentColor");
-      el.setAttribute("fill", "none");
-    } else if (paintableStroke && paintableFill) {
-      el.setAttribute("stroke", "currentColor");
-      el.setAttribute("fill", "currentColor");
-    } else if (paintableFill && !paintableStroke) {
-      // Solid body: colour the fill, nullify any leftover stroke.
-      el.setAttribute("fill", "currentColor");
-      if (hasAttrStroke) el.setAttribute("stroke", "none");
+    if (variant === "outlined") {
+      if (attrFill === "none") {
+        if (paintableStroke) el.setAttribute("stroke", "currentColor");
+      } else if (paintableFill) {
+        el.setAttribute("fill", "none");
+        el.setAttribute("stroke", "currentColor");
+      } else if (paintableStroke) {
+        el.setAttribute("stroke", "currentColor");
+        el.setAttribute("fill", "none");
+      } else {
+      }
     } else {
-      if (!hasAttrFill) el.setAttribute("fill", "currentColor");
+      if (paintableFill && paintableStroke) {
+        el.setAttribute("fill", "currentColor");
+        el.setAttribute("stroke", "currentColor");
+      } else if (paintableFill && !paintableStroke) {
+        el.setAttribute("fill", "currentColor");
+        if (hasAttrStroke) el.setAttribute("stroke", "none");
+      } else if (paintableStroke && !paintableFill) {
+        el.setAttribute("stroke", "currentColor");
+        el.setAttribute("fill", "none");
+      } else {
+        if (!hasAttrFill) el.setAttribute("fill", "currentColor");
+      }
     }
 
     const style = el.getAttribute("style");
@@ -264,16 +283,26 @@ function recolorSymbolInnerPerElement(inner: string): string {
         styleStroke !== null && isPaintableValue(styleStroke);
 
       let next = style;
-      if (styleStrokePaintable && !styleFillPaintable) {
-        next = rewriteStyleDecl(next, "stroke", "currentColor");
-        next = rewriteStyleDecl(next, "fill", "none");
-      } else if (styleStrokePaintable && styleFillPaintable) {
-        next = rewriteStyleDecl(next, "stroke", "currentColor");
-        next = rewriteStyleDecl(next, "fill", "currentColor");
-      } else if (styleFillPaintable && !styleStrokePaintable) {
-        next = rewriteStyleDecl(next, "fill", "currentColor");
-        if (styleStroke !== null) {
-          next = rewriteStyleDecl(next, "stroke", "none");
+      if (variant === "outlined") {
+        if (styleStrokePaintable) {
+          next = rewriteStyleDecl(next, "stroke", "currentColor");
+        }
+        if (styleFillPaintable) {
+          next = rewriteStyleDecl(next, "fill", "none");
+        }
+      } else {
+        // solid
+        if (styleFillPaintable && styleStrokePaintable) {
+          next = rewriteStyleDecl(next, "fill", "currentColor");
+          next = rewriteStyleDecl(next, "stroke", "currentColor");
+        } else if (styleFillPaintable) {
+          next = rewriteStyleDecl(next, "fill", "currentColor");
+          if (styleStroke !== null) {
+            next = rewriteStyleDecl(next, "stroke", "none");
+          }
+        } else if (styleStrokePaintable) {
+          next = rewriteStyleDecl(next, "stroke", "currentColor");
+          next = rewriteStyleDecl(next, "fill", "none");
         }
       }
       el.setAttribute("style", next);

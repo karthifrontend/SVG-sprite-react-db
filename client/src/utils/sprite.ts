@@ -42,11 +42,6 @@ export function compareSymbolId(a: string, b: string): number {
 // Returns a new array of symbols sorted by id using `compareSymbolId`. Pure / non-mutating
 // so callers can keep the original merge order around for diffing.
 export function sortSymbolsById<T extends { id: string }>(symbols: T[]): T[] {
-  // Coerce each element's id through `String(...)` so the comparator's
-  // `(a: string, b: string) => number` signature is satisfied even if a
-  // caller hands in a subtype whose `id` is wider than `string` (e.g. a
-  // branded string alias). The cast is type-only at the call site and
-  // has no runtime cost.
   return [...symbols].sort((a, b) => compareSymbolId(a.id, b.id));
 }
 
@@ -221,17 +216,6 @@ export function extractSymbolsFromSprite(xml: string): SpriteSymbol[] {
   }
 }
 
-// Per-symbol colour strategy. The compiler distinguishes three flavours of
-// icon so the live preview can apply a custom colour to the *right* paint
-// attribute and never the wrong one:
-//   - `"solid"`     → the icon has a non-`none` fill and no paintable stroke.
-//                     Recolouring touches fill only; stroke is forced to none.
-//   - `"outlined"`  → the icon has a non-`none` stroke (and no fill, or
-//                     `fill="none"`). Recolouring touches stroke only; fill
-//                     is forced to none so the outline reads as a clean line.
-//   - `"multicolor"`→ the icon uses two or more distinct paintable colours.
-//                     Recolouring is skipped entirely so the original
-//                     palette (logos, badges, brand glyphs, …) is preserved.
 export type IconVariant = "solid" | "outlined" | "multicolor";
 
 function extractColorValues(markup: string): string[] {
@@ -259,49 +243,34 @@ function extractColorValues(markup: string): string[] {
   return values;
 }
 
-// True when the markup contains a paintable fill (any fill other than
-// `none`/`transparent`/`currentColor`/`inherit`/a paint server). Inline
-// `style="fill:…"` and the `fill="…"` attribute both count.
-function hasPaintableFill(markup: string): boolean {
-  const attrRegex = /\bfill\s*=\s*(['"])(.*?)\1/gi;
-  const styleRegex = /\bfill\s*:\s*([^;"'\s]+)/gi;
+function countPaintableShapes(markup: string): { fills: number; strokes: number } {
+  let fills = 0;
+  let strokes = 0;
+  const fillAttr = /\bfill\s*=\s*(['"])(.*?)\1/gi;
+  const fillStyle = /\bfill\s*:\s*([^;"'\s]+)/gi;
+  const strokeAttr = /\bstroke\s*=\s*(['"])(.*?)\1/gi;
+  const strokeStyle = /\bstroke\s*:\s*([^;"'\s]+)/gi;
   let match: RegExpExecArray | null;
   const isPaintable = (raw: string): boolean => {
     const value = raw.trim();
     if (!value) return false;
-    if (/^(none|transparent|currentcolor|inherit)$/i.test(value)) return false;
+    if (/^(none|transparent|inherit)$/i.test(value)) return false;
     if (value.startsWith("url(")) return false;
     return true;
   };
-  while ((match = attrRegex.exec(markup)) !== null) {
-    if (isPaintable(match[2] ?? "")) return true;
+  while ((match = fillAttr.exec(markup)) !== null) {
+    if (isPaintable(match[2] ?? "")) fills += 1;
   }
-  while ((match = styleRegex.exec(markup)) !== null) {
-    if (isPaintable(match[1] ?? "")) return true;
+  while ((match = fillStyle.exec(markup)) !== null) {
+    if (isPaintable(match[1] ?? "")) fills += 1;
   }
-  return false;
-}
-
-// True when the markup contains a paintable stroke. Same rules as
-// `hasPaintableFill` but for the `stroke` attribute/style.
-function hasPaintableStroke(markup: string): boolean {
-  const attrRegex = /\bstroke\s*=\s*(['"])(.*?)\1/gi;
-  const styleRegex = /\bstroke\s*:\s*([^;"'\s]+)/gi;
-  let match: RegExpExecArray | null;
-  const isPaintable = (raw: string): boolean => {
-    const value = raw.trim();
-    if (!value) return false;
-    if (/^(none|transparent|currentcolor|inherit)$/i.test(value)) return false;
-    if (value.startsWith("url(")) return false;
-    return true;
-  };
-  while ((match = attrRegex.exec(markup)) !== null) {
-    if (isPaintable(match[2] ?? "")) return true;
+  while ((match = strokeAttr.exec(markup)) !== null) {
+    if (isPaintable(match[2] ?? "")) strokes += 1;
   }
-  while ((match = styleRegex.exec(markup)) !== null) {
-    if (isPaintable(match[1] ?? "")) return true;
+  while ((match = strokeStyle.exec(markup)) !== null) {
+    if (isPaintable(match[1] ?? "")) strokes += 1;
   }
-  return false;
+  return { fills, strokes };
 }
 
 // Classify a symbol's inner markup into the recolouring strategy that should
@@ -312,21 +281,11 @@ export function classifySymbolVariant(markup: string): IconVariant {
     (value, index) => colors.indexOf(value) === index
   );
   if (uniqueColors.length > 1) return "multicolor";
-  const hasFill = hasPaintableFill(markup);
-  const hasStroke = hasPaintableStroke(markup);
-  if (hasStroke && !hasFill) return "outlined";
-  // Default: a single paintable (or zero) fill with optional stroke that
-  // resolves to currentColor when recoloured → treat as a solid icon. This
-  // matches the previous "one color → safe to tint" rule but routes the
-  // recolouring to the fill attribute only.
+  const { fills, strokes } = countPaintableShapes(markup);
+  if (strokes > 0 && strokes >= fills) return "outlined";
   return "solid";
 }
 
-// Backwards-compatible predicate: a symbol is "tintable" whenever the new
-// classifier doesn't flag it as multicolor. Solid + outlined icons both
-// return true so the existing `data-tintable` marker keeps working in the
-// zip's `demo.html` and inside the modal — the variant attribute is what
-// the new normalisation reads to decide which paint attribute to touch.
 export function isTintableSymbolMarkup(markup: string): boolean {
   return classifySymbolVariant(markup) !== "multicolor";
 }
@@ -341,9 +300,6 @@ function markTintableSymbols(spriteXml: string): string {
         ` data-tintable="${tintable ? "true" : "false"}"`,
         ` data-icon-variant="${variant}"`,
       ];
-      // Insert the new markers before the closing `>` of the <symbol> open
-      // tag. If older revisions already wrote one of these markers, drop
-      // them first so the output never accumulates duplicates.
       let updatedOpenTag = openTag
         .replace(/\s+data-tintable="(?:true|false)"/i, "")
         .replace(/\s+data-icon-variant="(?:solid|outlined|multicolor)"/i, "");
@@ -353,8 +309,6 @@ function markTintableSymbols(spriteXml: string): string {
   );
 }
 
-// Build a self-contained HTML demo page that renders every symbol with <use>.
-// The layout mirrors the on-screen live demo: centered header, color picker, a responsive grid of white cards (each with a rounded icon tile + monospace label) and a footer. Clicking a swatch re-tints every icon. Clicking a card copies a usage snippet to the clipboard.
 export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   const ids = symbolIds;
   const tintableSpriteXml = markTintableSymbols(spriteXml);
