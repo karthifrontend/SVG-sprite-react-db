@@ -723,6 +723,82 @@ export default function LiveDemoModal({
     }
   }, [activeGradient]);
 
+  // Inject a per-symbol scoped <style> into the sprite host so the
+  // active solid colour overrides the symbol's hardcoded fill/stroke
+  // values inside the <use> shadow tree. The card's `color` attribute
+  // only drives `currentColor` — it does nothing for icons whose
+  // inner elements have hardcoded `fill="#000"` / no `fill` at all
+  // (browser default black) / `fill="black"`. The gradient effect
+  // above solves the same problem with `!important` overrides against
+  // `url(#demo-icon-gradient)`; this effect does the same for a flat
+  // hex colour so switching between presets / custom colour / gradient
+  // / reset all re-tint every icon consistently. The effect skips when
+  // a gradient is active (the gradient effect owns the paint) and
+  // skips multicolor symbols (they keep their original palette). The
+  // rules live in the SAME <svg> as the symbol elements so the <use>
+  // shadow tree picks them up — CSS in a separate <svg> only reaches
+  // shadow trees in the same SVG root.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const STYLE_ID = "live-demo-solid-style";
+    const existingStyle = document.getElementById(STYLE_ID);
+    // Resolve the same effective hex the cards render with so the
+    // scoped rule stays in lockstep with the visible swatch.
+    const active = resolveActiveColor();
+    // When the user is in gradient mode the gradient effect owns the
+    // paint — bail out and remove any leftover solid rule so the two
+    // effects never fight each other.
+    if (!active || active.kind !== "color") {
+      if (existingStyle) existingStyle.remove();
+      return;
+    }
+    const hex = active.hex;
+    const spriteHost = document.getElementById("live-demo-sprite-host");
+    if (!spriteHost) {
+      // Sprite host hasn't been built yet (first mount or closed modal).
+      // The effect will re-run when `sprite` populates the host.
+      if (existingStyle) existingStyle.remove();
+      return;
+    }
+    // Walk every symbol in the live sprite host, classify it, and emit
+    // a per-id rule. Using the live DOM (not the `sprite` prop) keeps
+    // the rule in sync with the host even if the parent re-seeds the
+    // symbols out-of-band.
+    const cssChunks: string[] = [];
+    spriteHost.querySelectorAll("symbol").forEach((sym) => {
+      const symId = sym.getAttribute("id");
+      if (!symId) return;
+      const variant = classifySymbolVariant(sym.innerHTML);
+      if (variant === "multicolor") return;
+      if (variant === "outlined") {
+        // Outlined icons: paint the stroke with the chosen colour and
+        // null the fill so the recoloured outline reads as a clean
+        // line. `!important` is required to beat any hardcoded fill /
+        // stroke attributes (and inline styles) on the symbol's inner
+        // elements.
+        cssChunks.push(
+          `#${symId} * { fill: none !important; stroke: ${hex} !important; }`,
+        );
+      } else {
+        // Solid icons: paint the fill with the chosen colour and null
+        // the stroke so no leftover outline shows through. This is
+        // what was previously broken — the card's `color` attribute
+        // had no effect on solid icons whose inner paths have
+        // hardcoded `fill="#000"` or no fill attribute at all.
+        cssChunks.push(
+          `#${symId} * { fill: ${hex} !important; stroke: none !important; }`,
+        );
+      }
+    });
+    const styleEl = document.createElementNS(SVG_NS, "style") as unknown as HTMLStyleElement;
+    styleEl.setAttribute("id", STYLE_ID);
+    styleEl.textContent = cssChunks.join("\n");
+    // Replace any previous copy so the live style always reflects the
+    // current colour / sprite without stacking up stale rules.
+    if (existingStyle) existingStyle.remove();
+    spriteHost.appendChild(styleEl);
+  }, [activeGradient, activeColorClass, activeCustomColor, sprite]);
+
   // Ensure the sprite XML (symbols) is available in the document so <use href="#id"> inside the modal can resolve symbol references. We host the sprite in a hidden <svg> container so the symbol elements stay in the SVG namespace and the browser can resolve <use> lookups against the live DOM 1:1 — matching the legacy app.js behaviour and avoiding the namespace re-scoping bugs that broke the previous "innerHTML into a <g>" rendering.
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -1626,19 +1702,24 @@ function DemoIconCard({
   const activeHex = activeCustomColor || (preset ? preset.hex : null);
   const iconVariant = classifySymbolVariant(symbolInnerHtml);
   const isMulticolor = iconVariant === "multicolor";
-  // Drive the icon's colour via the card's `color` attribute. The symbol
-  // references live in the hidden host, and the upload pipeline stores
-  // paint as `var(--icon-color, currentColor)`, so the `currentColor`
-  // fallback resolves through the card's `color` value. For multicolor
-  // icons we leave the symbol untouched (no scoping) so the original
-  // palette stays intact. Gradient mode is handled via a global scoped
-  // <style> in the gradient host — see the activeGradient effect — so
-  // the card doesn't need to emit a per-card <style> here.
+  // Drive the icon's colour via the card's `color` attribute. The
+  // symbol references live in the hidden host, so the `currentColor`
+  // fallback resolves through the card's `color` value when the
+  // symbol's inner elements already use `currentColor` (e.g. SVGs
+  // built by the upload pipeline that pre-normalised to
+  // `var(--icon-color, currentColor)`). For icons whose inner paths
+  // have hardcoded `fill="#000"` or no fill at all (browser default
+  // black), `color` alone is not enough — a per-symbol scoped <style>
+  // in the sprite host (see the activeGradient / solid-colour effects
+  // above) applies `!important` overrides against the chosen hex so
+  // the recolour reaches the <use> shadow tree. For multicolor icons
+  // we leave the symbol untouched (no scoping) so the original
+  // palette stays intact.
   const wrapperColorStyle = isMulticolor
     ? ({ color: "#1e293b" } as const)
     : activeGradient
       ? undefined
-      : ({ color: activeHex ?? "#334155",fill: activeHex ?? "#334155", } as const);
+      : ({ color: activeHex ?? "#334155" } as const);
   // Render via <use href="#id"> referencing the <symbol> element in the
   // modal's hidden host (`live-demo-sprite-host`). This matches the legacy
   // app.js approach: the browser resolves the symbol reference against the
