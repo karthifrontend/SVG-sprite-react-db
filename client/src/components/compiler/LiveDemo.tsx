@@ -247,6 +247,7 @@ export default function LiveDemoModal({
   const symbolsRef = useRef<Element[]>([]);
   // Debounce timer used by `handleSingleClick` to defer the copy action.
   const clickTimerRef = useRef<number | null>(null);
+  const [hostVersion, setHostVersion] = useState<number>(0);
 
   // Read-only mode for the icon grid's per-card rename/delete controls.
   const isReadOnly =
@@ -721,33 +722,12 @@ export default function LiveDemoModal({
       dup.setAttribute("id", SPRITE_STYLE_ID);
       spriteHost.appendChild(dup);
     }
-  }, [activeGradient]);
-
-  // Inject a per-symbol scoped <style> into the sprite host so the
-  // active solid colour overrides the symbol's hardcoded fill/stroke
-  // values inside the <use> shadow tree. The card's `color` attribute
-  // only drives `currentColor` — it does nothing for icons whose
-  // inner elements have hardcoded `fill="#000"` / no `fill` at all
-  // (browser default black) / `fill="black"`. The gradient effect
-  // above solves the same problem with `!important` overrides against
-  // `url(#demo-icon-gradient)`; this effect does the same for a flat
-  // hex colour so switching between presets / custom colour / gradient
-  // / reset all re-tint every icon consistently. The effect skips when
-  // a gradient is active (the gradient effect owns the paint) and
-  // skips multicolor symbols (they keep their original palette). The
-  // rules live in the SAME <svg> as the symbol elements so the <use>
-  // shadow tree picks them up — CSS in a separate <svg> only reaches
-  // shadow trees in the same SVG root.
+  }, [activeGradient, hostVersion]);
   useEffect(() => {
     if (typeof document === "undefined") return;
     const STYLE_ID = "live-demo-solid-style";
     const existingStyle = document.getElementById(STYLE_ID);
-    // Resolve the same effective hex the cards render with so the
-    // scoped rule stays in lockstep with the visible swatch.
     const active = resolveActiveColor();
-    // When the user is in gradient mode the gradient effect owns the
-    // paint — bail out and remove any leftover solid rule so the two
-    // effects never fight each other.
     if (!active || active.kind !== "color") {
       if (existingStyle) existingStyle.remove();
       return;
@@ -755,15 +735,9 @@ export default function LiveDemoModal({
     const hex = active.hex;
     const spriteHost = document.getElementById("live-demo-sprite-host");
     if (!spriteHost) {
-      // Sprite host hasn't been built yet (first mount or closed modal).
-      // The effect will re-run when `sprite` populates the host.
       if (existingStyle) existingStyle.remove();
       return;
     }
-    // Walk every symbol in the live sprite host, classify it, and emit
-    // a per-id rule. Using the live DOM (not the `sprite` prop) keeps
-    // the rule in sync with the host even if the parent re-seeds the
-    // symbols out-of-band.
     const cssChunks: string[] = [];
     spriteHost.querySelectorAll("symbol").forEach((sym) => {
       const symId = sym.getAttribute("id");
@@ -771,20 +745,11 @@ export default function LiveDemoModal({
       const variant = classifySymbolVariant(sym.innerHTML);
       if (variant === "multicolor") return;
       if (variant === "outlined") {
-        // Outlined icons: paint the stroke with the chosen colour and
-        // null the fill so the recoloured outline reads as a clean
-        // line. `!important` is required to beat any hardcoded fill /
-        // stroke attributes (and inline styles) on the symbol's inner
         // elements.
         cssChunks.push(
           `#${symId} * { fill: none !important; stroke: ${hex} !important; }`,
         );
       } else {
-        // Solid icons: paint the fill with the chosen colour and null
-        // the stroke so no leftover outline shows through. This is
-        // what was previously broken — the card's `color` attribute
-        // had no effect on solid icons whose inner paths have
-        // hardcoded `fill="#000"` or no fill attribute at all.
         cssChunks.push(
           `#${symId} * { fill: ${hex} !important; stroke: none !important; }`,
         );
@@ -797,7 +762,7 @@ export default function LiveDemoModal({
     // current colour / sprite without stacking up stale rules.
     if (existingStyle) existingStyle.remove();
     spriteHost.appendChild(styleEl);
-  }, [activeGradient, activeColorClass, activeCustomColor, sprite]);
+  }, [activeGradient, activeColorClass, activeCustomColor, sprite, hostVersion]);
 
   // Ensure the sprite XML (symbols) is available in the document so <use href="#id"> inside the modal can resolve symbol references. We host the sprite in a hidden <svg> container so the symbol elements stay in the SVG namespace and the browser can resolve <use> lookups against the live DOM 1:1 — matching the legacy app.js behaviour and avoiding the namespace re-scoping bugs that broke the previous "innerHTML into a <g>" rendering.
   useEffect(() => {
@@ -805,10 +770,6 @@ export default function LiveDemoModal({
     const HOST_ID = "live-demo-sprite-host";
     let host = document.getElementById(HOST_ID) as SVGSVGElement | null;
     if (host && host.namespaceURI !== SVG_NS) {
-      // An older revision of the modal stored the host as a <div> in the
-      // HTML namespace. Symbols appended there were re-served as HTML
-      // nodes and <use> could not resolve them, so we throw the legacy
-      // host away and recreate it in the SVG namespace below.
       host.remove();
       host = null;
     }
@@ -821,29 +782,21 @@ export default function LiveDemoModal({
         "position:absolute;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none;";
       document.body.appendChild(host);
     }
-    // Replace host children with the parsed sprite's children. Using
-    // DOMParser + replaceChildren preserves the SVG namespace of every
-    // <symbol> and its descendants so <use href="#id"> can resolve them
-    // without re-scoping. The legacy app.js took the same shortcut of
-    // dropping the whole sprite XML into a hidden div, but that worked
-    // there because the icons were only ever rendered as <use> against
-    // an HTML <body> — we follow the same approach but in the SVG
-    // namespace for the host so each <symbol> keeps its original markup.
     host.replaceChildren();
     if (sprite) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(sprite, "image/svg+xml");
       if (!doc.querySelector("parsererror")) {
         const symbols = Array.from(doc.querySelectorAll("symbol"));
-        // Clone every <symbol> from the parsed sprite into the live host.
-        // `importNode` keeps the SVG namespace so the cloned nodes are
-        // recognisable to <use href="#…"> lookups in the page.
         symbols.forEach((sym) => {
           const imported = document.importNode(sym, true);
           host!.appendChild(imported);
         });
       }
     }
+    queueMicrotask(() => {
+      setHostVersion((v) => v + 1);
+    });
     return () => {
       // Remove the host when the modal is closed to avoid leaking defs
       if (!isOpen) {
