@@ -116,8 +116,7 @@ function ResultsPanel({
           </svg>
           <span>{mainCopied ? "Copied" : "Copy Sprite"}</span>
         </button>
-        <div className="flex w-full flex-1 items-center gap-3 sm:w-auto">
-          <button
+         <button
             type="button"
             onClick={onDemo}
             className="flex-1 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100/80 text-indigo-700 font-medium py-3 px-4 rounded-xl border border-indigo-100 hover:border-indigo-200 transition-all duration-150"
@@ -128,6 +127,7 @@ function ResultsPanel({
             </svg>
             <span>Live Demo</span>
           </button>
+         
           <div className="relative">
             <button
               type="button"
@@ -165,7 +165,6 @@ function ResultsPanel({
             />
           </div>
         </div>
-      </div>
 
       {/* Symbol IDs */}
       <div className="mb-5">

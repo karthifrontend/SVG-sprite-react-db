@@ -245,24 +245,27 @@ export default function IconConflictModal({
       dismissOnBackdrop={false}
     >
       <div className="p-6">
-        {/* Header — mirrors the Windows File Explorer "1 File
-            Conflict" / "N File Conflicts" title. The subtitle is
-            the standard Windows "if you select both versions, the
-            copied file will have a number added to its name" line
-            that explains the "keep both" rename behaviour. The
-            close icon (X) at the top-right cancels the whole flow,
-            matching the X button in the Windows popup. The title
-            text stays in sync with the conflict count. */}
+        {/* Header. This first-image layout used to mirror the
+            Windows File Explorer "1 File Conflict" / "N File
+            Conflicts" title + the "if you select both versions,
+            the copied file will have a number added to its name"
+            subtitle, but per UX feedback we strip the title AND
+            the "select both versions" explainer line — the
+            single source-side "Replace/Skip" + stacked per-row
+            modal already explains the "keep both" rename
+            behaviour, and the Windows-style title was visually
+            redundant with the per-row popup. The header now
+            carries a single context line that names the base
+            sprite and the number of incoming icons it shares
+            with that sprite, pluralised to read naturally for
+            both 1 and N conflicts (e.g. "The base sprite file
+            has 1 icon with the same name." vs "... has 3 icons
+            with the same names."). The close (X) button still
+            cancels the whole flow, matching the Windows popup. */}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-bold text-slate-900">
-              {conflicts.length === 1
-                ? "1 File Conflict"
-                : `${conflicts.length} File Conflicts`}
-            </h3>
-            <p className="mt-1 text-xs text-slate-500">
-              If you select both versions, the copied file will have a
-              number added to its name.
+            <p className="text-base text-slate-900 font-semibold">
+              {`The base sprite file contains ${conflicts.length} icon${conflicts.length === 1 ? "" : "s"} with the same name${conflicts.length === 1 ? "" : "s"}.`}
             </p>
           </div>
           <button
@@ -365,7 +368,9 @@ export default function IconConflictModal({
         isOpen={!!compareConflict}
         conflict={compareConflict}
         proposedRename={compareRename}
-        resolution={compareConflict ? resolutions[compareConflict.id] : undefined}
+        resolution={
+          compareConflict ? resolutions[compareConflict.id] : undefined
+        }
         takenIds={takenIds}
         busy={busy}
         onClose={() => setCompareId(null)}
@@ -746,7 +751,7 @@ function IconConflictPerRowModal({
               {conflicts.length} File Conflicts
             </h3>
             <p className="mt-1 text-xs text-slate-500">
-              If you select both versions, the copied file will have a
+              If you select both icons, the copied file will have a
               number added to its name.
             </p>
           </div>
