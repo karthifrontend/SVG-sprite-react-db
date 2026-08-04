@@ -91,11 +91,6 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
       }
       setGenerating(true);
       setError(null);
-      setSpriteXml(null);
-      setSymbolIds([]);
-      xmlRef.current = null;
-      symbolIdsRef.current = [];
-      replaceUrl(null);
       try {
         const newSymbols = await Promise.all(files.map(svgFileToSymbol));
 
@@ -119,6 +114,7 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
               }
               return { id: s.id, existing, incoming: s };
             });
+          // Preserve any sprite that was already generated so the Results panel stays intact when the user dismisses the conflict modal without resolving (Cancel, X, or backdrop). The state-reset + state-write below only runs in the success path, so a `needsConfirmation: true` return leaves the previous `spriteXml` / `symbolIds` / `spriteUrl` untouched.
           return {
             duplicateCount,
             newCount: 0,
@@ -127,6 +123,12 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
             conflicts,
           };
         }
+        // We are about to overwrite any existing sprite — wipe the previous state only at this point, so the conflict-modal cancel path keeps the previously generated sprite visible.
+        setSpriteXml(null);
+        setSymbolIds([]);
+        xmlRef.current = null;
+        symbolIdsRef.current = [];
+        replaceUrl(null);
         const seen = new Set<string>();
         const merged: SpriteSymbol[] = [];
         for (const s of [...existingSymbols, ...trulyNewSymbols]) {
