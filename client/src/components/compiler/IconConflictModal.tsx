@@ -6,6 +6,7 @@ import {
 } from "../../hooks/useSpriteCompiler";
 import IconConflictCompareModal from "./IconConflictCompareModal";
 import { CloseIcon } from "../icons";
+import { useConflictSpriteHost } from "./conflictSpriteHost";
 
 type IconConflictModalProps = {
   isOpen: boolean;
@@ -33,21 +34,32 @@ function nextFreeRenamedId(
 }
 
 function InlineSymbolPreview({
+  id,
   viewBox,
-  inner,
 }: {
+  id: string;
   viewBox: string;
-  inner: string;
 }) {
+  // Render via <use href="#conflict-<id>"> against the host
+  // mounted by `useConflictSpriteHost` (in IconConflictModal). The
+  // host's <symbol> elements have been per-element recoloured so
+  // every paintable value reads as `currentColor`; the card's
+  // `color="#334155"` attribute drives the actual paint, matching
+  // how the LiveDemo + previewPng card renders. This replaces the
+  // previous `dangerouslySetInnerHTML` approach that surfaced the
+  // raw `fill="#000"` / `stroke="#1C274C"` values as solid black
+  // blobs.
   return (
     <div className="h-12 w-12 shrink-0 rounded-lg border border-slate-200 bg-white flex items-center justify-center overflow-hidden">
       <svg
         viewBox={viewBox}
         className="h-9 w-9"
         preserveAspectRatio="xMidYMid meet"
+        color="#334155"
         aria-hidden="true"
-        dangerouslySetInnerHTML={{ __html: inner }}
-      />
+      >
+        <use href={`#conflict-${id}`} />
+      </svg>
     </div>
   );
 }
@@ -131,6 +143,40 @@ export default function IconConflictModal({
     for (const c of conflicts) finalised[c.id] = { kind: "skip" };
     onApply(finalised);
   };
+
+  // Mount the shared conflict-sprite host so the per-row
+  // previews (and the compare modal's previews) can render via
+  // <use href="#conflict-<id>">. The host is created lazily on
+  // first mount, refreshed whenever the conflict list changes,
+  // and torn down on unmount. Re-includes both sides of every
+  // conflict (incoming + existing) so the compare modal — which
+  // mounts on top of this one — finds the symbols it needs
+  // already in the DOM.
+  useConflictSpriteHost(
+    useMemo(() => {
+      const seen = new Set<string>();
+      const out: { id: string; viewBox: string; inner: string }[] = [];
+      conflicts.forEach((c) => {
+        if (!seen.has(c.id + "|in")) {
+          seen.add(c.id + "|in");
+          out.push({
+            id: c.id,
+            viewBox: c.incoming.viewBox,
+            inner: c.incoming.inner,
+          });
+        }
+        if (!seen.has(c.id + "|ex")) {
+          seen.add(c.id + "|ex");
+          out.push({
+            id: `__dest__${c.id}`,
+            viewBox: c.existing.viewBox,
+            inner: c.existing.inner,
+          });
+        }
+      });
+      return out;
+    }, [conflicts]),
+  );
 
   const handleBulkSource = (on: boolean) => {
     setResolutions((prev) => {
@@ -596,8 +642,8 @@ function PerRowCheckboxesBody({
                     className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500"
                   />
                   <InlineSymbolPreview
+                    id={conflict.id}
                     viewBox={conflict.incoming.viewBox}
-                    inner={conflict.incoming.inner}
                   />
                 </label>
                 <label
@@ -626,8 +672,8 @@ function PerRowCheckboxesBody({
                     className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500"
                   />
                   <InlineSymbolPreview
+                    id={`__dest__${conflict.id}`}
                     viewBox={conflict.existing.viewBox}
-                    inner={conflict.existing.inner}
                   />
                 </label>
               </div>

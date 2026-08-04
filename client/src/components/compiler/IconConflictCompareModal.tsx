@@ -19,25 +19,35 @@ type IconConflictCompareModalProps = {
 };
 
 function ComparePreview({
+  id,
   viewBox,
-  inner,
   label,
 }: {
+  id: string;
   viewBox: string;
-  inner: string;
   label?: string;
 }) {
+  // Render via <use href="#conflict-<id>"> against the host
+  // mounted by the parent IconConflictModal. The host's
+  // <symbol> elements are per-element recoloured so every
+  // paintable value reads as `currentColor`; the card's
+  // `color="#334155"` attribute drives the actual paint,
+  // matching how the LiveDemo + previewPng card renders. This
+  // replaces the previous `dangerouslySetInnerHTML` approach
+  // that surfaced the raw `fill="#000"` / `stroke="#1C274C"`
+  // values as solid black blobs (the bug visible in the
+  // conflict popup screenshot).
   const iconBox = (
     <div className="h-12 w-12 rounded-lg border border-slate-200 bg-white flex items-center justify-center overflow-hidden">
       <svg
         viewBox={viewBox}
         className="h-9 w-9"
         preserveAspectRatio="xMidYMid meet"
+        color="#334155"
         aria-hidden="true"
-        // Symbol content is trusted because the user uploaded these
-        // files themselves in the same session.
-        dangerouslySetInnerHTML={{ __html: inner }}
-      />
+      >
+        <use href={`#conflict-${id}`} />
+      </svg>
     </div>
   );
   if (!label) return iconBox;
@@ -218,8 +228,8 @@ export default function IconConflictCompareModal({
                 className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500"
               />
               <ComparePreview
+                id={conflict.id}
                 viewBox={conflict.incoming.viewBox}
-                inner={conflict.incoming.inner}
               />
             </label>
             <label
@@ -235,8 +245,8 @@ export default function IconConflictCompareModal({
                 className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500"
               />
               <ComparePreview
+                id={`__dest__${conflict.id}`}
                 viewBox={conflict.existing.viewBox}
-                inner={conflict.existing.inner}
               />
             </label>
           </div>
