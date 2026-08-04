@@ -1,24 +1,4 @@
-// Shared helper for the conflict modals. Mirrors the LiveDemo's
-// "drop the whole sprite into a hidden SVG and render each card as
-// <svg><use href="#id"></use></svg>" pattern, so the browser resolves
-// the <use> reference against the live DOM 1:1.
-//
-// The previous approach (each conflict card did
-// `<svg dangerouslySetInnerHTML={{__html: inner}} />`) broke the
-// icon paint the same way it broke the LiveDemo before the port:
-// raw inner content contains hardcoded `fill="#000"` /
-// `stroke="#1C274C"` values that the browser renders literally, so
-// the cards showed up as solid black blobs regardless of variant.
-//
-// The LiveDemo fix was to (1) drop the whole sprite XML into a hidden
-// SVG-namespaced host, (2) render each card as a <use> reference
-// against that host, and (3) drive the card's `color` attribute so
-// `currentColor` (or `var(--icon-color, currentColor)`) inside the
-// symbol resolves to the card colour. That same approach works here:
-// the conflict modals already expose each conflict's `viewBox` and
-// `inner` separately, so we re-wrap them as `<symbol>` elements on
-// the fly, push them into the host, and render the cards with
-// `<use href="#conflict-<id>">`.
+// Shared helper for the conflict modals.
 
 import { useEffect } from "react";
 import { classifySymbolVariant } from "../../utils/sprite";
@@ -34,10 +14,6 @@ export type ConflictSpriteInput = {
 };
 
 function makeSymbolElement(input: ConflictSpriteInput): SVGSVGElement {
-  // Wrap the raw inner content in a <symbol> so the host has real
-  // <symbol> elements the <use> references can resolve. The id is
-  // namespaced with "conflict-" so it never collides with any user
-  // symbol id that happens to be the same string.
   const wrapper = document.createElementNS(SVG_NS, "svg");
   wrapper.setAttribute("xmlns", SVG_NS);
   wrapper.innerHTML =
@@ -47,15 +23,6 @@ function makeSymbolElement(input: ConflictSpriteInput): SVGSVGElement {
   return wrapper;
 }
 
-// Apply a per-element recolouring pass to the live host's <symbol>
-// elements so the card's `color` attribute actually drives the icon
-// paint. Mirrors the rule LiveDemo uses: paintable stroke + (none |
-// missing) fill → stroke=currentColor, fill=none (outlined-only);
-// paintable stroke + paintable fill → both currentColor (mixed
-// outline + accent); paintable fill only → fill=currentColor,
-// leftover stroke=none (solid); neither → default fill=currentColor
-// so basic shapes (circle/rect/line) still render. Multicolor icons
-// are left untouched.
 function paintHostSymbols(host: SVGSVGElement): void {
   const parser = new DOMParser();
   host.querySelectorAll("symbol").forEach((sym) => {
@@ -123,9 +90,6 @@ function paintHostSymbols(host: SVGSVGElement): void {
     const closeTagStart = serialised.lastIndexOf("</svg>");
     if (openTagEnd < 0 || closeTagStart < 0) return;
     const newInner = serialised.slice(openTagEnd + 1, closeTagStart);
-    // Replace the symbol's children in-place. We deliberately keep
-    // the existing <symbol> element (with its viewBox + id) so the
-    // <use href="#conflict-…"> references above continue to resolve.
     while (sym.firstChild) sym.removeChild(sym.firstChild);
     const fragment = document.createElementNS(SVG_NS, "svg");
     fragment.setAttribute("xmlns", SVG_NS);
@@ -154,33 +118,13 @@ function rewriteStyleDecl(
   return style.replace(re, (_match, lead) => `${lead}${prop}:${value}`);
 }
 
-// Effect hook that (a) builds/refreshes a hidden SVG sprite host
-// containing one <symbol> per supplied input, (b) runs the
-// per-element recolouring pass so the card's `color` attribute
-// drives the icon paint, and (c) tears the host down on unmount or
-// when the input list changes. The host lives at
-// `document.getElementById("conflict-sprite-host")` and is shared
-// across the conflict modals (they don't stack in the same DOM
-// subtree at the same time in practice, but the singleton id
-// matches LiveDemo's pattern and avoids accidental host
-// duplication).
 export function useConflictSpriteHost(inputs: ConflictSpriteInput[]): void {
-  // Stable signature so the effect only re-runs when the
-  // (id, viewBox, inner) tuples actually change — not on every
-  // parent re-render. We intentionally key off the lengths, not
-  // the inner content itself, because the inner can be many KB
-  // per icon and comparing it on every render is wasteful. The
-  // replaceChildren + recolour pass below does the authoritative
-  // diff against the real DOM.
   const signature = inputs
     .map((i) => `${i.id}\u0000${i.viewBox}\u0000${i.inner.length}`)
     .join("|");
   useEffect(() => {
     if (typeof document === "undefined") return;
     if (inputs.length === 0) {
-      // Nothing to host — make sure any leftover host from a
-      // previous mount is removed so the next open rebuilds from
-      // scratch.
       const existing = document.getElementById(HOST_ID);
       if (existing) existing.remove();
       return;
@@ -207,11 +151,6 @@ export function useConflictSpriteHost(inputs: ConflictSpriteInput[]): void {
       });
     });
     paintHostSymbols(host);
-    // No scoped <style> needed — the per-element pass writes
-    // `currentColor` directly on every paintable element, so the
-    // card's `color="…"` attribute drives the paint without any
-    // CSS. Strip any leftover <style> from a previous mount just
-    // in case (e.g. a quick remount before cleanup fired).
     const staleStyle = document.getElementById(STYLE_ID);
     if (staleStyle) staleStyle.remove();
     return () => {
@@ -220,8 +159,5 @@ export function useConflictSpriteHost(inputs: ConflictSpriteInput[]): void {
       const style = document.getElementById(STYLE_ID);
       if (style) style.remove();
     };
-    // signature is intentionally the only dep — it's derived from
-    // inputs so a real change to any input triggers the rebuild.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
 }
