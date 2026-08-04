@@ -181,13 +181,6 @@ export default function IconConflictCompareModal({
             </span>
           </label>
         </div>
-
-        {/* Single row card matching the per-row popup's row style.
-            Conflict id at the top, then a 2-column grid of
-            [checkbox + icon] pairs. No "EXISTING"/"NEW" label and
-            no `#icon-id` caption per side — the per-row popup
-            doesn't have those, and removing them keeps the two
-            popups visually consistent. */}
         <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/40 p-3">
           <div className="flex items-center gap-2">
             <span
