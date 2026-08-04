@@ -166,7 +166,7 @@ export default function SelectFromLibraryModal({
                                     type="button"
                                     onClick={() => handleLoad(version)}
                                     disabled={busy}
-                                    className="shrink-0 rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-emerald-100 hover:text-emerald-700 disabled:opacity-50"
+                                    className="shrink-0 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-indigo-100 hover:text-indigo-700 disabled:opacity-50"
                                 >
                                     {"Update"}
                                 </button>

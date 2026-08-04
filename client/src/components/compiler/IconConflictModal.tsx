@@ -230,14 +230,8 @@ export default function IconConflictModal({
       <div className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-bold text-slate-900">
-              {conflicts.length === 1
-                ? "1 File Conflict"
-                : `${conflicts.length} File Conflicts`}
-            </h3>
-            <p className="mt-1 text-xs text-slate-500">
-              If you select both versions, the copied file will have a
-              number added to its name.
+            <p className="text-base text-slate-900 font-semibold">
+              {`The base sprite file contains ${conflicts.length} icon${conflicts.length === 1 ? "" : "s"} with the same name${conflicts.length === 1 ? "" : "s"}.`}
             </p>
           </div>
           <button
@@ -316,7 +310,9 @@ export default function IconConflictModal({
         isOpen={!!compareConflict}
         conflict={compareConflict}
         proposedRename={compareRename}
-        resolution={compareConflict ? resolutions[compareConflict.id] : undefined}
+        resolution={
+          compareConflict ? resolutions[compareConflict.id] : undefined
+        }
         takenIds={takenIds}
         busy={busy}
         onClose={() => setCompareId(null)}
@@ -661,7 +657,7 @@ function IconConflictPerRowModal({
               {conflicts.length} File Conflicts
             </h3>
             <p className="mt-1 text-xs text-slate-500">
-              If you select both versions, the copied file will have a
+              If you select both icons, the copied file will have a
               number added to its name.
             </p>
           </div>

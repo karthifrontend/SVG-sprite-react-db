@@ -99,7 +99,7 @@ export default function IconConflictCompareModal({
               1 File Conflict
             </h3>
             <p className="mt-1 text-xs text-slate-500">
-              If you select both versions, the copied file will have a
+              If you select both icons, the copied file will have a
               number added to its name.
             </p>
           </div>
