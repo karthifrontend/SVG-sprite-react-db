@@ -27,16 +27,6 @@ function ComparePreview({
   viewBox: string;
   label?: string;
 }) {
-  // Render via <use href="#conflict-<id>"> against the host
-  // mounted by the parent IconConflictModal. The host's
-  // <symbol> elements are per-element recoloured so every
-  // paintable value reads as `currentColor`; the card's
-  // `color="#334155"` attribute drives the actual paint,
-  // matching how the LiveDemo + previewPng card renders. This
-  // replaces the previous `dangerouslySetInnerHTML` approach
-  // that surfaced the raw `fill="#000"` / `stroke="#1C274C"`
-  // values as solid black blobs (the bug visible in the
-  // conflict popup screenshot).
   const iconBox = (
     <div className="h-12 w-12 rounded-lg border border-slate-200 bg-white flex items-center justify-center overflow-hidden">
       <svg
@@ -103,15 +93,6 @@ export default function IconConflictCompareModal({
       stopEscapePropagation={true}
     >
       <div className="p-6">
-        {/* Header mirrors the Windows "1 File Conflict" title block.
-            The title uses the file count wording, the subtitle tells
-            the user that "if you select both versions, the copied
-            file will have a number added to its name", and the
-            close icon (X) at the top-right cancels the compare view
-            and returns to the parent modal — matching the X button
-            in the Windows popup. The conflicting icon id is rendered
-            inside the row card (like the per-row popup) instead of
-            the header so the two popups look visually consistent. */}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-bold text-slate-900">
@@ -136,15 +117,6 @@ export default function IconConflictCompareModal({
             <CloseIcon className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Master checkboxes. The column headers ("Files from
-            uploads" / "Files already in base sprite") match the
-            Windows File Explorer "1 File Conflict" popup and align
-            with the per-side checkbox+icon row below. The two
-            checkboxes are mutually exclusive: checking the "Files
-            from uploads" one unchecks the "Files already in base
-            sprite" one — but both can also be checked (which means
-            "keep both"). */}
         <div className="mt-3 grid grid-cols-2 gap-3">
           <label
             className={`flex items-center gap-2 ${
@@ -189,17 +161,6 @@ export default function IconConflictCompareModal({
             >
               {conflict.id}
             </span>
-            {/* "Keep both" badge — mirrors the per-row popup in
-                the N>1 layout. Shown when the user has checked
-                BOTH per-side checkboxes in this compare popup, so
-                the existing icon stays and the new icon is saved
-                under the parent's auto-suggested
-                collision-free `<id>-<n>` suffix. The badge uses
-                the same emerald styling as the per-row popup so
-                the two layouts read as the same decision surface.
-                Only renders when the compare modal is open AND
-                the user has both sides checked AND the parent has
-                supplied a non-empty proposed rename. */}
             {keepExisting && keepNew && proposedRename && (
               <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
                 keep both →{" "}
@@ -244,27 +205,10 @@ export default function IconConflictCompareModal({
             </label>
           </div>
         </div>
-
-        {/* Footer mirrors the Windows "Continue" / "Cancel" pair.
-            The "Skip" shortcut checkbox from the first popup is
-            omitted here because we're already in the per-row compare
-            view — the checkboxes above are the per-row equivalent.
-            There is no inline rename input in this popup: when the
-            user picks "keep both" the auto-suggested
-            `<base>-<n>` suffix from the parent is used directly,
-            matching the per-row "keep both" behaviour in the parent
-            popup. The parent computes the suffix against the union
-            of every existing sprite id and every other "keep both"
-            rename, so two conflicts with the same base id still
-            get distinct suffixes (-1, -2, …). */}
         <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
           <button
             type="button"
             onClick={(event) => {
-              // Per UX request: closing this modal must NOT cascade
-              // into the parent conflict popup beneath it. We
-              // stop event propagation so the Cancel click is
-              // scoped to this surface only.
               event.stopPropagation();
               onClose();
             }}

@@ -40,15 +40,6 @@ function InlineSymbolPreview({
   id: string;
   viewBox: string;
 }) {
-  // Render via <use href="#conflict-<id>"> against the host
-  // mounted by `useConflictSpriteHost` (in IconConflictModal). The
-  // host's <symbol> elements have been per-element recoloured so
-  // every paintable value reads as `currentColor`; the card's
-  // `color="#334155"` attribute drives the actual paint, matching
-  // how the LiveDemo + previewPng card renders. This replaces the
-  // previous `dangerouslySetInnerHTML` approach that surfaced the
-  // raw `fill="#000"` / `stroke="#1C274C"` values as solid black
-  // blobs.
   return (
     <div className="h-12 w-12 shrink-0 rounded-lg border border-slate-200 bg-white flex items-center justify-center overflow-hidden">
       <svg
@@ -144,14 +135,6 @@ export default function IconConflictModal({
     onApply(finalised);
   };
 
-  // Mount the shared conflict-sprite host so the per-row
-  // previews (and the compare modal's previews) can render via
-  // <use href="#conflict-<id>">. The host is created lazily on
-  // first mount, refreshed whenever the conflict list changes,
-  // and torn down on unmount. Re-includes both sides of every
-  // conflict (incoming + existing) so the compare modal — which
-  // mounts on top of this one — finds the symbols it needs
-  // already in the DOM.
   useConflictSpriteHost(
     useMemo(() => {
       const seen = new Set<string>();
@@ -245,14 +228,6 @@ export default function IconConflictModal({
       dismissOnBackdrop={false}
     >
       <div className="p-6">
-        {/* Header — mirrors the Windows File Explorer "1 File
-            Conflict" / "N File Conflicts" title. The subtitle is
-            the standard Windows "if you select both versions, the
-            copied file will have a number added to its name" line
-            that explains the "keep both" rename behaviour. The
-            close icon (X) at the top-right cancels the whole flow,
-            matching the X button in the Windows popup. The title
-            text stays in sync with the conflict count. */}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-bold text-slate-900">
@@ -276,17 +251,6 @@ export default function IconConflictModal({
             <CloseIcon className="w-5 h-5" />
           </button>
         </div>
-
-        {/* BODY — always renders the first-image 3-action stack.
-            For the 1-conflict case the third button opens the
-            stacked IconConflictCompareModal (handled below). For
-            the N>1 case the third button ("Let me decide for each
-            icon") opens the stacked IconConflictPerRowModal
-            instead of swapping the body in-place — the
-            first-image popup stays open underneath, and the
-            per-row popup is a separate surface on top, matching
-            the Windows File Explorer "Replace or Skip Files"
-            → "let me decide per file" two-popup flow. */}
         {conflicts.length === 1 ? (
           <ConflictActionStack
             count={1}
@@ -307,19 +271,6 @@ export default function IconConflictModal({
           />
         )}
       </div>
-
-      {/* Stacked per-row modal — reached via "Let me decide for
-          each icon" in the N>1 first-image layout. Sits on top
-          of the parent popup (z-[70] vs z-60) with its own
-          header, close (×), master checkboxes, per-row grid,
-          and Cancel/Continue footer. Close (×) and Cancel return
-          to the first-image layout by clearing `decidedIndividually`
-          — they do NOT close the whole flow. Continue commits
-          the merge via the parent's onApply. The dismiss-on-
-          backdrop and stop-escape-propagation guards match the
-          Compare modal's stack pattern so the per-row popup
-          behaves as a self-contained surface that doesn't
-          cascade into the parent. */}
       <IconConflictPerRowModal
         isOpen={decidedIndividually}
         conflicts={conflicts}
@@ -522,19 +473,6 @@ function PerRowCheckboxesBody({
 }) {
   return (
     <>
-      {/* Master checkboxes. Each master is an INDEPENDENT toggle
-          bound to a local boolean — checking the "Files from
-          uploads" master does NOT un-check the "Files already in
-          base sprite" master, and vice versa. By default both
-          masters are un-checked. When the user checks a master,
-          the matching side is set for every row (preserving the
-          other side if it was already on). When both masters are
-          checked simultaneously, every row ends up in the "keep
-          both" state — the new icon is saved under a
-          collision-free numeric suffix, mirroring the per-row
-          "keep both" behaviour. The grid below uses the same
-          2-column template as the masters, so the per-row icon
-          previews line up directly under their master column. */}
       <div className="mt-3 grid grid-cols-2 gap-3">
         <label
           className={`flex items-center gap-2 ${
@@ -573,22 +511,6 @@ function PerRowCheckboxesBody({
           </span>
         </label>
       </div>
-      {/* Per-conflict rows. Each row uses the same 2-column grid
-          template as the master checkboxes above, so the source
-          preview sits in column 1 (under "FILES FROM UPLOADS") and
-          the destination preview sits in column 2 (under "FILES
-          ALREADY IN BASE SPRITE"). The conflict id and the
-          "keep both" rename caption span both columns. Per-row
-          decisions are encoded as a tri-state pair:
-            • source checked, dest unchecked  → replace
-            • source unchecked, dest checked  → skip
-            • source checked, dest checked    → both (auto-renamed)
-            • both unchecked                   → no decision
-              (resolves to "skip" on Continue via
-              the parent's finaliser)
-            This is the same priority order the Windows "select both
-            versions" / "select one" / "select neither" semantics
-            follow. */}
       <div className="mt-3 max-h-[40vh] overflow-y-auto pr-1 space-y-2">
         {conflicts.map((conflict) => {
           const resolution = resolutions[conflict.id];
@@ -733,13 +655,6 @@ function IconConflictPerRowModal({
       zIndexClass="z-[70]"
     >
       <div className="p-6">
-        {/* Header — mirrors the parent popup's title block so the
-            two stacked popups read as a coherent two-step flow.
-            The close (×) icon at the top-right fires `onBack` to
-            return to the first-image layout underneath, not to
-            close the whole conflict batch. `event.stopPropagation()`
-            keeps the click from bubbling into the parent
-            popup's own close handler. */}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-bold text-slate-900">
@@ -764,12 +679,6 @@ function IconConflictPerRowModal({
             <CloseIcon className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Master checkboxes + per-row grid. Reuses the same
-            `PerRowCheckboxesBody` layout that used to render
-            inline in the parent — extracted into a stacked
-            modal so the first-image popup stays visible
-            underneath. */}
         <PerRowCheckboxesBody
           conflicts={conflicts}
           resolutions={resolutions}
@@ -785,13 +694,6 @@ function IconConflictPerRowModal({
           onClearRowResolution={onClearRowResolution}
           onKeepBoth={onKeepBoth}
         />
-
-        {/* Footer — mirrors the inline footer that used to
-            render in the parent. Cancel returns to the
-            first-image layout (via `onBack`); Continue commits
-            the merge (via `onApply`). The `event.stopPropagation()`
-            calls keep the click from bubbling into the parent
-            popup's own close handler. */}
         <div className="mt-5 flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
           <div className="flex items-center gap-2">
             <button
