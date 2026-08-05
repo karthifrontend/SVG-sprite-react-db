@@ -44,11 +44,6 @@ function ResultsPanel({
   const addIconInputRef = useRef<HTMLInputElement | null>(null);
   const menuContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Close the floating "Add more icons" menu when the user taps outside the
-  // menu or its kebab trigger. We use a `mousedown` listener on the document
-  // so the click on the kebab itself (which toggles the menu) doesn't
-  // immediately close it on the way down — the `useEffect` re-binds after the
-  // toggle has been applied.
   useEffect(() => {
     if (!menuOpen) return;
     function handleOutside(event: MouseEvent) {
@@ -87,14 +82,6 @@ function ResultsPanel({
     event.target.value = "";
     setMenuOpen(false);
 
-    // The "Add more icons" picker is icon-only. The native `accept` attribute
-    // is a hint to the OS file dialog and is bypassable (drag-drop, file
-    // manager "open with", etc.), so we also enforce the rule at runtime: any
-    // SVG that resolves to a sprite (multiple <symbol>s, a top-level <defs>
-    // containing <symbol> children, or no <symbol> at all) is filtered out
-    // and surfaced via a single batched toast. Non-SVG files are also dropped
-    // here for symmetry — the Compiler would have rejected them anyway, but
-    // we want the message to come from the same place.
     const svgOnly = fileArray.filter(
       (file) => file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg"),
     );

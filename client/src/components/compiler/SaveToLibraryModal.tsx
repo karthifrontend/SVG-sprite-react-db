@@ -1,7 +1,7 @@
 // "Save to Organization" modal. Captures library name + version description and submits via the parent callback.
 import { useEffect, useMemo, useState } from "react";
 import Modal from "../Modal";
-import { CloseIcon, InfoIcon } from "../icons"; 
+import { CloseIcon, InfoIcon } from "../icons";
 
 type SaveToLibraryModalProps = {
   isOpen: boolean;
@@ -44,6 +44,7 @@ export default function SaveToLibraryModal({
   }, [isOpen, defaultName, nextVersion, initialIsPublic]);
 
   const trimmedName = name.trim();
+  // The version description is no longer user-editable in the modal — it's auto-set from `nextVersion` and passed through to the parent's onSubmit unchanged, so we can derive a non-empty string here without state.
   const trimmedVersion = version.trim();
   const isNameConflict = useMemo(
     () =>
@@ -53,11 +54,8 @@ export default function SaveToLibraryModal({
       ),
     [trimmedName, existingNames],
   );
-  // The form is invalid when the user typed a conflicting name OR when either the library name or the version description is empty. Both fields are required before the Save button can be clicked — we no longer fall back to the placeholder for an empty Library Name, so the user must explicitly type both values to enable the submit action.
-  const isInvalid =
-    isNameConflict ||
-    trimmedName.length === 0 ||
-    trimmedVersion.length === 0;
+  // Form is invalid only when the user typed a conflicting name or left the library name empty — the version is always populated, so no need to check it.
+  const isInvalid = isNameConflict || trimmedName.length === 0;
 
   return (
     <Modal
@@ -101,12 +99,11 @@ export default function SaveToLibraryModal({
               value={name}
               disabled={busy}
               onChange={(event) => setName(event.target.value)}
-              placeholder= "eg. Bolddesk icons"
-              className={`w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 ${
-                isNameConflict
+              placeholder="eg. Bolddesk icons"
+              className={`w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 ${isNameConflict
                   ? "border-rose-500 focus:ring-rose-500"
                   : "border-slate-200 focus:ring-indigo-500"
-              }`}
+                }`}
             />
             {isNameConflict && (
               <p className="mt-1 text-[11px] font-medium text-rose-500">
@@ -115,28 +112,6 @@ export default function SaveToLibraryModal({
               </p>
             )}
           </div>
-
-          {/* <div>
-            <label
-              htmlFor="save-version-description"
-              className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-slate-500"
-            >
-              Version Description <span className="text-rose-500">*</span>
-            </label>
-            <input
-              id="save-version-description"
-              type="text"
-              value={version}
-              disabled={busy}
-              onChange={(event) => setVersion(event.target.value)}
-              placeholder="v1"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <p className="mt-1 text-[11px] text-slate-400">
-              A label for this save. The server assigns the numeric version
-              automatically.
-            </p>
-          </div> */}
 
           {/* "Make it as public" toggle. Mirrors the main page's inline-save section so the user gets a consistent visibility control whether they save from the compiler or from the Live Demo. Default is private for new bundles; seeded from the active bundle's visibility when the modal opens against an already-loaded library. */}
           <div className="border-t border-slate-200/60 pt-3">
@@ -156,24 +131,24 @@ export default function SaveToLibraryModal({
               <span className="text-sm font-semibold text-slate-700 transition-colors group-hover:text-slate-900">
                 Make it as public
               </span>
-<span
-              className="mt-px group/info relative inline-flex"
-              tabIndex={0}
-              aria-label="What does public mean?"
-            >
-              <InfoIcon className="h-3.5 w-3.5 cursor-pointer text-slate-400 transition-colors group-hover/info:text-indigo-500" />
-              {/* Tooltip — appears on hover/focus so screen readers can discover the explanation via the focusable wrapper. */}
               <span
-                role="tooltip"
-                className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-56 -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-center text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/info:opacity-100 group-focus-within/info:opacity-100"
+                className="mt-px group/info relative inline-flex"
+                tabIndex={0}
+                aria-label="What does public mean?"
               >
-                If a library is marked as public, it will be visible to all users.
+                <InfoIcon className="h-3.5 w-3.5 cursor-pointer text-slate-400 transition-colors group-hover/info:text-indigo-500" />
+                {/* Tooltip — appears on hover/focus so screen readers can discover the explanation via the focusable wrapper. */}
                 <span
-                  aria-hidden
-                  className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900"
-                />
+                  role="tooltip"
+                  className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-56 -translate-x-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-center text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover/info:opacity-100 group-focus-within/info:opacity-100"
+                >
+                  If a library is marked as public, it will be visible to all users.
+                  <span
+                    aria-hidden
+                    className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900"
+                  />
+                </span>
               </span>
-            </span>
             </label>
           </div>
         </div>
