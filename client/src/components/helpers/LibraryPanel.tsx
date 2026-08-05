@@ -13,12 +13,12 @@ import {
   EyeIcon,
   DuplicateIcon,
   DownloadIcon,
-} from "../icons";
+} from "../icons/icons";
 import VisibilityBadge from "../VisibilityBadge";
 import type { Source as LiveDemoSource } from "./LiveDemo";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { formatDate } from "../../utils/sprite";
+import { formatDate } from "../../utils/buildDemo";
 import { truncateLibName } from "../../utils/toastFormat";
 import type { SpriteSummary } from "../../api/sprites";
 import Modal from "../Modal";

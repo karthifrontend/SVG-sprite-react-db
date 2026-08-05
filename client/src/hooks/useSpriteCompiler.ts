@@ -1,6 +1,6 @@
 // useSpriteCompiler. Owns the compile state machine: queue icons, merge/update, build sprite XML, and emit demo HTML.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { buildDemoHtml, buildSpriteXml, extractSymbolsFromSprite, sortSymbolsById, svgFileToSymbol, type SpriteSymbol } from "../utils/sprite";
+import { buildDemoHtml, buildSpriteXml, extractSymbolsFromSprite, sortSymbolsById, svgFileToSymbol, type SpriteSymbol } from "../utils/buildDemo";
 
 type CompilerState = {
   generating: boolean;

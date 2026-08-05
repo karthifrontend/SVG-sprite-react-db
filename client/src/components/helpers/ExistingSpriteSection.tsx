@@ -1,7 +1,7 @@
 // Update-mode "Base Sprite File" picker. Lets the user choose the existing sprite to merge new icons into.
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { formatSize, isSpriteSvgFile } from "../../utils/sprite";
-import { CloseIcon } from "../icons";
+import { formatSize, isSpriteSvgFile } from "../../utils/buildDemo";
+import { CloseIcon } from "../icons/icons";
 
 type ExistingSpriteSectionProps = {
   file: File | null;

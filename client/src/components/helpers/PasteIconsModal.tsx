@@ -4,7 +4,7 @@ import Modal from "../Modal";
 import { useLibrary } from "../../hooks/useLibrary";
 import { useAuth } from "../../context/AuthContext";
 import type { CopiedIcon } from "./LiveDemo";
-import { EyeIcon, EyeOffIcon } from "../icons";
+import { EyeIcon, EyeOffIcon } from "../icons/icons";
 import VisibilityBadge from "../VisibilityBadge";
 
 type PasteIconsModalProps = {

@@ -1,7 +1,7 @@
 // Shared helper for the conflict modals.
 
 import { useEffect } from "react";
-import { classifySymbolVariant } from "../../utils/sprite";
+import { classifySymbolVariant } from "../utils/buildDemo";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const HOST_ID = "conflict-sprite-host";

@@ -1,6 +1,6 @@
 // Right-hand results panel. Shows the generated sprite XML, symbol count, and copy/demo/download actions.
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { isSpriteSvgFile } from "../../utils/sprite";
+import { isSpriteSvgFile } from "../../utils/buildDemo";
 import type { ToastType } from "../../context/ToastContext";
 
 type ResultsPanelProps = {

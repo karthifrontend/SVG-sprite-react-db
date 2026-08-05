@@ -1,7 +1,7 @@
 // "Save to Organization" modal. Captures library name + version description and submits via the parent callback.
 import { useEffect, useMemo, useState } from "react";
 import Modal from "../Modal";
-import { CloseIcon, InfoIcon } from "../icons";
+import { CloseIcon, InfoIcon } from "../icons/icons";
 
 type SaveToLibraryModalProps = {
   isOpen: boolean;

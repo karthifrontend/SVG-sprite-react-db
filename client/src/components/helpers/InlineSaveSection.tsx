@@ -1,6 +1,6 @@
 // Inline "save to library" toggle panel with conflict detection. Sits below the drop zone in create/update modes.
 import { useEffect, useState } from "react";
-import { InfoIcon } from "../icons";
+import { InfoIcon } from "../icons/icons";
 
 type InlineSaveValue = {
   enabled: boolean;

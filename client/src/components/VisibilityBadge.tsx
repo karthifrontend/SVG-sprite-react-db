@@ -1,5 +1,5 @@
 // Tiny reusable icon badge that surfaces a sprite library's visibility as "Private" or "Public". 
-import { EyeIcon, EyeOffIcon } from "./icons";
+import { EyeIcon, EyeOffIcon } from "./icons/icons";
 
 type VisibilityBadgeProps = {
   isPublic: boolean;

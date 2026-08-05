@@ -5,8 +5,8 @@ import {
   type IconConflict,
 } from "../../hooks/useSpriteCompiler";
 import IconConflictCompareModal from "./IconConflictCompareModal";
-import { CloseIcon } from "../icons";
-import { useConflictSpriteHost } from "./conflictSpriteHost";
+import { CloseIcon } from "../icons/icons";
+import { useConflictSpriteHost } from "../../hooks/conflictSpriteHost";
 
 type IconConflictModalProps = {
   isOpen: boolean;

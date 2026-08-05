@@ -12,7 +12,7 @@ import {
   SadFaceIcon,
   LockIcon,
   TrashIcon,
-} from "../icons";
+} from "../icons/icons";
 import VisibilityBadge from "../VisibilityBadge";
 import { useToast } from "../../context/ToastContext";
 import { useAuth } from "../../context/AuthContext";
@@ -20,7 +20,7 @@ import {
   buildDemoHtml,
   classifySymbolVariant,
   copyToClipboard,
-} from "../../utils/sprite";
+} from "../../utils/buildDemo";
 import { createZip, triggerBrowserDownload } from "../../utils/zipBundle";
 import { renderSpritePreviewPng } from "../../utils/previewPng";
 import { truncateLibName } from "../../utils/toastFormat";
