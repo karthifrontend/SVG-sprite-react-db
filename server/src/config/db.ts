@@ -1,8 +1,8 @@
 // MongoDB connection helper. Loads models and exposes ensureConnected() / connectDb() for the rest of the server.
 import mongoose from "mongoose";
-import User from "./models/User.js";
-import Sprite from "./models/Sprite.js";
-import SpriteVersion from "./models/SpriteVersion.js";
+import User from "../models/User.js";
+import Sprite from "../models/Sprite.js";
+import SpriteVersion from "../models/SpriteVersion.js";
 
 // Connect to MongoDB Atlas using MONGODB_URI from the environment. Caches the connection across module reloads in dev to avoid exhausting the connection pool.
 const MONGODB_URI = process.env.MONGODB_URI;

@@ -1,7 +1,7 @@
-// One-off backfill: assigns an owner to any existing sprite that was created before the owner field existed.
+// Assigns an owner to any existing sprite that was created before the owner field existed.
 import "dotenv/config";
 import mongoose from "mongoose";
-import { connectDb } from "../db.js";
+import { connectDb } from "../config/db.js";
 import User from "../models/User.js";
 import Sprite from "../models/Sprite.js";
 import SpriteVersion from "../models/SpriteVersion.js";
@@ -10,7 +10,7 @@ const SYSTEM_USER_ID = "system";
 const SYSTEM_USER_EMAIL = "system@local.invalid";
 const SYSTEM_USER_NAME = "Legacy system library";
 
-// Shape of a legacy sprite document sitting in the `sprites` collection before the migration ran. We accept a permissive shape here so the script works against any half-migrated DB.
+// Shape of a legacy sprite document sitting in the `sprites` collection before the migration ran.
 type LegacySprite = {
   _id: unknown;
   name?: string;
@@ -47,12 +47,14 @@ async function main() {
       upsert: true,
       returnDocument: "after",
       setDefaultsOnInsert: true,
-    }
+    },
   );
 
   // Pull every legacy document. We can't filter on the new `currentVersion` field because old docs don't have it; the presence of `xml` is the closest thing to "this is a legacy document" we can use. If a previous run already migrated some, those docs have no `xml` and get skipped.
   const legacyFilter = { xml: { $exists: true, $ne: null } };
-  const legacyDocs = (await Sprite.find(legacyFilter).lean()) as unknown as LegacySprite[];
+  const legacyDocs = (await Sprite.find(
+    legacyFilter,
+  ).lean()) as unknown as LegacySprite[];
 
   let bundleCount = 0;
   let versionCount = 0;
@@ -64,9 +66,7 @@ async function main() {
       continue;
     }
     const ownerObjectId = legacy.ownerId ?? systemUser._id;
-    const ownerEmail = (
-      legacy.ownerEmail ?? SYSTEM_USER_EMAIL
-    ).toLowerCase();
+    const ownerEmail = (legacy.ownerEmail ?? SYSTEM_USER_EMAIL).toLowerCase();
     const version = typeof legacy.version === "number" ? legacy.version : 1;
     const isPublic = !!legacy.isPublic;
     const xml = legacy.xml ?? "";
@@ -97,7 +97,7 @@ async function main() {
         upsert: true,
         returnDocument: "after",
         setDefaultsOnInsert: true,
-      }
+      },
     );
     bundleCount += 1;
 

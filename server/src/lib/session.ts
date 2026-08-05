@@ -1,10 +1,11 @@
-// Session token helpers. Signs and verifies the short-lived HS256 JWT used to authenticate protected requests.
+// Signs and verifies the short-lived HS256 JWT used to authenticate protected requests.
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 
 const ISSUER = "svg-compiler-server";
 const AUDIENCE = "svg-compiler-client";
-const TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+const TTL_SECONDS = 60 * 60 * 24 * 7;
 
+// Returns the session secret as a Uint8Array, throwing an error if it's not configured or too short.
 function getSecret(): Uint8Array {
   const raw = process.env.SESSION_SECRET;
   if (!raw || raw.length < 16) {
@@ -15,6 +16,7 @@ function getSecret(): Uint8Array {
   return new TextEncoder().encode(raw);
 }
 
+// Type definition for the claims returned in a session token.
 export type SessionClaims = {
   sub: string;
   email: string;
@@ -22,6 +24,7 @@ export type SessionClaims = {
   providerId: string;
 };
 
+// Type guard to check if the payload has the required session claims.
 function isSessionClaims(payload: JWTPayload): payload is SessionClaims & JWTPayload {
   const provider = (payload as { provider?: unknown }).provider;
   return (
@@ -32,6 +35,7 @@ function isSessionClaims(payload: JWTPayload): payload is SessionClaims & JWTPay
   );
 }
 
+// Signs a new session token with the given claims and returns it as a string.
 export async function signSession(claims: SessionClaims): Promise<string> {
   return await new SignJWT({
     email: claims.email,
@@ -47,6 +51,7 @@ export async function signSession(claims: SessionClaims): Promise<string> {
     .sign(getSecret());
 }
 
+// Verifies the session token and returns the claims if valid.
 export async function verifySession(token: string): Promise<SessionClaims> {
   const { payload } = await jwtVerify(token, getSecret(), {
     issuer: ISSUER,

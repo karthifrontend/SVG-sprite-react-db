@@ -1,6 +1,6 @@
 // useFileDropzone. Encapsulates drag-and-drop state and file selection for the compiler's file zone.
 import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from "react";
-import { isSpriteSvgFile } from "../utils/sprite";
+import { isSpriteSvgFile } from "../utils/buildDemo";
 
 export type DropzoneAcceptMode = "icons" | "sprite";
 

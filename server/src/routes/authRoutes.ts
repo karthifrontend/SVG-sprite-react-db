@@ -1,9 +1,9 @@
-// /api/auth routes. Verifies Google ID tokens, upserts users, and issues session cookies/JWTs.
+// Verifies Google ID tokens, upserts users, and issues session cookies/JWTs.
 import { Router, type Request, type Response } from "express";
 import type { HydratedDocument } from "mongoose";
 import { verifyGoogleIdToken } from "../lib/google.js";
 import { signSession } from "../lib/session.js";
-import { ensureConnected } from "../db.js";
+import { ensureConnected } from "../config/db.js";
 import User, { type UserDoc } from "../models/User.js";
 
 const router = Router();
@@ -16,6 +16,7 @@ function asString(value: unknown): string | null {
   return typeof value === "string" ? value.trim() : null;
 }
 
+// Returns a public-facing user object with sensitive fields omitted. This is the shape of the `user` property in the response to the client after login.
 function publicUser(user: HydratedDocument<UserDoc>) {
   return {
     id: String(user._id),
@@ -28,6 +29,7 @@ function publicUser(user: HydratedDocument<UserDoc>) {
   };
 }
 
+// Returns a 503 Service Unavailable response with a message about the database connection.
 function notConnectedResponse(res: Response) {
   return res.status(503).json({
     error:
@@ -35,6 +37,7 @@ function notConnectedResponse(res: Response) {
   });
 }
 
+// POST method for Google sign-in.
 router.post("/google", async (req: Request, res: Response) => {
   const body = (req.body ?? {}) as LoginBody;
   const credential = asString(body.credential);
@@ -49,12 +52,13 @@ router.post("/google", async (req: Request, res: Response) => {
         "Server is missing GOOGLE_CLIENT_ID. Add it to server/.env to enable Google sign-in.",
     });
   }
-
+  // Verify the Google ID token and extract the claims (user info) from it.
   let claims;
   try {
     claims = await verifyGoogleIdToken(credential, expectedAudience);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Google sign-in failed.";
+    const message =
+      err instanceof Error ? err.message : "Google sign-in failed.";
     return res.status(401).json({ error: message });
   }
 
@@ -62,10 +66,9 @@ router.post("/google", async (req: Request, res: Response) => {
   if (!connected) {
     return notConnectedResponse(res);
   }
-
+  // Upsert the user in the database and issue a session token.
   try {
     const now = new Date();
-    // Upsert by (provider, providerId) so a returning user is matched deterministically. Profile fields are refreshed on every login so the display name and picture stay current.
     const user = await User.findOneAndUpdate(
       { provider: "google", providerId: claims.sub },
       {
@@ -85,7 +88,7 @@ router.post("/google", async (req: Request, res: Response) => {
         upsert: true,
         returnDocument: "after",
         setDefaultsOnInsert: true,
-      }
+      },
     );
 
     const token = await signSession({
@@ -102,6 +105,7 @@ router.post("/google", async (req: Request, res: Response) => {
   }
 });
 
+// POST method for Microsoft sign-in.
 router.post("/microsoft", (_req: Request, res: Response) => {
   return res.status(501).json({
     error:

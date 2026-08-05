@@ -4,7 +4,7 @@ import Modal from "../Modal";
 import { useLibrary } from "../../hooks/useLibrary";
 import { useAuth } from "../../context/AuthContext";
 import type { SpriteSummary } from "../../api/sprites";
-import { ChevronDownIcon, ChevronUpIcon } from "../icons";
+import { ChevronDownIcon, ChevronUpIcon } from "../icons/icons";
 
 type LibraryTab = "private" | "public";
 

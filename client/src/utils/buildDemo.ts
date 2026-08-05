@@ -1,4 +1,4 @@
-﻿// Sprite utilities. Builds sprite XML, extracts symbols, validates SVG files, and formats sizes/dates.
+﻿// Builds sprite XML, extracts symbols, validates SVG files, and formats sizes/dates.
 export type SpriteSymbol = {
   id: string;
   viewBox: string;
@@ -8,7 +8,9 @@ const ICON_PREFIX = "icon-";
 export function compareSymbolId(a: string, b: string): number {
   if (a === b) return 0;
   const stripPrefix = (id: string): string =>
-    id.toLowerCase().startsWith(ICON_PREFIX) ? id.slice(ICON_PREFIX.length) : id;
+    id.toLowerCase().startsWith(ICON_PREFIX)
+      ? id.slice(ICON_PREFIX.length)
+      : id;
   const left = stripPrefix(a);
   const right = stripPrefix(b);
   const re = /(\d+)|(\D+)/g;
@@ -16,18 +18,29 @@ export function compareSymbolId(a: string, b: string): number {
   const bParts: Array<{ num: number; text: string }> = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(left)) !== null) {
-    aParts.push(m[1] !== undefined ? { num: parseInt(m[1], 10), text: "" } : { num: NaN, text: m[2] });
+    aParts.push(
+      m[1] !== undefined
+        ? { num: parseInt(m[1], 10), text: "" }
+        : { num: NaN, text: m[2] },
+    );
   }
   re.lastIndex = 0;
   while ((m = re.exec(right)) !== null) {
-    bParts.push(m[1] !== undefined ? { num: parseInt(m[1], 10), text: "" } : { num: NaN, text: m[2] });
+    bParts.push(
+      m[1] !== undefined
+        ? { num: parseInt(m[1], 10), text: "" }
+        : { num: NaN, text: m[2] },
+    );
   }
   const len = Math.min(aParts.length, bParts.length);
   for (let i = 0; i < len; i += 1) {
     const ap = aParts[i];
     const bp = bParts[i];
     if (Number.isNaN(ap.num) && Number.isNaN(bp.num)) {
-      const c = ap.text.localeCompare(bp.text, undefined, { numeric: true, sensitivity: "base" });
+      const c = ap.text.localeCompare(bp.text, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
       if (c !== 0) return c;
       continue;
     }
@@ -115,7 +128,7 @@ export async function isSpriteSvgFile(file: File): Promise<boolean> {
 
 export function sanitizeSymbolName(
   rawName: string,
-  fallbackIndex?: number
+  fallbackIndex?: number,
 ): string {
   let name = (rawName || "").trim();
   // Drop the extension.
@@ -168,7 +181,7 @@ export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
 
   // Concatenate all child nodes (element + text) into a single string.
   const inner = Array.from(svg.childNodes)
-    .map(node => (node as Element).outerHTML ?? node.nodeValue ?? "")
+    .map((node) => (node as Element).outerHTML ?? node.nodeValue ?? "")
     .join("")
     .trim();
 
@@ -181,7 +194,9 @@ export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
 // Build a complete sprite SVG document from a list of symbols.
 export function buildSpriteXml(symbols: SpriteSymbol[]): string {
   const symbolsXml = symbols
-    .map(s => `<symbol id="${s.id}" viewBox="${s.viewBox}">${s.inner}</symbol>`)
+    .map(
+      (s) => `<symbol id="${s.id}" viewBox="${s.viewBox}">${s.inner}</symbol>`,
+    )
     .join("\n  ");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" style="display:none">\n  ${symbolsXml}\n</svg>`;
 }
@@ -203,9 +218,7 @@ export function extractSymbolsFromSprite(xml: string): SpriteSymbol[] {
           el.getAttribute("data-viewBox") ||
           "0 0 24 24";
         const inner = Array.from(el.childNodes)
-          .map((node) =>
-            (node as Element).outerHTML ?? node.nodeValue ?? ""
-          )
+          .map((node) => (node as Element).outerHTML ?? node.nodeValue ?? "")
           .join("")
           .trim();
         return { id, viewBox, inner };
@@ -243,7 +256,10 @@ function extractColorValues(markup: string): string[] {
   return values;
 }
 
-function countPaintableShapes(markup: string): { fills: number; strokes: number } {
+function countPaintableShapes(markup: string): {
+  fills: number;
+  strokes: number;
+} {
   let fills = 0;
   let strokes = 0;
   const fillAttr = /\bfill\s*=\s*(['"])(.*?)\1/gi;
@@ -278,7 +294,7 @@ function countPaintableShapes(markup: string): { fills: number; strokes: number 
 export function classifySymbolVariant(markup: string): IconVariant {
   const colors = extractColorValues(markup);
   const uniqueColors = colors.filter(
-    (value, index) => colors.indexOf(value) === index
+    (value, index) => colors.indexOf(value) === index,
   );
   if (uniqueColors.length > 1) return "multicolor";
   const { fills, strokes } = countPaintableShapes(markup);
@@ -305,20 +321,24 @@ function markTintableSymbols(spriteXml: string): string {
         .replace(/\s+data-icon-variant="(?:solid|outlined|multicolor)"/i, "");
       updatedOpenTag = `${updatedOpenTag.slice(0, -1)}${markers.join("")}>`;
       return `${updatedOpenTag}${inner}${closeTag}`;
-    }
+    },
   );
 }
 
 export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   const ids = symbolIds;
   const tintableSpriteXml = markTintableSymbols(spriteXml);
-  const iconCards = ids.map(id => `
+  const iconCards = ids
+    .map(
+      (id) => `
       <div class="icon-card">
         <div class="icon-preview">
           <svg width="40" height="40"><use href="#${id}"></use></svg>
         </div>
         <span class="icon-label">${id}</span>
-      </div>`).join('');
+      </div>`,
+    )
+    .join("");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -378,7 +398,7 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   ${tintableSpriteXml}
   <div class="header">
     <h1>🎨 SVG Sprite Preview</h1>
-    <p>${ids.length} symbol${ids.length !== 1 ? 's' : ''} in sprite.svg</p>
+    <p>${ids.length} symbol${ids.length !== 1 ? "s" : ""} in sprite.svg</p>
   </div>
   <div class="controls">
     <label>Color:</label>
@@ -393,21 +413,6 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   </div>
   <div class="footer">Generated by SVG Sprite Compiler</div>
   <script>
-    // Normalize every symbol so its paint attributes use currentColor,
-    // which is the value the swatch buttons ultimately drive. The exact
-    // paint attribute we touch depends on the icon's variant — see
-    // classifySymbolVariant for the rules:
-    //   - solid     → fill uses currentColor, stroke is set to none so
-    //                 the recoloured shape doesn't pick up a leftover
-    //                 outline.
-    //   - outlined  → stroke uses currentColor, fill is set to none so
-    //                 the recoloured outline reads as a clean line.
-    //   - multicolor→ the original palette is preserved untouched.
-    // This guarantees that toggling the swatches re-tints every icon
-    // without ever pushing a colour onto the wrong paint attribute, even
-    // when the original SVGs had hardcoded colors that the generator's
-    // regex missed (e.g. styles set via the style attribute, single-quoted
-    // attributes, or values inherited from wrapper <g> elements).
     (function normalizeSymbols() {
       var symbols = document.querySelectorAll('symbol');
       symbols.forEach(function (sym) {
@@ -421,10 +426,6 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
           if (n.nodeType !== 1) continue;
           // Strip inline style fill/stroke (e.g. style="fill:#abc;stroke:#def")
           if (n.getAttribute('style')) {
-            // Build the regex with new RegExp so the single-quoted JS
-            // string literal above doesn't terminate on the apostrophe
-            // inside the character class. The pattern matches a
-            // fill:…/stroke:… declaration within a style="…" body.
             var inlineStyleRegex = new RegExp("(^|;)\\s*(fill|stroke)\\s*:\\s*[^;]+", "gi");
             var s = n.getAttribute('style').replace(
               inlineStyleRegex,
@@ -447,11 +448,6 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
             var v = n.getAttribute(attr);
             // Skip values the author already neutralised (e.g. fill="none").
             if (v === 'none') {
-              // For solid icons, the original fill="none" was almost
-              // certainly a hack to make the inner shapes transparent so
-              // the surrounding <path> does the painting. We must NOT
-              // promote it to currentColor — leave it as none and let
-              // the next block repaint only the fill.
               return;
             }
             if (variant === 'outlined') {
@@ -461,10 +457,6 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
               n.setAttribute(attr, attr === 'fill' ? 'currentColor' : 'none');
             }
           });
-          // For elements with no explicit fill/stroke and no style, default
-          // the fill to currentColor so basic shapes (circle, rect, line)
-          // get coloured. Only do this for solid icons; outlined icons
-          // rely on the stroke and would look wrong with a sudden fill.
           if (variant === 'solid'
               && !n.getAttribute('fill')
               && !n.getAttribute('style')) {

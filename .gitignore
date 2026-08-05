@@ -31,3 +31,12 @@ server/src/**/*.d.ts.map
 *.njsproj
 *.sln
 *.sw?
+
+# One-off audit / scratch output (e.g. ripgrep dumps from local code-audit runs)
+audit-out*.txt
+scratch-*.txt
+
+# Captured linter / typechecker output
+client/lint.log
+client/tsc.log
+server/tsc.log

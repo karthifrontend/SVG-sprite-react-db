@@ -1,6 +1,6 @@
 // Renders a sprite sheet to a PNG by drawing each symbol onto its own card on a hidden <canvas>. We avoid adding an html-to-image dependency by inlining the sprite XML into a Blob URL, parsing each <symbol> and re-serialising it as a tiny data: URL we can drawImage onto the canvas. The result is a "preview.png" with one card per symbol, matching the on-screen design of the live demo / library panel.
 
-import { classifySymbolVariant } from "./sprite";
+import { classifySymbolVariant } from "./buildDemo";
 
 const SYMBOL_PX = 96;
 const CARD_PADDING_X = 96;

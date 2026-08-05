@@ -1,5 +1,5 @@
 // Read-only list of staged icon files queued for compilation, with per-file remove actions.
-import { formatSize } from "../../utils/sprite";
+import { formatSize } from "../../utils/buildDemo";
 
 type StagedFilesListProps = {
   files: File[];
