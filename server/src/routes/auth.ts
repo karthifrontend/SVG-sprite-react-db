@@ -12,11 +12,6 @@ type LoginBody = {
   credential?: unknown;
 };
 
-// Built-in demo account. The `providerId` is a fixed sentinel so the upsert always lands on the same document regardless of how many people click the button.
-const DEMO_PROVIDER_ID = "demo";
-const DEMO_EMAIL = "demo@svg-compiler.local";
-const DEMO_DISPLAY_NAME = "Demo User";
-
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value.trim() : null;
 }
@@ -107,55 +102,11 @@ router.post("/google", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/demo", async (_req: Request, res: Response) => {
-  const connected = await ensureConnected();
-  if (!connected) {
-    return notConnectedResponse(res);
-  }
-
-  try {
-    const now = new Date();
-    const user = await User.findOneAndUpdate(
-      { provider: "demo", providerId: DEMO_PROVIDER_ID },
-      {
-        $set: {
-          email: DEMO_EMAIL,
-          emailVerified: true,
-          displayName: DEMO_DISPLAY_NAME,
-          picture: null,
-          lastLoginAt: now,
-        },
-        $setOnInsert: {
-          provider: "demo",
-          providerId: DEMO_PROVIDER_ID,
-        },
-      },
-      {
-        upsert: true,
-        returnDocument: "after",
-        setDefaultsOnInsert: true,
-      }
-    );
-
-    const token = await signSession({
-      sub: String(user._id),
-      email: user.email,
-      provider: "demo",
-      providerId: user.providerId,
-    });
-
-    return res.json({ user: publicUser(user), token });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return res.status(500).json({ error: message });
-  }
-});
-
 router.post("/microsoft", (_req: Request, res: Response) => {
   return res.status(501).json({
     error:
       "Microsoft sign-in is not configured on the server yet. " +
-      "Please use Google or the Demo account for now.",
+      "Please use Google for now.",
   });
 });
 

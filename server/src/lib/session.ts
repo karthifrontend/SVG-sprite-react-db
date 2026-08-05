@@ -18,7 +18,7 @@ function getSecret(): Uint8Array {
 export type SessionClaims = {
   sub: string;
   email: string;
-  provider: "google" | "microsoft" | "demo";
+  provider: "google" | "microsoft";
   providerId: string;
 };
 
@@ -27,7 +27,7 @@ function isSessionClaims(payload: JWTPayload): payload is SessionClaims & JWTPay
   return (
     typeof payload.sub === "string" &&
     typeof (payload as { email?: unknown }).email === "string" &&
-    (provider === "google" || provider === "microsoft" || provider === "demo") &&
+    (provider === "google" || provider === "microsoft") &&
     typeof (payload as { providerId?: unknown }).providerId === "string"
   );
 }

@@ -11,7 +11,6 @@ import {
 } from "react";
 import {
   fetchCurrentUser,
-  loginAsDemo as loginAsDemoApi,
   loginWithGoogle as loginWithGoogleApi,
   loginWithMicrosoft as loginWithMicrosoftApi,
   type ServerUser,
@@ -23,7 +22,7 @@ export type CurrentUser = {
   displayName: string;
   picture: string | null;
   emailVerified: boolean;
-  provider: "google" | "microsoft" | "demo";
+  provider: "google" | "microsoft";
 };
 
 type AuthContextValue = {
@@ -32,8 +31,6 @@ type AuthContextValue = {
   initializing: boolean;
   // Open the Google account chooser and return the signed-in user. The chooser is a popup, not One-Tap, so it always lists every signed-in account and exposes the "Use another account" option.
   loginWithGoogle: () => Promise<CurrentUser>;
-  // Sign in as the built-in demo user. Returns the demo `CurrentUser` so the modal can show a success message.
-  loginAsDemo: () => Promise<CurrentUser>;
   // Microsoft sign-in. The server-side MSAL flow is not wired up yet, so this resolves to a thrown error with a clear message the modal can display.
   loginWithMicrosoft: () => Promise<CurrentUser>;
   // Clear local session and revoke the Google session if possible.
@@ -123,7 +120,7 @@ function toCurrentUser(serverUser: ServerUser): CurrentUser {
     displayName: serverUser.displayName,
     picture: serverUser.picture,
     emailVerified: serverUser.emailVerified,
-    // Trust the server's provider label so a stale `google` cached in localStorage can never be reported as the demo user.
+    // Trust the server's provider label so a stale `google` cached in localStorage can never be mislabelled on rehydrate.
     provider: serverUser.provider,
   };
 }
@@ -305,15 +302,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return next;
   }, []);
 
-  const loginAsDemo = useCallback(async (): Promise<CurrentUser> => {
-    // The demo flow does not use Google Identity Services, so we skip the GIS re-init and go straight to the API. The server upserts a shared demo `User` doc every time, but the resulting `CurrentUser` (with its own `ownerId`) is indistinguishable from a real session as far as the rest of the app is concerned.
-    const { user, token } = await loginAsDemoApi();
-    const next = toCurrentUser(user);
-    setCurrentUser(next);
-    persistSession({ user: next, token });
-    return next;
-  }, []);
-
   const loginWithMicrosoft = useCallback(async (): Promise<CurrentUser> => {
     // The server route is a placeholder (501). We let the error bubble up to the caller (the login modal) so it can show the server-provided message in the error slot.
     const { user, token } = await loginWithMicrosoftApi();
@@ -364,18 +352,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       currentUser,
       initializing,
       loginWithGoogle,
-      loginAsDemo,
       loginWithMicrosoft,
       logout,
     }),
-    [
-      currentUser,
-      initializing,
-      loginWithGoogle,
-      loginAsDemo,
-      loginWithMicrosoft,
-      logout,
-    ]
+    [currentUser, initializing, loginWithGoogle, loginWithMicrosoft, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

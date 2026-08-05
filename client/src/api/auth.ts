@@ -9,7 +9,7 @@ export type ServerUser = {
   displayName: string;
   picture: string | null;
   emailVerified: boolean;
-  provider: "google" | "microsoft" | "demo";
+  provider: "google" | "microsoft";
   lastLoginAt?: string;
 };
 
@@ -28,20 +28,6 @@ export async function loginWithGoogle(credential: string): Promise<LoginResponse
     return data;
   } catch (err) {
     throw wrapAxiosError(err, "Google sign-in");
-  }
-}
-
-// Sign in as the built-in demo user. The server upserts a shared demo `User` doc (separate `ownerId` from any real account) and returns a session token. No client-side credentials required.
-export async function loginAsDemo(): Promise<LoginResponse> {
-  try {
-    const { data } = await axios.post<LoginResponse>(
-      `${API_BASE}/api/auth/demo`,
-      {},
-      { headers: { "Content-Type": "application/json" } }
-    );
-    return data;
-  } catch (err) {
-    throw wrapAxiosError(err, "Demo sign-in");
   }
 }
 
