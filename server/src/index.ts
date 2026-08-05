@@ -2,10 +2,10 @@
 import "dotenv/config";
 import express, { type Request, type Response } from "express";
 import cors from "cors";
-import { connectDb } from "./db.js";
-import spritesRouter from "./routes/sprites.js";
-import authRouter from "./routes/auth.js";
-import meRouter from "./routes/me.js";
+import { connectDb } from "./config/db.js";
+import spritesRouter from "./routes/spriteRoutes.js";
+import authRouter from "./routes/authRoutes.js";
+import meRouter from "./routes/sessionUserRoutes.js";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 5000);

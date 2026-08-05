@@ -1,42 +1,41 @@
-// A single version of a sprite bundle. Every save creates a NEW `SpriteVersion` row referencing the parent `Sprite` (bundle) by id, with a monotonically incrementing `version` number scoped to that bundle. The actual XML payload and parsed symbol ids live here, never on the bundle document, so the bundle metadata stays small and the per-version content can be loaded lazily.
+// Model for a single version of a sprite bundle. Each version is a separate document in the `sprite_versions` collection, and is linked to its parent bundle via the `spriteId` field.
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 
 const spriteVersionSchema = new Schema(
   {
-    // Reference to the parent bundle document. Indexed because every "load latest" / "list versions" / "delete bundle" query starts by narrowing down to the bundle's versions.
+    // The parent bundle of this version.
     spriteId: {
       type: Schema.Types.ObjectId,
       ref: "Sprite",
       required: true,
       index: true,
     },
-    // Monotonic version number scoped to its parent bundle. The unique compound index (spriteId, version) is what guarantees we never end up with two v3 docs for the same bundle even under concurrent writes.
+    // The version number of this version. Each version of a bundle has a unique version number, starting at 1 and incrementing by 1 for each new version.
     version: {
       type: Number,
       required: true,
       min: 1,
     },
-    // Full SVG sprite XML for this version. Required because a version without content is meaningless and would be a bug.
+    // The SVG XML content of this version. This is the raw SVG content of the sprite bundle, including all <symbol> elements.
     xml: {
       type: String,
       required: true,
     },
-    // The list of <symbol id="..."> values parsed out of `xml`. Stored alongside the XML so list views don't have to re-parse every version on every render.
+    // The list of symbol IDs in this version. This is a denormalized list of the IDs of all <symbol> elements in the SVG content, used for quick lookups and to avoid parsing the XML.
     symbolIds: {
       type: [String],
       default: [],
     },
-    // Denormalised symbol count for the list view. Mirrors `symbolIds.length` at the time of write but is kept as its own field so the list query can return it without joining / counting array elements.
+    // The number of symbols in this version. This is a denormalized count of the number of <symbol> elements in the SVG content, used for quick lookups and to avoid parsing the XML.
     symbolCount: {
       type: Number,
       default: 0,
     },
   },
   {
-    // Both timestamps are tracked so the client can show "last edited" per version. `createdAt` is when the version row was first inserted (i.e. when the user first saved that particular version of the bundle). `updatedAt` is touched on every `version.save()` — including the in-place edits the live-demo editor makes via PUT /:id — so editing an older version of a bundle still shows an accurate "last touched" time in the library panel.
     timestamps: { createdAt: true, updatedAt: true },
     collection: "sprite_versions",
-  }
+  },
 );
 
 // One document per (spriteId, version) pair. This is the integrity guarantee that backs the "next version is max+1" insert pattern.
@@ -49,9 +48,6 @@ export type SpriteVersionModel = Model<SpriteVersionDoc>;
 
 const SpriteVersion: SpriteVersionModel =
   (mongoose.models.SpriteVersion as SpriteVersionModel | undefined) ??
-  mongoose.model<SpriteVersionDoc>(
-    "SpriteVersion",
-    spriteVersionSchema,
-  );
+  mongoose.model<SpriteVersionDoc>("SpriteVersion", spriteVersionSchema);
 
 export default SpriteVersion;

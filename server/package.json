@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "backfill:owner": "cross-env tsx src/scripts/backfill-owner.ts",
     "backfill:version-updated-at": "cross-env tsx src/scripts/backfill-version-updated-at.ts",
-    "cleanup:orphans": "cross-env tsx src/scripts/cleanup-orphan-versions.ts"
+    "cleanup:orphans": "cross-env tsx src/scripts/backfill-version-updated-at.ts cleanup-orphans"
   },
   "keywords": [],
   "author": "",

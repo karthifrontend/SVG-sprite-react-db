@@ -1,12 +1,13 @@
-// Google ID-token verification. Validates the JWT returned from the client sign-in flow using Google's JWKS.
+// Validates the JWT returned from the client sign-in flow using Google's JWKS.
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 
 const GOOGLE_ISSUER = "https://accounts.google.com";
 const GOOGLE_JWKS_URL = new URL("https://www.googleapis.com/oauth2/v3/certs");
 
-// `createRemoteJWKSet` returns a function that fetches the JWKS on demand and caches the keys; we instantiate it once at module load.
+// Returns a function that fetches the JWKS on demand and caches the keys.
 const jwks = createRemoteJWKSet(GOOGLE_JWKS_URL);
 
+// Type definition for the claims returned in a Google id_token.
 export type GoogleIdTokenClaims = {
   sub: string;
   email: string;
@@ -15,10 +16,12 @@ export type GoogleIdTokenClaims = {
   picture?: string;
 };
 
+// Type guard to check if the payload has the required Google claims.
 function isGoogleClaims(payload: JWTPayload): payload is GoogleIdTokenClaims & JWTPayload {
   return typeof payload.sub === "string" && typeof payload.email === "string";
 }
 
+// Verifies the Google id_token and returns the claims if valid.
 export async function verifyGoogleIdToken(
   credential: string,
   expectedAudience: string
@@ -27,7 +30,6 @@ export async function verifyGoogleIdToken(
     throw new Error("Missing Google id_token.");
   }
   if (!expectedAudience) {
-    // Defensive: an empty audience means anyone could sign tokens for us, so refuse to verify at all.
     throw new Error("Server is not configured with a Google client id.");
   }
 
@@ -43,7 +45,6 @@ export async function verifyGoogleIdToken(
     throw new Error("Google id_token has expired.");
   }
   if (!payload.email_verified) {
-    // We only want to trust verified Google addresses. A user can re-run the flow once Google confirms their address.
     throw new Error("Google account email is not verified.");
   }
 

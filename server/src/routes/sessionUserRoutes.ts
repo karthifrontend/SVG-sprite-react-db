@@ -1,4 +1,4 @@
-// /api/me route. Returns the currently authenticated user (or 401) for client-side session checks.
+// Returns the currently authenticated user for client-side session checks.
 import { Router, type Request, type Response } from "express";
 import { requireUser } from "../middleware/requireUser.js";
 
