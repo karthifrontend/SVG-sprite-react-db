@@ -95,6 +95,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       hasNameConflict: false,
       isPublic: false,
     });
+    // Drop any in-flight conflict-modal state so a stale add-icons batch from a cancelled modal never leaks into the next flow.
+    setPendingConflicts(null);
+    setPendingExistingContent(null);
+    pendingGenerateFilesRef.current = null;
   }
 
   function handleDrop(e: DragEvent<HTMLDivElement>) {
@@ -172,6 +176,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     versionSpriteId?: string | null;
     versionNumber?: number | null;
   } | null>(null);
+  // The file batch that was passed to `generate` and is awaiting a conflict resolution. For the standard "Generate" flow this is the same as the global staged `files` state, but for the "More Options → Add More Icons" flow the user picks a fresh batch from the Results panel that lives ONLY in the `handleAddIcons` parameter — it never makes it into the global `files` state. Without this ref, the conflict modal's Apply step would call `applyConflictResolutions(files, …)` with the WRONG list (the previously-staged files instead of the just-added ones) and every brand-new icon would silently disappear. Cleared on every successful resolution and on cancel so it never leaks between flows.
+  const pendingGenerateFilesRef = useRef<File[] | null>(null);
 
   const [pendingConflicts, setPendingConflicts] = useState<IconConflict[] | null>(null);
   const [pendingExistingContent, setPendingExistingContent] = useState<string | null>(null);
@@ -1046,13 +1052,17 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }
     setConflictResolveBusy(true);
     try {
+      // Prefer the file batch that was stashed when the conflict was raised. For the standard "Generate" flow this equals the global `files` state, but for the "Add More Icons" flow the user picks a fresh batch from the Results panel that lives ONLY in `handleAddIcons`'s local parameter and is never added to the global `files` state. Falling back to the global `files` is what caused brand-new icons to silently disappear when a conflict was present.
+      const filesForResolution =
+        pendingGenerateFilesRef.current ?? files;
       const summary = await applyConflictResolutions(
-        files,
+        filesForResolution,
         { existingContent: pendingExistingContent },
         resolutions,
       );
       setPendingConflicts(null);
       setPendingExistingContent(null);
+      pendingGenerateFilesRef.current = null;
       const options = pendingFinalizeOptionsRef.current ?? {
         statusLabel: mode === "update" ? "Sprite Updated" : "Sprite Generated",
       };
@@ -1102,6 +1112,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     if (conflictResolveBusy) return;
     setPendingConflicts(null);
     setPendingExistingContent(null);
+    pendingGenerateFilesRef.current = null;
   }
 
   async function handleGenerate() {
@@ -1129,6 +1140,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
     if (summary.needsConfirmation && summary.conflicts && existingContent) {
       pendingFinalizeOptionsRef.current = { statusLabel: mode === "update" ? "Sprite Updated" : "Sprite Generated" };
+      pendingGenerateFilesRef.current = files;
       setPendingConflicts(summary.conflicts);
       setPendingExistingContent(existingContent);
       return;
@@ -1172,6 +1184,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         versionSpriteId: addIconsTargetVersionId,
         versionNumber: addIconsTargetVersionNumber,
       };
+      // Stash the add-icons batch so `handleApplyConflictResolutions` can pass the SAME files to `applyConflictResolutions`. The global `files` state still holds the icons from the original generate; only this local `acceptedFiles` snapshot has the brand-new icons the user just picked, so we must carry it across the modal pause explicitly.
+      pendingGenerateFilesRef.current = acceptedFiles;
       setPendingConflicts(summary.conflicts);
       setPendingExistingContent(existingContent);
       return;
