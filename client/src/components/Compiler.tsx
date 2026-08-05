@@ -233,6 +233,18 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   }): void {
     if (!input.xml) return;
     if (liveDemoSource.type === "baseSprite") {
+      // Saving an empty preview from a base-sprite upload is a "start over" gesture — there's no useful 0-symbol base sprite, and the user expects the section to clear instead of leaving a broken empty result behind. Mirror the same reset we run when the user drops a fresh file into the upload area, including clearing the staged "new icons to add" files.
+      if (input.symbolIds.length === 0) {
+        clearFiles();
+        clearExistingSprite();
+        setDemoSpriteXml(null);
+        setDemoSymbolIds([]);
+        showToast(
+          "All icons removed. Base sprite and staged files cleared from the workspace.",
+          "warning",
+        );
+        return;
+      }
       try {
         const fileName = baseSpriteFile?.name || "sprite.svg";
         const mimeType =
@@ -249,6 +261,16 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           "error",
         );
       }
+      return;
+    }
+    // Scratch / results path. An empty save from the LiveDemo is "discard the generated result and start over" — not a 0-symbol sprite. Calling `loadFromLibrary` with an empty symbol list would leave the Results panel showing the broken "0 symbols" card from the screenshot; instead we wipe the generated output, the demo buffer, AND the staged files so the user lands on a clean dropzone instead of a dropzone that still holds the icons they just deleted.
+    if (input.symbolIds.length === 0) {
+      clearFiles();
+      resetForNewUpload();
+      showToast(
+        "All icons removed. The generated sprite and staged files have been discarded.",
+        "warning",
+      );
       return;
     }
     if (input.xml !== spriteXml) {
@@ -1529,6 +1551,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                   setLiveDemoOpen(true);
                 }}
                 onAddIcons={handleAddIcons}
+                onShowToast={(message, kind) => showToast(message, kind)}
                 addIconDisabled={!hasResult || generating}
                 onDownloadZip={() => void handleDownloadBundleForResults()}
                 downloadBusy={resultsDownloadBusy}
@@ -1648,6 +1671,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 showToast("Base sprite file is no longer available.", "error");
                 return false;
               }
+              // An empty save from the base-sprite preview means the user removed every icon. The previous behaviour replaced `baseSpriteFile` with a 0-symbol sprite, leaving the ExistingSpriteSection stuck on a broken empty file. Clear the base sprite AND the staged "new icons to add" files entirely so the page reverts to a clean workspace instead of leaving a 0-symbol file behind.
+              if (saveIds.length === 0) {
+                clearFiles();
+                clearExistingSprite();
+                setDemoSpriteXml(null);
+                setDemoSymbolIds([]);
+                return "deleted" as const;
+              }
               const newFile = new File([xml], baseSpriteFile.name, {
                 type: baseSpriteFile.type || "image/svg+xml",
               });
@@ -1667,6 +1698,12 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           }
           if (liveDemoSource.type === "results") {
             try {
+              // Saving an empty preview from the Results-section LiveDemo is "discard the generated sprite and start over" — not a 0-symbol result. The previous behaviour ran `loadFromLibrary({ xml, symbolIds: [] })` and left the Results panel showing the broken "0 symbols" card from the bug report. Wipe the generated output, the demo buffer, AND the staged files so the user lands on a clean dropzone instead of a dropzone that still holds the icons they just deleted.
+              if (saveIds.length === 0) {
+                clearFiles();
+                resetForNewUpload();
+                return "deleted" as const;
+              }
               loadFromLibrary({ xml, symbolIds: saveIds });
               setDemoSpriteXml(xml);
               setDemoSymbolIds(saveIds);
