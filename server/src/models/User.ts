@@ -8,7 +8,7 @@ const userSchema = new Schema(
       required: true,
       trim: true,
       lowercase: true,
-      enum: ["google", "microsoft", "demo", "system", "password"],
+      enum: ["google", "microsoft", "system", "password"],
       default: "google",
     },
     providerId: {
