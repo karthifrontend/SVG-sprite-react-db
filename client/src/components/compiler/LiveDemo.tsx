@@ -889,14 +889,19 @@ export default function LiveDemoModal({
       setHasPendingChanges(false);
       setHasChanges(false);
       if (result === "deleted") {
-        const label =
-          source.type === "library"
-            ? `${truncateLibName(source.name)} v${source.version ?? 1}`
-            : "the preview";
-        showToast(
-          `All icons removed. ${label} was deleted from the library.`,
-          "warning"
-        );
+        // The "deleted" sentinel is reused for three different empty-save cases: a library version that the user emptied (the library really did lose a version), a base-sprite preview where the user removed every icon (the base sprite file AND the staged "new icons to add" files get cleared from the workspace, not from any library), and a results-section preview where the user removed every icon (the generated sprite is discarded and the staged files are also cleared so the user lands on a clean dropzone). The toast copy needs to be different for each so the user isn't told "the library was deleted" when nothing was actually saved.
+        let deletedMessage: string;
+        if (source.type === "library") {
+          const label = `${truncateLibName(source.name)} v${source.version ?? 1}`;
+          deletedMessage = `All icons removed. ${label} was deleted from the library.`;
+        } else if (source.type === "baseSprite") {
+          deletedMessage =
+            "All icons removed. The base sprite and staged files have been cleared from the workspace.";
+        } else {
+          deletedMessage =
+            "All icons removed. The generated sprite and staged files have been discarded.";
+        }
+        showToast(deletedMessage, "warning");
       } else {
         const successMessage =
           source.type === "library"
@@ -1461,8 +1466,7 @@ export default function LiveDemoModal({
             </button>
             {currentUser ? (
               <>
-                {shouldShowSaveChanges &&
-                  !(source?.type === "results" && selectMode) && (
+                {shouldShowSaveChanges && !(selectMode && !hasPendingChanges) && (
                     <button
                       type="button"
                       onClick={() => void handleSaveChanges()}
@@ -1484,7 +1488,7 @@ export default function LiveDemoModal({
                       {saveBusy ? "Saving…" : "Save Changes"}
                     </button>
                   )}
-                {shouldShowSaveToLibrary && selectMode && (
+                {shouldShowSaveToLibrary && selectMode && displayedSymbolIds.length > 0 && (
                   <button
                     type="button"
                     onClick={() => handleOpenSaveToLibrary()}
@@ -1509,34 +1513,36 @@ export default function LiveDemoModal({
               </>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onGuestSaveChanges) {
-                      const nextIds = symbolsRef.current
-                        .map((s) => s.getAttribute("id") || "")
-                        .filter(Boolean);
-                      const xml = serializeLiveSprite(symbolsRef.current);
-                      onGuestSaveChanges({ xml, symbolIds: nextIds });
-                      showToast("Saved changes to the preview.", "success");
-                      onClose?.();
-                      return;
+                {!(selectMode && !hasPendingChanges) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onGuestSaveChanges) {
+                        const nextIds = symbolsRef.current
+                          .map((s) => s.getAttribute("id") || "")
+                          .filter(Boolean);
+                        const xml = serializeLiveSprite(symbolsRef.current);
+                        onGuestSaveChanges({ xml, symbolIds: nextIds });
+                        showToast("Saved changes to the preview.", "success");
+                        onClose?.();
+                        return;
+                      }
+                      onOpenSaveModal?.();
+                    }}
+                    disabled={!hasPendingChanges || cssChanged}
+                    title={
+                      cssChanged
+                        ? "Reset Custom CSS to enable this action."
+                        : !hasPendingChanges
+                          ? "Rename or remove an icon to enable this button."
+                          : "Apply your edits to the Results section."
                     }
-                    onOpenSaveModal?.();
-                  }}
-                  disabled={!hasPendingChanges || cssChanged}
-                  title={
-                    cssChanged
-                      ? "Reset Custom CSS to enable this action."
-                      : !hasPendingChanges
-                        ? "Rename or remove an icon to enable this button."
-                        : "Apply your edits to the Results section."
-                  }
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-200 transition-all flex items-center gap-1.5 disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <CheckIcon className="w-3.5 h-3.5" />
-                  Save Changes
-                </button>
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-200 transition-all flex items-center gap-1.5 disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <CheckIcon className="w-3.5 h-3.5" />
+                    Save Changes
+                  </button>
+                )}
                 {source?.type !== "baseSprite" && (
                   <button
                     type="button"

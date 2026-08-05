@@ -1,5 +1,7 @@
 // Right-hand results panel. Shows the generated sprite XML, symbol count, and copy/demo/download actions.
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { isSpriteSvgFile } from "../../utils/sprite";
+import type { ToastType } from "../../context/ToastContext";
 
 type ResultsPanelProps = {
   visible: boolean;
@@ -11,6 +13,8 @@ type ResultsPanelProps = {
   onCopy: () => void;
   onDemo: () => void;
   onAddIcons: (files: File[]) => Promise<void>;
+  // Surfaces a toast for file-rejection messages that originate inside the "Add more icons" picker (sprite files, non-SVG files). Routed through the parent so the panel stays a pure presentational component and toasts share the same provider as everything else.
+  onShowToast?: (message: string, kind: ToastType) => void;
   addIconDisabled?: boolean;
   // Build a zip bundle (sprite + demo.html + preview.png) and trigger a browser download. Used for the "Download zip" CTA.
   onDownloadZip: () => void;
@@ -28,6 +32,7 @@ function ResultsPanel({
   onCopy,
   onDemo,
   onAddIcons,
+  onShowToast,
   addIconDisabled,
   onDownloadZip,
   downloadBusy,
@@ -37,6 +42,28 @@ function ResultsPanel({
   const [inlineCopied, setInlineCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const addIconInputRef = useRef<HTMLInputElement | null>(null);
+  const menuContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Close the floating "Add more icons" menu when the user taps outside the
+  // menu or its kebab trigger. We use a `mousedown` listener on the document
+  // so the click on the kebab itself (which toggles the menu) doesn't
+  // immediately close it on the way down — the `useEffect` re-binds after the
+  // toggle has been applied.
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleOutside(event: MouseEvent) {
+      const container = menuContainerRef.current;
+      if (!container) return;
+      if (event.target instanceof Node && container.contains(event.target)) {
+        return;
+      }
+      setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+    };
+  }, [menuOpen]);
 
   async function handleMainCopy() {
     await onCopy();
@@ -59,7 +86,41 @@ function ResultsPanel({
     const fileArray = Array.from(files);
     event.target.value = "";
     setMenuOpen(false);
-    await onAddIcons(fileArray);
+
+    // The "Add more icons" picker is icon-only. The native `accept` attribute
+    // is a hint to the OS file dialog and is bypassable (drag-drop, file
+    // manager "open with", etc.), so we also enforce the rule at runtime: any
+    // SVG that resolves to a sprite (multiple <symbol>s, a top-level <defs>
+    // containing <symbol> children, or no <symbol> at all) is filtered out
+    // and surfaced via a single batched toast. Non-SVG files are also dropped
+    // here for symmetry — the Compiler would have rejected them anyway, but
+    // we want the message to come from the same place.
+    const svgOnly = fileArray.filter(
+      (file) => file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg"),
+    );
+    const iconOnly: File[] = [];
+    const rejectedNames: string[] = [];
+    for (const file of svgOnly) {
+      const sprite = await isSpriteSvgFile(file);
+      if (sprite) {
+        rejectedNames.push(file.name);
+        continue;
+      }
+      iconOnly.push(file);
+    }
+    const nonSvgCount = fileArray.length - svgOnly.length;
+    const rejectedCount = rejectedNames.length + nonSvgCount;
+    if (rejectedCount > 0) {
+      const message =
+        rejectedNames.length > 0
+          ? `${rejectedNames.join(", ")} is a sprite sheet, drop standalone icons here`
+          : `${nonSvgCount} unsupported file${nonSvgCount === 1 ? "" : "s"} ignored. Only icon SVGs are accepted.`;
+      onShowToast?.(message, "warning");
+    }
+    if (iconOnly.length === 0) {
+      return;
+    }
+    await onAddIcons(iconOnly);
   }
 
   async function handleInlineCopy() {
@@ -128,7 +189,7 @@ function ResultsPanel({
             <span>Live Demo</span>
           </button>
          
-          <div className="relative">
+          <div className="relative" ref={menuContainerRef}>
             <button
               type="button"
               onClick={() => setMenuOpen((current) => !current)}

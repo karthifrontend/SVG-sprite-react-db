@@ -95,6 +95,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       hasNameConflict: false,
       isPublic: false,
     });
+    // Drop any in-flight conflict-modal state so a stale add-icons batch from a cancelled modal never leaks into the next flow.
+    setPendingConflicts(null);
+    setPendingExistingContent(null);
+    pendingGenerateFilesRef.current = null;
   }
 
   function handleDrop(e: DragEvent<HTMLDivElement>) {
@@ -172,6 +176,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     versionSpriteId?: string | null;
     versionNumber?: number | null;
   } | null>(null);
+  // The file batch that was passed to `generate` and is awaiting a conflict resolution. For the standard "Generate" flow this is the same as the global staged `files` state, but for the "More Options → Add More Icons" flow the user picks a fresh batch from the Results panel that lives ONLY in the `handleAddIcons` parameter — it never makes it into the global `files` state. Without this ref, the conflict modal's Apply step would call `applyConflictResolutions(files, …)` with the WRONG list (the previously-staged files instead of the just-added ones) and every brand-new icon would silently disappear. Cleared on every successful resolution and on cancel so it never leaks between flows.
+  const pendingGenerateFilesRef = useRef<File[] | null>(null);
 
   const [pendingConflicts, setPendingConflicts] = useState<IconConflict[] | null>(null);
   const [pendingExistingContent, setPendingExistingContent] = useState<string | null>(null);
@@ -233,6 +239,18 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   }): void {
     if (!input.xml) return;
     if (liveDemoSource.type === "baseSprite") {
+      // Saving an empty preview from a base-sprite upload is a "start over" gesture — there's no useful 0-symbol base sprite, and the user expects the section to clear instead of leaving a broken empty result behind. Mirror the same reset we run when the user drops a fresh file into the upload area, including clearing the staged "new icons to add" files.
+      if (input.symbolIds.length === 0) {
+        clearFiles();
+        clearExistingSprite();
+        setDemoSpriteXml(null);
+        setDemoSymbolIds([]);
+        showToast(
+          "All icons removed. Base sprite and staged files cleared from the workspace.",
+          "warning",
+        );
+        return;
+      }
       try {
         const fileName = baseSpriteFile?.name || "sprite.svg";
         const mimeType =
@@ -249,6 +267,16 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           "error",
         );
       }
+      return;
+    }
+    // Scratch / results path. An empty save from the LiveDemo is "discard the generated result and start over" — not a 0-symbol sprite. Calling `loadFromLibrary` with an empty symbol list would leave the Results panel showing the broken "0 symbols" card from the screenshot; instead we wipe the generated output, the demo buffer, AND the staged files so the user lands on a clean dropzone instead of a dropzone that still holds the icons they just deleted.
+    if (input.symbolIds.length === 0) {
+      clearFiles();
+      resetForNewUpload();
+      showToast(
+        "All icons removed. The generated sprite and staged files have been discarded.",
+        "warning",
+      );
       return;
     }
     if (input.xml !== spriteXml) {
@@ -1024,13 +1052,17 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     }
     setConflictResolveBusy(true);
     try {
+      // Prefer the file batch that was stashed when the conflict was raised. For the standard "Generate" flow this equals the global `files` state, but for the "Add More Icons" flow the user picks a fresh batch from the Results panel that lives ONLY in `handleAddIcons`'s local parameter and is never added to the global `files` state. Falling back to the global `files` is what caused brand-new icons to silently disappear when a conflict was present.
+      const filesForResolution =
+        pendingGenerateFilesRef.current ?? files;
       const summary = await applyConflictResolutions(
-        files,
+        filesForResolution,
         { existingContent: pendingExistingContent },
         resolutions,
       );
       setPendingConflicts(null);
       setPendingExistingContent(null);
+      pendingGenerateFilesRef.current = null;
       const options = pendingFinalizeOptionsRef.current ?? {
         statusLabel: mode === "update" ? "Sprite Updated" : "Sprite Generated",
       };
@@ -1080,6 +1112,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     if (conflictResolveBusy) return;
     setPendingConflicts(null);
     setPendingExistingContent(null);
+    pendingGenerateFilesRef.current = null;
   }
 
   async function handleGenerate() {
@@ -1107,6 +1140,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
 
     if (summary.needsConfirmation && summary.conflicts && existingContent) {
       pendingFinalizeOptionsRef.current = { statusLabel: mode === "update" ? "Sprite Updated" : "Sprite Generated" };
+      pendingGenerateFilesRef.current = files;
       setPendingConflicts(summary.conflicts);
       setPendingExistingContent(existingContent);
       return;
@@ -1150,6 +1184,8 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         versionSpriteId: addIconsTargetVersionId,
         versionNumber: addIconsTargetVersionNumber,
       };
+      // Stash the add-icons batch so `handleApplyConflictResolutions` can pass the SAME files to `applyConflictResolutions`. The global `files` state still holds the icons from the original generate; only this local `acceptedFiles` snapshot has the brand-new icons the user just picked, so we must carry it across the modal pause explicitly.
+      pendingGenerateFilesRef.current = acceptedFiles;
       setPendingConflicts(summary.conflicts);
       setPendingExistingContent(existingContent);
       return;
@@ -1529,6 +1565,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                   setLiveDemoOpen(true);
                 }}
                 onAddIcons={handleAddIcons}
+                onShowToast={(message, kind) => showToast(message, kind)}
                 addIconDisabled={!hasResult || generating}
                 onDownloadZip={() => void handleDownloadBundleForResults()}
                 downloadBusy={resultsDownloadBusy}
@@ -1648,6 +1685,14 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
                 showToast("Base sprite file is no longer available.", "error");
                 return false;
               }
+              // An empty save from the base-sprite preview means the user removed every icon. The previous behaviour replaced `baseSpriteFile` with a 0-symbol sprite, leaving the ExistingSpriteSection stuck on a broken empty file. Clear the base sprite AND the staged "new icons to add" files entirely so the page reverts to a clean workspace instead of leaving a 0-symbol file behind.
+              if (saveIds.length === 0) {
+                clearFiles();
+                clearExistingSprite();
+                setDemoSpriteXml(null);
+                setDemoSymbolIds([]);
+                return "deleted" as const;
+              }
               const newFile = new File([xml], baseSpriteFile.name, {
                 type: baseSpriteFile.type || "image/svg+xml",
               });
@@ -1667,6 +1712,12 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           }
           if (liveDemoSource.type === "results") {
             try {
+              // Saving an empty preview from the Results-section LiveDemo is "discard the generated sprite and start over" — not a 0-symbol result. The previous behaviour ran `loadFromLibrary({ xml, symbolIds: [] })` and left the Results panel showing the broken "0 symbols" card from the bug report. Wipe the generated output, the demo buffer, AND the staged files so the user lands on a clean dropzone instead of a dropzone that still holds the icons they just deleted.
+              if (saveIds.length === 0) {
+                clearFiles();
+                resetForNewUpload();
+                return "deleted" as const;
+              }
               loadFromLibrary({ xml, symbolIds: saveIds });
               setDemoSpriteXml(xml);
               setDemoSymbolIds(saveIds);
