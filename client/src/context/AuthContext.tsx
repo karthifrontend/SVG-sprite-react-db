@@ -1,4 +1,4 @@
-// Auth context. Exposes the current Google user and the sign-in / sign-out handlers to the React tree.
+// Auth context. Exposes the current Google/Microsoft user and the sign-in / sign-out handlers to the React tree.
 import {
   createContext,
   useCallback,
@@ -31,7 +31,7 @@ type AuthContextValue = {
   initializing: boolean;
   // Open the Google account chooser and return the signed-in user. The chooser is a popup, not One-Tap, so it always lists every signed-in account and exposes the "Use another account" option.
   loginWithGoogle: () => Promise<CurrentUser>;
-  // Microsoft sign-in. The server-side MSAL flow is not wired up yet, so this resolves to a thrown error with a clear message the modal can display.
+  // Open the Microsoft account chooser (MSAL.js popup with PKCE) and return the signed-in user.
   loginWithMicrosoft: () => Promise<CurrentUser>;
   // Clear local session and revoke the Google session if possible.
   logout: () => Promise<void>;
@@ -81,11 +81,49 @@ declare global {
         };
       };
     };
+    // MSAL browser public API. We only use the small subset we need (PublicClientApplication).
+    msal?: {
+      PublicClientApplication: new (config: unknown) => MsalInstance;
+    };
     GOOGLE_CLIENT_ID?: string;
+    MS_CLIENT_ID?: string;
     // Read by the sprites API's axios interceptor.
     __svgCompilerSessionToken?: string | null;
   }
 }
+
+// Minimal MSAL surface we actually use. The real type is huge and we don't need it.
+type MsalPopupResponse = {
+  account?: {
+    homeAccountId?: string;
+    username?: string;
+    name?: string;
+    idTokenClaims?: Record<string, unknown>;
+  };
+  idToken?: string;
+  code?: string;
+};
+
+type MsalAccount = {
+  homeAccountId?: string;
+  username?: string;
+  name?: string;
+  idTokenClaims?: Record<string, unknown>;
+};
+
+type MsalInstance = {
+  initialize: () => Promise<void>;
+  loginPopup: (request: {
+    scopes: string[];
+    redirectUri?: string;
+    prompt?: "select_account" | "login" | "consent" | "none";
+  }) => Promise<MsalPopupResponse>;
+  logoutPopup: (request?: {
+    account?: MsalAccount;
+    postLogoutRedirectUri?: string;
+  }) => Promise<void>;
+  getAllAccounts: () => MsalAccount[];
+};
 
 function readStoredSession(): StoredSession | null {
   try {
@@ -144,6 +182,105 @@ function loadGis(): Promise<NonNullable<Window["google"]> | null> {
   return gisLoadPromise;
 }
 
+// MSAL.js loader — mirrors the GIS loader shape (cached promise, fails open to null).
+// Pinned to the v3 browser bundle (the v4 split this namespace into @azure/msal-browser).
+const MSAL_SCRIPT_SRC =
+  "https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.27.0/lib/msal-browser.min.js";
+
+let msalLoadPromise: Promise<NonNullable<Window["msal"]> | null> | null = null;
+function loadMsal(): Promise<NonNullable<Window["msal"]> | null> {
+  if (typeof window === "undefined") return Promise.resolve(null);
+  if (window.msal?.PublicClientApplication) return Promise.resolve(window.msal);
+  if (msalLoadPromise) return msalLoadPromise;
+  msalLoadPromise = new Promise((resolve) => {
+    // Reuse an existing <script> tag if something else (a future test, a hot-reload
+    // of AuthContext) already started loading the bundle.
+    const existing = document.querySelector<HTMLScriptElement>(
+      `script[src="${MSAL_SCRIPT_SRC}"]`,
+    );
+    const script = existing ?? document.createElement("script");
+    if (!existing) {
+      script.src = MSAL_SCRIPT_SRC;
+      script.async = true;
+      script.defer = true;
+      script.crossOrigin = "anonymous";
+      document.head.appendChild(script);
+    }
+    const onLoad = () => {
+      if (window.msal?.PublicClientApplication) {
+        resolve(window.msal);
+      } else {
+        console.error(
+          "[auth] MSAL script loaded from",
+          MSAL_SCRIPT_SRC,
+          "but window.msal is undefined.",
+        );
+        resolve(null);
+      }
+    };
+    const onError = () => {
+      // eslint-disable-next-line no-console
+      console.error(
+        "[auth] Failed to load MSAL.js from",
+        MSAL_SCRIPT_SRC,
+        "— check network access to cdn.jsdelivr.net.",
+      );
+      resolve(null);
+    };
+    if (script.dataset.msalBound === "true") {
+      resolve(null);
+      return;
+    }
+    script.dataset.msalBound = "true";
+    script.addEventListener("load", onLoad, { once: true });
+    script.addEventListener("error", onError, { once: true });
+  });
+  return msalLoadPromise;
+}
+
+// One MSAL instance per (clientId, origin). Keyed so a future second tenant wouldn't
+// need a code change.
+let msalInstancePromise: Promise<MsalInstance | null> | null = null;
+function getMsalInstance(clientId: string): Promise<MsalInstance | null> {
+  if (msalInstancePromise) return msalInstancePromise;
+  msalInstancePromise = (async () => {
+    const msal = await loadMsal();
+    if (!msal) return null;
+    const redirectUri = ensureTrailingSlash(window.location.origin);
+    if (typeof console !== "undefined") {
+      // eslint-disable-next-line no-console
+      console.info(
+        "[auth] Microsoft sign-in redirectUri =",
+        redirectUri,
+        "— register this EXACT value in Entra → Authentication → Single-page application.",
+      );
+    }
+    const instance = new msal.PublicClientApplication({
+      auth: {
+        clientId,
+        authority: `https://login.microsoftonline.com/${
+          (import.meta.env.VITE_MS_TENANT_ID ?? "common").trim() || "common"
+        }`,
+        redirectUri,
+        postLogoutRedirectUri: redirectUri,
+        navigateToLoginRequestUrl: false,
+      },
+      cache: {
+        cacheLocation: "sessionStorage",
+        storeAuthStateInCookie: false,
+      },
+    });
+    await instance.initialize();
+    return instance;
+  })();
+  return msalInstancePromise;
+}
+
+function ensureTrailingSlash(origin: string): string {
+  if (!origin) return origin;
+  return origin.endsWith("/") ? origin : `${origin}/`;
+}
+
 let cachedButtonHost: HTMLDivElement | null = null;
 function ensureButtonHost(): HTMLDivElement {
   if (cachedButtonHost && document.body.contains(cachedButtonHost)) {
@@ -186,7 +323,7 @@ async function requestGoogleCredential(): Promise<string> {
       window.clearTimeout(timeoutId);
       fn();
     };
-    let timeoutId = window.setTimeout(() => {
+    const timeoutId = window.setTimeout(() => {
       finish(() => reject(new Error("Google sign-in was cancelled.")));
     }, 5 * 60_000);
 
@@ -303,8 +440,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loginWithMicrosoft = useCallback(async (): Promise<CurrentUser> => {
-    // The server route is a placeholder (501). We let the error bubble up to the caller (the login modal) so it can show the server-provided message in the error slot.
-    const { user, token } = await loginWithMicrosoftApi();
+    const clientId = (window.MS_CLIENT_ID ?? "").trim();
+    if (!clientId) {
+      throw new Error(
+        "Microsoft sign-in is not configured. Add VITE_MS_CLIENT_ID to client/.env (no space around `=`) and restart the dev server.",
+      );
+    }
+
+    const instance = await getMsalInstance(clientId);
+    if (!instance) {
+      throw new Error("MSAL.js failed to load.");
+    }
+
+    // `loginPopup` returns the id_token + access_token directly. 
+    let result: MsalPopupResponse;
+    try {
+      result = await instance.loginPopup({
+        scopes: ["openid", "profile", "email", "offline_access"],
+        // `select_account` forces the chooser every time — same UX guarantee as
+        // the Google flow (no silent auto-select of the most recent account).
+        prompt: "select_account",
+      });
+    } catch (err) {
+      // MSAL throws `BrowserAuthError: user_cancelled` (or `popup_window_error`) when the user closes the popup.
+      const message =
+        err instanceof Error ? err.message : "Microsoft sign-in was cancelled.";
+      if (
+        /user_cancelled|cancelled|popup_window_error|popup_closed/i.test(message)
+      ) {
+        throw new Error("Microsoft sign-in was cancelled.", { cause: err });
+      }
+      throw err;
+    }
+
+    if (!result.idToken) {
+      throw new Error(
+        "Microsoft sign-in did not return an id_token. Check that the `openid` scope is allowed for this app registration.",
+      );
+    }
+
+    const { user, token } = await loginWithMicrosoftApi({
+      idToken: result.idToken,
+    });
     const next = toCurrentUser(user);
     setCurrentUser(next);
     persistSession({ user: next, token });
