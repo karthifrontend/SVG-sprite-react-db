@@ -31,12 +31,15 @@ export async function loginWithGoogle(credential: string): Promise<LoginResponse
   }
 }
 
-// Microsoft sign-in. The server route is intentionally not implemented yet (returns 501) so the UI can surface a friendly "not configured" message. We keep this call here so the client never has to special-case network errors itself.
-export async function loginWithMicrosoft(): Promise<LoginResponse> {
+// Microsoft sign-in. The MSAL.js popup returns the id_token directly; the server
+// verifies it against the tenant JWKS and issues a session JWT.
+export async function loginWithMicrosoft(args: {
+  idToken: string;
+}): Promise<LoginResponse> {
   try {
     const { data } = await axios.post<LoginResponse>(
       `${API_BASE}/api/auth/microsoft`,
-      {},
+      args,
       { headers: { "Content-Type": "application/json" } }
     );
     return data;

@@ -1,7 +1,8 @@
-// Verifies Google ID tokens, upserts users, and issues session cookies/JWTs.
+// Verifies Google and Microsoft ID tokens, upserts users, and issues session cookies/JWTs.
 import { Router, type Request, type Response } from "express";
 import type { HydratedDocument } from "mongoose";
 import { verifyGoogleIdToken } from "../lib/google.js";
+import { verifyMicrosoftIdToken } from "../lib/microsoft.js";
 import { signSession } from "../lib/session.js";
 import { ensureConnected } from "../config/db.js";
 import User, { type UserDoc } from "../models/User.js";
@@ -105,13 +106,88 @@ router.post("/google", async (req: Request, res: Response) => {
   }
 });
 
-// POST method for Microsoft sign-in.
-router.post("/microsoft", (_req: Request, res: Response) => {
-  return res.status(501).json({
-    error:
-      "Microsoft sign-in is not configured on the server yet. " +
-      "Please use Google for now.",
-  });
+// POST method for Microsoft sign-in. The MSAL.js popup on the client sends the id_token it received from the Microsoft account chooser.
+router.post("/microsoft", async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as { idToken?: unknown };
+  const idToken = asString(body.idToken);
+  if (!idToken) {
+    return res.status(400).json({
+      error: "Microsoft sign-in requires `idToken`.",
+    });
+  }
+
+  const tenant = (process.env.MS_TENANT_ID ?? "").trim() || "common";
+  const clientId = (process.env.MS_CLIENT_ID ?? "").trim();
+  // MS_CLIENT_SECRET is reserved for future server-side flows (e.g. refresh token exchange).
+  if (!clientId) {
+    return res.status(500).json({
+      error:
+        "Server is missing MS_CLIENT_ID. Add it to server/.env to enable Microsoft sign-in.",
+    });
+  }
+
+  // Verify the id_token against the tenant JWKS, audience, and issuer.
+  let claims;
+  try {
+    claims = await verifyMicrosoftIdToken(idToken, clientId, tenant);
+  } catch (err) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Microsoft id_token verification failed.";
+    return res.status(401).json({ error: message });
+  }
+
+  const connected = await ensureConnected();
+  if (!connected) {
+    return notConnectedResponse(res);
+  }
+
+  // Upsert keyed on (provider, providerId). `oid` is the immutable object id in Entra ID and is the right cross-tenant-unique key. 
+  const providerId = claims.oid || claims.sub;
+  // Microsoft doesn't always return `name` for work/school accounts; fall back to `preferred_username` (typically the UPN) and finally the email local part.
+  const displayName =
+    claims.name ||
+    claims.preferred_username ||
+    claims.email.split("@")[0] ||
+    claims.email;
+
+  try {
+    const now = new Date();
+    const user = await User.findOneAndUpdate(
+      { provider: "microsoft", providerId },
+      {
+        $set: {
+          email: claims.email.toLowerCase(),
+          emailVerified: Boolean(claims.email_verified),
+          displayName,
+          picture: claims.picture ?? null,
+          lastLoginAt: now,
+        },
+        $setOnInsert: {
+          provider: "microsoft",
+          providerId,
+        },
+      },
+      {
+        upsert: true,
+        returnDocument: "after",
+        setDefaultsOnInsert: true,
+      },
+    );
+
+    const token = await signSession({
+      sub: String(user._id),
+      email: user.email,
+      provider: "microsoft",
+      providerId: user.providerId,
+    });
+
+    return res.json({ user: publicUser(user), token });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return res.status(500).json({ error: message });
+  }
 });
 
 export default router;
