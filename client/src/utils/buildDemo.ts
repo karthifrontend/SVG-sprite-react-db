@@ -179,16 +179,145 @@ export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
     viewBox = `0 0 ${parseFloat(w)} ${parseFloat(h)}`;
   }
 
-  // Concatenate all child nodes (element + text) into a single string.
-  const inner = Array.from(svg.childNodes)
-    .map((node) => (node as Element).outerHTML ?? node.nodeValue ?? "")
-    .join("")
-    .trim();
+  // Strip wrapper-level artefacts that icon-export tools (Storyset, undraw,
+  // drawkit, ...) leave behind and that break the sprite-host render path.
+  const inner = stripUploadOnlyWrapperArtifacts(svg, viewBox);
 
   // Symbol id from filename. The sanitizer is the single source of truth for id formatting: it strips the extension, drops copy-suffixes, replaces bad characters, and prefixes `icon-` when the name doesn't already start with it.
   const id = sanitizeSymbolName(file.name);
 
   return { id, viewBox, inner };
+}
+
+function stripUploadOnlyWrapperArtifacts(svg: Element, viewBox: string): string {
+  const viewBoxParts = viewBox.split(/\s+/).map((p) => parseFloat(p));
+  const vbWidth = Number.isFinite(viewBoxParts[2]) ? viewBoxParts[2] : NaN;
+  const vbHeight = Number.isFinite(viewBoxParts[3]) ? viewBoxParts[3] : NaN;
+  const noOpClipIds = new Set<string>();
+  const defBlocks: Element[] = [];
+  const defIds = new Set<string>();
+  Array.from(svg.childNodes).forEach((node) => {
+    if (node.nodeType !== 1) return;
+    const el = node as Element;
+    if (el.tagName.toLowerCase() !== "defs") return;
+    defBlocks.push(el);
+    Array.from(el.children).forEach((child) => {
+      const id = child.getAttribute("id");
+      if (id) defIds.add(id);
+      if (
+        child.tagName.toLowerCase() === "clippath" &&
+        isFullViewBoxRectNoOpClipPath(child, vbWidth, vbHeight)
+      ) {
+        if (id) noOpClipIds.add(id);
+      }
+    });
+  });
+
+  const referencedDefIds = new Set<string>();
+  Array.from(svg.childNodes).forEach((node) => {
+    if (node.nodeType !== 1) return;
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "g" && isNoOpClipWrapper(el, noOpClipIds)) {
+      return;
+    }
+    collectUrlReferences(el, defIds, referencedDefIds);
+  });
+  const defsStillReferenced = Array.from(defIds).some((id) =>
+    referencedDefIds.has(id),
+  );
+  const canSafelyDropDefs = defBlocks.length > 0 && !defsStillReferenced;
+
+  const finalOutput: string[] = [];
+  Array.from(svg.childNodes).forEach((node) => {
+    if (node.nodeType === 3) {
+      const text = (node.nodeValue ?? "").trim();
+      if (text) finalOutput.push(text);
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "defs") {
+      if (canSafelyDropDefs) return;
+    } else if (tag === "g" && isNoOpClipWrapper(el, noOpClipIds)) {
+      Array.from(el.childNodes).forEach((child) => {
+        const serialised = serialiseNode(child);
+        if (serialised) finalOutput.push(serialised);
+      });
+      return;
+    }
+    const serialised = serialisedEl(el);
+    if (serialised) finalOutput.push(serialised);
+  });
+  return finalOutput.join("").trim();
+}
+
+function collectUrlReferences(
+  el: Element,
+  candidateIds: Set<string>,
+  out: Set<string>,
+): void {
+  if (candidateIds.size === 0) return;
+  const scanValue = (value: string): void => {
+    const re = /url\(\s*#([^)\s]+)\s*\)/gi;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(value)) !== null) {
+      const id = match[1];
+      if (candidateIds.has(id)) out.add(id);
+    }
+  };
+  for (let i = 0; i < el.attributes.length; i += 1) {
+    scanValue(el.attributes[i].value);
+  }
+  const style = el.getAttribute("style");
+  if (style) scanValue(style);
+}
+
+function isFullViewBoxRectNoOpClipPath(
+  el: Element,
+  vbWidth: number,
+  vbHeight: number,
+): boolean {
+  if (el.tagName.toLowerCase() !== "clippath") return false;
+  if (el.children.length !== 1) return false;
+  const only = el.children[0];
+  if (only.tagName.toLowerCase() !== "rect") return false;
+  // Allow the position to be missing/0 — a rect with no x/y defaults to 0,0.
+  const x = parseFloat(only.getAttribute("x") ?? "0");
+  const y = parseFloat(only.getAttribute("y") ?? "0");
+  const w = parseFloat(only.getAttribute("width") ?? "0");
+  const h = parseFloat(only.getAttribute("height") ?? "0");
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return false;
+  if (!Number.isFinite(vbWidth) || !Number.isFinite(vbHeight)) {
+    return x === 0 && y === 0 && w > 0 && h > 0;
+  }
+  return x === 0 && y === 0 && w === vbWidth && h === vbHeight;
+}
+
+function isNoOpClipWrapper(g: Element, noOpClipIds: Set<string>): boolean {
+  if (g.tagName.toLowerCase() !== "g") return false;
+  const clipAttr = g.getAttribute("clip-path");
+  if (!clipAttr) return false;
+  const match = clipAttr.match(/^url\(#(.+?)\)$/i);
+  if (!match) return false;
+  if (!noOpClipIds.has(match[1])) return false;
+  for (let i = 0; i < g.attributes.length; i += 1) {
+    const name = g.attributes[i].name.toLowerCase();
+    if (name === "clip-path") continue;
+    return false;
+  }
+  return true;
+}
+
+function serialiseNode(node: ChildNode): string {
+  if (node.nodeType === 1) return serialisedEl(node as Element);
+  if (node.nodeType === 3) return (node.nodeValue ?? "").trim();
+  return "";
+}
+
+function serialisedEl(el: Element): string {
+  return (el as Element).outerHTML ?? "";
 }
 
 // Build a complete sprite SVG document from a list of symbols.
