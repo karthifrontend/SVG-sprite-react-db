@@ -290,9 +290,7 @@ function readPaintFromStyle(
 }
 
 // Capture the explicit fill/stroke values declared on the SVG root (via
-// either attributes or an inline `style` declaration). Returns `null` when
-// the root has no paint info to promote, so callers can skip the work
-// entirely on icons that already declare everything per-element.
+// either attributes or an inline `style` declaration).
 function collectInheritedPaintAttributes(
   svg: Element,
 ): { fill: string | null; stroke: string | null } | null {
