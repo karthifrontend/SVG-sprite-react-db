@@ -705,7 +705,6 @@ export default function LiveDemoModal({
       if (existingStyle) existingStyle.remove();
       return;
     }
-    const hex = active.hex;
     const spriteHost = document.getElementById("live-demo-sprite-host");
     if (!spriteHost) {
       if (existingStyle) existingStyle.remove();
@@ -720,11 +719,11 @@ export default function LiveDemoModal({
       if (variant === "outlined") {
         // elements.
         cssChunks.push(
-          `#${symId} * { fill: none !important; stroke: ${hex} !important; }`,
+          `#${symId} * { fill: none !important; stroke: currentColor !important; }`,
         );
       } else {
         cssChunks.push(
-          `#${symId} * { fill: ${hex} !important; stroke: none !important; }`,
+          `#${symId} * { fill: currentColor !important; stroke: none !important; }`,
         );
       }
     });
