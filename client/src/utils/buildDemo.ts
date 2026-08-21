@@ -228,6 +228,11 @@ function stripUploadOnlyWrapperArtifacts(svg: Element, viewBox: string): string 
   );
   const canSafelyDropDefs = defBlocks.length > 0 && !defsStillReferenced;
 
+  const inheritedPaint = collectInheritedPaintAttributes(svg);
+  if (inheritedPaint) {
+    promoteInheritedPaintAttributes(svg, inheritedPaint);
+  }
+
   const finalOutput: string[] = [];
   Array.from(svg.childNodes).forEach((node) => {
     if (node.nodeType === 3) {
@@ -241,6 +246,7 @@ function stripUploadOnlyWrapperArtifacts(svg: Element, viewBox: string): string 
     if (tag === "defs") {
       if (canSafelyDropDefs) return;
     } else if (tag === "g" && isNoOpClipWrapper(el, noOpClipIds)) {
+      promoteInheritedPaintAttributes(el, inheritedPaint);
       Array.from(el.childNodes).forEach((child) => {
         const serialised = serialiseNode(child);
         if (serialised) finalOutput.push(serialised);
@@ -251,6 +257,97 @@ function stripUploadOnlyWrapperArtifacts(svg: Element, viewBox: string): string 
     if (serialised) finalOutput.push(serialised);
   });
   return finalOutput.join("").trim();
+}
+
+// Paint attributes that can be inherited from an SVG root and need to be
+// promoted onto child elements before serialisation. Keep this list in sync
+// with what `extractColorValues` / `countPaintableShapes` recognise.
+const PAINTABLE_TAGS = new Set([
+  "path",
+  "line",
+  "circle",
+  "rect",
+  "polygon",
+  "polyline",
+  "ellipse",
+]);
+
+function readPaintFromStyle(
+  styleAttr: string,
+): { fill: string | null; stroke: string | null } {
+  const out = { fill: null as string | null, stroke: null as string | null };
+  if (!styleAttr) return out;
+  const re = /\b(fill|stroke)\s*:\s*([^;"]+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(styleAttr)) !== null) {
+    const prop = m[1].toLowerCase();
+    const value = m[2].trim();
+    // Inline `fill:none` / `stroke:none` etc. count as an explicit value the
+    // author set on the root; we still want to honour it.
+    out[prop as "fill" | "stroke"] = value;
+  }
+  return out;
+}
+
+// Capture the explicit fill/stroke values declared on the SVG root (via
+// either attributes or an inline `style` declaration).
+function collectInheritedPaintAttributes(
+  svg: Element,
+): { fill: string | null; stroke: string | null } | null {
+  const attrFill = svg.getAttribute("fill");
+  const attrStroke = svg.getAttribute("stroke");
+  const stylePaint = readPaintFromStyle(svg.getAttribute("style") ?? "");
+  const fill = stylePaint.fill ?? attrFill;
+  const stroke = stylePaint.stroke ?? attrStroke;
+  if (fill === null && stroke === null) return null;
+  // `fill` / `stroke` attributes that are missing render as the browser's
+  // default (black) — but only when no rule says otherwise. We intentionally
+  // don't synthesise defaults here; the goal is "preserve what the author
+  // wrote" so existing icons (no root paint → existing behaviour) are not
+  // touched.
+  return { fill, stroke };
+}
+
+// Walk every paintable descendant under `root` and set fill / stroke that
+// aren't already explicitly declared. Nested `<svg>` elements form a new
+// "root" for inheritance, so we recurse into them with their own paint
+// values; other elements just inherit from the outer root.
+function promoteInheritedPaintAttributes(
+  root: Element,
+  inherited: { fill: string | null; stroke: string | null } | null,
+): void {
+  if (!inherited) return;
+  if ((inherited.fill ?? null) === null && (inherited.stroke ?? null) === null) {
+    return;
+  }
+  const collectAndApply = (
+    node: Element,
+    paint: { fill: string | null; stroke: string | null },
+  ): void => {
+    const own = readPaintFromStyle(node.getAttribute("style") ?? "");
+    if (PAINTABLE_TAGS.has(node.tagName.toLowerCase())) {
+      if (paint.fill !== null && !node.hasAttribute("fill") && !own.fill) {
+        node.setAttribute("fill", paint.fill);
+      }
+      if (paint.stroke !== null && !node.hasAttribute("stroke") && !own.stroke) {
+        node.setAttribute("stroke", paint.stroke);
+      }
+    }
+    // Nested `<svg>` starts its own inheritance block — pull whatever it
+    // sets itself off the inherited values, then recurse.
+    if (node.tagName.toLowerCase() === "svg" && node !== root) {
+      const nestedAttrFill = node.getAttribute("fill");
+      const nestedAttrStroke = node.getAttribute("stroke");
+      const nested: { fill: string | null; stroke: string | null } = {
+        fill: nestedAttrFill ?? paint.fill,
+        stroke: nestedAttrStroke ?? paint.stroke,
+      };
+      Array.from(node.children).forEach((child) => collectAndApply(child, nested));
+      return;
+    }
+    Array.from(node.children).forEach((child) => collectAndApply(child, paint));
+  };
+  Array.from(root.children).forEach((child) => collectAndApply(child, inherited));
 }
 
 function collectUrlReferences(
