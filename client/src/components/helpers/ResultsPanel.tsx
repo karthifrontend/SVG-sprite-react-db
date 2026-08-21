@@ -41,8 +41,24 @@ function ResultsPanel({
   const [mainCopied, setMainCopied] = useState(false);
   const [inlineCopied, setInlineCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Local filter for the Symbol IDs list. Shown only when the list is long (more than 10 symbols) so it doesn't add clutter for small sprites, but scales gracefully for libraries with hundreds of icons.
+  const [symbolSearch, setSymbolSearch] = useState("");
+  // Tracks which symbol id was most recently copied so its chip can flip to a "Copied" checkmark. Single-slot state intentionally — a user copying one id doesn't need to see every previously-copied chip still showing feedback, and a single timer is enough to reset it.
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const addIconInputRef = useRef<HTMLInputElement | null>(null);
   const menuContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset the search filter whenever the underlying symbol list changes (e.g. user added more icons, opened a different sprite). Without this, a stale query from a previous build would silently hide the new symbols.
+  useEffect(() => {
+    setSymbolSearch("");
+  }, [symbolIds]);
+
+  // If the currently-marked id disappears from the list (e.g. icons were swapped out), drop the "Copied" state so it can't get stuck on an id that no longer exists.
+  useEffect(() => {
+    if (copiedId && !symbolIds.includes(copiedId)) {
+      setCopiedId(null);
+    }
+  }, [symbolIds, copiedId]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -64,6 +80,44 @@ function ResultsPanel({
     await onCopy();
     setMainCopied(true);
     window.setTimeout(() => setMainCopied(false), 1500);
+  }
+
+  // Copy a single symbol id like "#icon-foo" to the clipboard. Falls back to a hidden textarea + execCommand when navigator.clipboard is unavailable (older browsers, non-secure contexts like http://). Errors are surfaced as a toast so the user isn't left wondering why nothing happened.
+  async function handleCopyId(id: string) {
+    const payload = `#${id}`;
+    let copied = false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(payload);
+        copied = true;
+      }
+    } catch {
+      // Fall through to the legacy path below.
+    }
+    if (!copied) {
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = payload;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        textarea.style.pointerEvents = "none";
+        document.body.appendChild(textarea);
+        textarea.select();
+        copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+      } catch {
+        copied = false;
+      }
+    }
+    if (copied) {
+      setCopiedId(id);
+      window.setTimeout(() => {
+        setCopiedId((current) => (current === id ? null : current));
+      }, 1200);
+    } else {
+      onShowToast?.("Couldn't copy to clipboard", "error");
+    }
   }
 
   function handleAddIconClick() {
@@ -216,21 +270,108 @@ function ResultsPanel({
 
       {/* Symbol IDs */}
       <div className="mb-5">
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Symbol IDs</p>
-        <div className="flex flex-wrap gap-2">
-          {symbolIds.length === 0 ? (
-            <span className="text-xs text-slate-400">No symbols</span>
-          ) : (
-            symbolIds.map(id => (
-              <span
-                key={id}
-                className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-1 text-[11px] font-mono text-indigo-700"
-              >
-                #{id}
-              </span>
-            ))
-          )}
-        </div>
+        {(() => {
+          // Compute the filtered list once so the header badge, the empty state, and the rendered chips all share one source of truth. A leading "#" is stripped because the chips render as "#icon-foo" while the underlying data is just "icon-foo" — without this, users copy the visible form and then searching for it would silently match nothing.
+          const query = symbolSearch.trim().toLowerCase().replace(/^#+/, "");
+          const total = symbolIds.length;
+          const filtered = query
+            ? symbolIds.filter((id) => id.toLowerCase().includes(query))
+            : symbolIds;
+          const shown = filtered.length;
+          return (
+            <>
+              <div className={`mb-2 flex items-center gap-3 ${symbolIds.length > 10 ? "justify-between" : ""}`}>
+                <div className="flex shrink-0 items-center gap-2">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Symbol IDs</p>
+                  {total > 0 && (
+                    <span
+                      className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600"
+                      aria-label={`${total} symbols`}
+                    >
+                      <span className="font-mono">{`${total} symbols`}</span>
+                    </span>
+                  )}
+                </div>
+                {symbolIds.length > 10 && (
+                  <div className="relative w-full max-w-xs">
+                    <svg
+                      className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+                    </svg>
+                    <input
+                      type="search"
+                      value={symbolSearch}
+                      onChange={(event) => setSymbolSearch(event.target.value)}
+                      placeholder="Search symbol ids…"
+                      aria-label="Search symbol ids"
+                      className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs text-slate-700 placeholder-slate-400 transition-colors focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="max-h-64 overflow-auto custom-scrollbar rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+                <div className="flex flex-wrap gap-2">
+                  {total === 0 ? (
+                    <span className="text-xs text-slate-400">No symbols</span>
+                  ) : shown === 0 ? (
+                    <span className="text-xs text-slate-400">No symbols match “{symbolSearch.trim()}”</span>
+                  ) : (
+                    filtered.map((id) => {
+                      const isCopied = copiedId === id;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => void handleCopyId(id)}
+                          title={`Copy #${id}`}
+                          aria-label={`Copy #${id}`}
+                          // group + group-hover: reveal the copy icon on hover/focus so the row stays compact and uncluttered, but is fully discoverable on interaction. aria-label ensures screen readers still announce the action even when the icon is hidden.
+                          className={`group inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-mono transition-all duration-150 ${
+                            isCopied
+                              ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                              : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:ring-1 hover:ring-indigo-200"
+                          }`}
+                        >
+                          <span>#{id}</span>
+                          {isCopied ? (
+                            <svg
+                              className="h-3 w-3 opacity-100"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                              aria-hidden="true"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : (
+                            <svg
+                              className="h-3 w-3 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              aria-hidden="true"
+                            >
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </>
+          );
+        })()}
       </div>
 
       {/* Code preview */}
