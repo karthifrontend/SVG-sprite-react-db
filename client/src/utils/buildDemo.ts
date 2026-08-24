@@ -163,6 +163,22 @@ export function sanitizeSymbolName(
   return name;
 }
 
+// Strip hardcoded colors from SVG content and replace with var(--icon-color, currentColor).
+// This matches the legacy implementation's approach to making icons themeable.
+function stripAndNormalizeColors(markup: string): string {
+  // Replace attribute-based fill/stroke with themeable CSS variable.
+  // This regex matches fill="..." or stroke="..." and replaces with the currentColor variable.
+  let result = markup.replace(
+    /fill="(?!(none|var\(--icon-color,\s*currentColor\)))[^"]*"/gi,
+    'fill="var(--icon-color, currentColor)"'
+  );
+  result = result.replace(
+    /stroke="(?!(none|var\(--icon-color,\s*currentColor\)))[^"]*"/gi,
+    'stroke="var(--icon-color, currentColor)"'
+  );
+  return result;
+}
+
 // Parse an uploaded SVG file into a symbol description that can be embedded inside a sprite sheet. Symbol IDs are derived from the filename.
 export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
   const text = await file.text();
@@ -179,9 +195,22 @@ export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
     viewBox = `0 0 ${parseFloat(w)} ${parseFloat(h)}`;
   }
 
-  // Strip wrapper-level artefacts that icon-export tools (Storyset, undraw,
-  // drawkit, ...) leave behind and that break the sprite-host render path.
-  const inner = stripUploadOnlyWrapperArtifacts(svg, viewBox);
+  // The legacy generator copies root presentation attributes onto a group,
+  // then normalizes colors in the serialized child markup.
+  const groupAttributes: string[] = [];
+  const ignoredAttributes = new Set([
+    "id", "width", "height", "xmlns", "xmlns:xlink", "version", "class", "viewBox",
+  ]);
+  Array.from(svg.attributes).forEach((attribute) => {
+    if (ignoredAttributes.has(attribute.name)) return;
+    let value = attribute.value;
+    if ((attribute.name === "fill" || attribute.name === "stroke") && value !== "none") {
+      value = "var(--icon-color, currentColor)";
+    }
+    groupAttributes.push(` ${attribute.name}="${value}"`);
+  });
+  let inner = stripAndNormalizeColors(svg.innerHTML);
+  inner = `<g${groupAttributes.join("")}>${inner}</g>`;
 
   // Symbol id from filename. The sanitizer is the single source of truth for id formatting: it strips the extension, drops copy-suffixes, replaces bad characters, and prefixes `icon-` when the name doesn't already start with it.
   const id = sanitizeSymbolName(file.name);
@@ -417,14 +446,19 @@ function serialisedEl(el: Element): string {
   return (el as Element).outerHTML ?? "";
 }
 
+// Kept available for callers that need the current artifact-cleaning helper;
+// uploaded symbols use the legacy serialization path below for fidelity.
+void stripUploadOnlyWrapperArtifacts;
+
 // Build a complete sprite SVG document from a list of symbols.
+// Matches legacy implementation: wraps symbols in <defs>, uses aria-hidden, and uses absolute positioning.
 export function buildSpriteXml(symbols: SpriteSymbol[]): string {
   const symbolsXml = symbols
     .map(
       (s) => `<symbol id="${s.id}" viewBox="${s.viewBox}">${s.inner}</symbol>`,
     )
     .join("\n  ");
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" style="display:none">\n  ${symbolsXml}\n</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="width: 0; height: 0; position: absolute;">\n  <defs>\n  ${symbolsXml}\n</defs>\n</svg>`;
 }
 
 // Extract every <symbol> from an existing sprite XML string so it can be merged with newly uploaded icons. Falls back to an empty list when the document cannot be parsed.
@@ -532,28 +566,8 @@ export function isTintableSymbolMarkup(markup: string): boolean {
   return classifySymbolVariant(markup) !== "multicolor";
 }
 
-function markTintableSymbols(spriteXml: string): string {
-  return spriteXml.replace(
-    /(<symbol\b[^>]*>)([\s\S]*?)(<\/symbol>)/g,
-    (_full, openTag, inner, closeTag) => {
-      const variant = classifySymbolVariant(inner);
-      const tintable = variant !== "multicolor";
-      const markers = [
-        ` data-tintable="${tintable ? "true" : "false"}"`,
-        ` data-icon-variant="${variant}"`,
-      ];
-      let updatedOpenTag = openTag
-        .replace(/\s+data-tintable="(?:true|false)"/i, "")
-        .replace(/\s+data-icon-variant="(?:solid|outlined|multicolor)"/i, "");
-      updatedOpenTag = `${updatedOpenTag.slice(0, -1)}${markers.join("")}>`;
-      return `${updatedOpenTag}${inner}${closeTag}`;
-    },
-  );
-}
-
 export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   const ids = symbolIds;
-  const tintableSpriteXml = markTintableSymbols(spriteXml);
   const iconCards = ids
     .map(
       (id) => `
@@ -621,7 +635,7 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   </style>
 </head>
 <body>
-  ${tintableSpriteXml}
+  ${spriteXml}
   <div class="header">
     <h1>🎨 SVG Sprite Preview</h1>
     <p>${ids.length} symbol${ids.length !== 1 ? "s" : ""} in sprite.svg</p>
@@ -639,74 +653,13 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   </div>
   <div class="footer">Generated by SVG Sprite Compiler</div>
   <script>
-    (function normalizeSymbols() {
-      var symbols = document.querySelectorAll('symbol');
-      symbols.forEach(function (sym) {
-        if (sym.getAttribute('data-tintable') === 'false') return;
-        var variant = sym.getAttribute('data-icon-variant') || 'solid';
-
-        var nodes = sym.querySelectorAll('*');
-        for (var i = 0; i < nodes.length; i++) {
-          var n = nodes[i];
-          // Skip text nodes and non-elements
-          if (n.nodeType !== 1) continue;
-          // Strip inline style fill/stroke (e.g. style="fill:#abc;stroke:#def")
-          if (n.getAttribute('style')) {
-            var inlineStyleRegex = new RegExp("(^|;)\\s*(fill|stroke)\\s*:\\s*[^;]+", "gi");
-            var s = n.getAttribute('style').replace(
-              inlineStyleRegex,
-              function (match, p, prop) {
-                var value;
-                if (variant === 'outlined') {
-                  value = prop === 'stroke' ? 'currentColor' : 'none';
-                } else {
-                  // 'solid' (default) — recolour the fill, nullify the stroke.
-                  value = prop === 'fill' ? 'currentColor' : 'none';
-                }
-                return p + prop + ':' + value;
-              }
-            );
-            n.setAttribute('style', s);
-          }
-          // Force attribute-based fill/stroke to currentColor / none
-          // depending on the icon variant.
-          ['fill', 'stroke'].forEach(function (attr) {
-            var v = n.getAttribute(attr);
-            // Skip values the author already neutralised (e.g. fill="none").
-            if (v === 'none') {
-              return;
-            }
-            if (variant === 'outlined') {
-              n.setAttribute(attr, attr === 'stroke' ? 'currentColor' : 'none');
-            } else {
-              // 'solid' (default) — recolour the fill, nullify the stroke.
-              n.setAttribute(attr, attr === 'fill' ? 'currentColor' : 'none');
-            }
-          });
-          if (variant === 'solid'
-              && !n.getAttribute('fill')
-              && !n.getAttribute('style')) {
-            n.setAttribute('fill', 'currentColor');
-          }
-        }
-      });
-    })();
-
     document.querySelectorAll('.color-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         document.querySelectorAll('.color-btn').forEach(function (b) { b.classList.remove('active'); });
         btn.classList.add('active');
         var color = btn.getAttribute('data-color');
         document.querySelectorAll('.icon-preview svg').forEach(function (svg) {
-          var use = svg.querySelector('use');
-          var symbolId = use && use.getAttribute('href') ? use.getAttribute('href').replace('#', '') : '';
-          var symbol = symbolId ? document.querySelector('symbol[id="' + symbolId + '"]') : null;
-          var tintable = symbol && symbol.getAttribute('data-tintable') !== 'false';
-          if (tintable) {
-            svg.style.color = color;
-          } else {
-            svg.style.color = '';
-          }
+          svg.style.color = color;
         });
       });
     });
