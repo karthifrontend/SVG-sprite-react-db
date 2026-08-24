@@ -140,7 +140,7 @@ export function useConflictSpriteHost(inputs: ConflictSpriteInput[]): void {
       host.setAttribute("aria-hidden", "true");
       host.setAttribute("focusable", "false");
       host.style.cssText =
-        "position:absolute;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none;";
+        "position:absolute;width:0;height:0;overflow:visible;pointer-events:none;";
       document.body.appendChild(host);
     }
     host.replaceChildren();

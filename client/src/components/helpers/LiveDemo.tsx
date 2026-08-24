@@ -751,7 +751,7 @@ export default function LiveDemoModal({
       host.setAttribute("aria-hidden", "true");
       host.setAttribute("focusable", "false");
       host.style.cssText =
-        "position:absolute;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none;";
+        "position:absolute;width:0;height:0;overflow:visible;pointer-events:none;";
       document.body.appendChild(host);
     }
     host.replaceChildren();
@@ -1615,26 +1615,25 @@ function DemoIconCard({
 }: DemoIconCardProps): ReactNode {
   const isRenaming = renamingId === id;
   const sizeStyle = { width: `${iconSize}px`, height: `${iconSize}px` } as const;
-  const viewBox = symbol?.getAttribute("viewBox") || "0 0 24 24";
   const symbolInnerHtml = symbol?.innerHTML ?? "";
-  // Resolve the active solid color (gradient is handled in its own branch).
-  const preset = activeColorClass
-    ? SOLID_PRESETS.find((p) => p.color === activeColorClass)
-    : undefined;
-  const activeHex = activeCustomColor || (preset ? preset.hex : null);
   const iconVariant = classifySymbolVariant(symbolInnerHtml);
-  const isMulticolor = iconVariant === "multicolor";
-  const wrapperColorStyle = isMulticolor
-    ? ({ color: "#1e293b" } as const)
-    : activeGradient
-      ? undefined
-      : ({ color: activeHex ?? "#334155" } as const);
-  const useSnippet: ReactNode = (
+  const useSnippet: ReactNode = activeGradient ? (
+    <svg className="transition-all duration-200" style={sizeStyle} data-demo-icon-style={id}>
+      <defs>
+        <linearGradient id={`grad-${id}`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={activeGradient.start} />
+          <stop offset="100%" stopColor={activeGradient.end} />
+        </linearGradient>
+        <mask id={`mask-${id}`}>
+          <use href={`#${id}`} width="100%" height="100%" style={{ color: "white" }} />
+        </mask>
+      </defs>
+      <rect width="100%" height="100%" fill={`url(#grad-${id})`} mask={`url(#mask-${id})`} />
+    </svg>
+  ) : (
     <svg
-      className="transition-all duration-200"
-      style={{ ...sizeStyle, ...wrapperColorStyle }}
-      viewBox={viewBox}
-      preserveAspectRatio="xMidYMid meet"
+      className={`transition-all duration-200 ${activeCustomColor ? "" : activeColorClass ?? ""}`}
+      style={{ ...sizeStyle, ...(activeCustomColor ? { color: activeCustomColor } : {}) }}
       data-demo-icon-style={id}
       data-icon-variant={iconVariant}
     >
