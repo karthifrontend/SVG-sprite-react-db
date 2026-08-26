@@ -1550,7 +1550,27 @@ export default function LiveDemoModal({
               </>
             ) : (
               <>
-                {!(selectMode && !hasPendingChanges) && (
+                {/* Logged-out footer exposes only the actions that have no logged-in equivalent:
+                     • The shared "Copy Sprite" button that lives above this ternary already handles the initial-state copy action for both logged-in and logged-out users (gated by `!(isEditingIcon || selectMode)`). Logged-out users can never enter select mode, so it collapses to `!isEditingIcon` for them — i.e. visible in the initial state and hidden during edit, exactly matching the requirement.
+                     • "Download sprite" is logged-out-only here (logged-in users download from the Results panel). It is shown only in the initial state and only when the demo isn't previewing an uploaded base sprite, matching the previous visible-conditions.
+                     • "Save Changes" replaces both buttons above while the user is editing an icon. Logged-out users commit edits to the in-memory sprite, so the save flow mirrors the logged-in branch but routes through `onGuestSaveChanges` (or falls back to `onOpenSaveModal` when no guest handler is supplied). */}
+                {!isEditingIcon && source?.type !== "baseSprite" && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadBundle()}
+                    disabled={downloadBusy || cssChanged}
+                    title={
+                      cssChanged
+                        ? "Reset Custom CSS to enable this action."
+                        : undefined
+                    }
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-200 transition-all flex items-center gap-1.5 disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <DownloadIcon className="w-3.5 h-3.5" />
+                    {downloadBusy ? "Preparing…" : "Download sprite"}
+                  </button>
+                )}
+                {isEditingIcon && (
                   <button
                     type="button"
                     onClick={() => {
@@ -1578,22 +1598,6 @@ export default function LiveDemoModal({
                   >
                     <CheckIcon className="w-3.5 h-3.5" />
                     Save Changes
-                  </button>
-                )}
-                {source?.type !== "baseSprite" && (
-                  <button
-                    type="button"
-                    onClick={() => void handleDownloadBundle()}
-                    disabled={downloadBusy || selectMode || cssChanged}
-                    title={
-                      cssChanged
-                        ? "Reset Custom CSS to enable this action."
-                        : undefined
-                    }
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-200 transition-all flex items-center gap-1.5 disabled:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <DownloadIcon className="w-3.5 h-3.5" />
-                    {downloadBusy ? "Preparing…" : "Download sprite"}
                   </button>
                 )}
               </>
