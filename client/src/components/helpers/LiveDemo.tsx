@@ -5,7 +5,6 @@ import {
   CloseIcon,
   SearchIcon,
   DuplicateIcon,
-  ClipboardIcon,
   CheckIcon,
   DownloadIcon,
   PencilIcon,
@@ -974,6 +973,9 @@ export default function LiveDemoModal({
   const shouldShowSaveToLibrary =
     !!onOpenSaveToLibrary &&
     (source?.type === "scratch" || source?.type === "results");
+  // True while the user is mid-edit on an icon — either a rename input is
+  // open OR a rename/remove has already been committed and is awaiting save.
+  const isEditingIcon = renamingId !== null || hasPendingChanges;
 
   if (!isOpen) return null;
 
@@ -1046,7 +1048,7 @@ export default function LiveDemoModal({
               <CloseIcon className="w-6 h-6" />
             </button>
           </div>
-          <div className="flex items-end justify-between gap-4 px-6 border-b border-slate-100">
+          <div className="flex items-center justify-between gap-4 px-6 border-b border-slate-100">
             <div className="flex gap-4">
               <button
                 type="button"
@@ -1072,7 +1074,7 @@ export default function LiveDemoModal({
                     ? "Restore the size, color, and gradient values the modal opened with."
                     : "No custom-CSS changes to reset."
                 }
-                className="mb-2 px-4 py-2 rounded-lg border text-xs font-medium flex items-center gap-1.5 bg-white border-slate-300 text-slate-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
+                className="px-4 py-2 rounded-lg border text-xs font-medium flex items-center gap-1.5 bg-white border-slate-300 text-slate-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
               >
                 <svg
                   className="h-3 w-3"
@@ -1114,21 +1116,23 @@ export default function LiveDemoModal({
                   {currentUser && (
                     <label
                       className={`flex items-center gap-2 group ${
-                        cssChanged
+                        cssChanged || isEditingIcon
                           ? "opacity-50 cursor-not-allowed"
                           : "cursor-pointer"
                       }`}
                       title={
                         cssChanged
                           ? "Reset Custom CSS to enable Select Icons."
-                          : undefined
+                          : isEditingIcon
+                            ? "Save or cancel your current edit before selecting icons."
+                            : undefined
                       }
                     >
                       <div className="relative">
                         <input
                           type="checkbox"
                           checked={selectMode}
-                          disabled={cssChanged}
+                          disabled={cssChanged || isEditingIcon}
                           onChange={(event) => {
                             const next = event.target.checked;
                             setSelectMode(next);
@@ -1142,7 +1146,7 @@ export default function LiveDemoModal({
                         <div className="dot absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4 peer-disabled:cursor-not-allowed" />
                       </div>
                       <span
-                        className={`text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors ${cssChanged && "cursor-not-allowed"}`}
+                        className={`text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors ${(cssChanged || isEditingIcon) && "cursor-not-allowed"}`}
                       >
                         Select Icons
                       </span>
@@ -1433,39 +1437,51 @@ export default function LiveDemoModal({
             )
           )}
           <div className="flex items-center gap-2 ml-auto">
-            {currentUser && selectedIconsCount() > 0 && (
+            {currentUser && selectMode && (
               <button
                 type="button"
                 onClick={() => void handleCopySelected()}
+                disabled={cssChanged || selectedIconsCount() === 0}
+                title={
+                  cssChanged
+                    ? "Reset Custom CSS to enable this action."
+                    : selectedIconsCount() === 0
+                      ? "Select at least one icon to copy."
+                      : undefined
+                }
+                className="px-4 py-2 rounded-lg text-xs font-semibold border flex items-center gap-1.5 bg-white text-indigo-700 border-indigo-300 shadow-sm transition-all hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:border-indigo-300 disabled:hover:text-indigo-700"
+              >
+                <DuplicateIcon className="w-3.5 h-3.5" />
+                {selectedIconsCount() > 0
+                  ? `Copy ${selectedIconsCount()} Selected`
+                  : "Copy Selected"}
+              </button>
+            )}
+            {/* Copy Sprite is hidden for logged-in users whenever Select Icons is on (across all entry points — the Save to Library button replaces it) and whenever they are mid-edit on an icon (rename input open or pendingChanges). */}
+            {!(isEditingIcon || selectMode) && (
+              <button
+                type="button"
+                onClick={() => void handleCopySprite()}
                 disabled={cssChanged}
                 title={
                   cssChanged
                     ? "Reset Custom CSS to enable this action."
                     : undefined
                 }
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold border border-indigo-700 shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
+                className="px-4 py-2 rounded-lg text-xs font-medium border flex items-center gap-1.5 bg-white border-slate-300 text-slate-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-50 disabled:hover:bg-white disabled:hover:border-slate-300 disabled:hover:text-slate-700 disabled:cursor-not-allowed"
               >
-                <ClipboardIcon className="w-3.5 h-3.5" />
-                Copy {selectedIconsCount()} Selected
+                {copySpriteCopied ? (
+                  <CheckIcon className="w-3.5 h-3.5 mt-px" />
+                ) : (
+                  <DuplicateIcon className="w-3.5 h-3.5 mt-px" />
+                )}
+                {copySpriteCopied ? "Copied" : "Copy Sprite"}
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => void handleCopySprite()}
-              disabled={cssChanged}
-              title={
-                cssChanged
-                  ? "Reset Custom CSS to enable this action."
-                  : undefined
-              }
-              className="px-4 py-2 rounded-lg text-xs font-medium border flex items-center gap-1.5 bg-white border-slate-300 text-slate-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-50 disabled:hover:bg-white disabled:hover:border-slate-300 disabled:hover:text-slate-700 disabled:cursor-not-allowed"
-            >
-              <DuplicateIcon className="w-3.5 h-3.5 mt-px" />
-              {copySpriteCopied ? "Copied" : "Copy Sprite"}
-            </button>
             {currentUser ? (
               <>
-                {shouldShowSaveChanges && !(selectMode && !hasPendingChanges) && (
+                {/* Save Changes is only shown while the user is actively editing an icon — either an edit (rename) was triggered or a rename/remove has been committed and is awaiting save. While the rename input is open but no rename has been committed yet, hasPendingChanges is still false so the existing `!hasPendingChanges` guard keeps the button disabled even though it's already visible. */}
+                {shouldShowSaveChanges && isEditingIcon && (
                     <button
                       type="button"
                       onClick={() => void handleSaveChanges()}
@@ -1487,7 +1503,8 @@ export default function LiveDemoModal({
                       {saveBusy ? "Saving…" : "Save Changes"}
                     </button>
                   )}
-                {shouldShowSaveToLibrary && selectMode && displayedSymbolIds.length > 0 && (
+                {/* Save to Library is shown as soon as Select Icons is toggled on. It starts disabled (the existing `selectedIconsCount() === 0` guard) and becomes enabled the moment the user picks at least one icon. It is suppressed while the user is editing an icon — Save Changes owns the footer in that state. */}
+                {shouldShowSaveToLibrary && !isEditingIcon && displayedSymbolIds.length > 0 && selectMode && (
                   <button
                     type="button"
                     onClick={() => handleOpenSaveToLibrary()}

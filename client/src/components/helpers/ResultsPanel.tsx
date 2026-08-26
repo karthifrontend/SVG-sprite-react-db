@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { isSpriteSvgFile } from "../../utils/buildDemo";
 import type { ToastType } from "../../context/ToastContext";
+import { CheckIcon, DuplicateIcon } from "../icons/icons";
 
 type ResultsPanelProps = {
   visible: boolean;
@@ -211,11 +212,13 @@ function ResultsPanel({
         <button
           type="button"
           onClick={() => void handleMainCopy()}
-          className="flex-1 flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 font-medium py-3 px-4 rounded-xl border border-slate-200 hover:border-slate-300 transition-all duration-150"
+          className="flex-1 flex items-center justify-center gap-2 bg-white text-slate-700 font-medium py-3 px-4 rounded-xl border border-slate-200 transition-all duration-150 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-          </svg>
+          {mainCopied ? (
+            <CheckIcon className="w-4 h-4" />
+          ) : (
+            <DuplicateIcon className="w-4 h-4" />
+          )}
           <span>{mainCopied ? "Copied" : "Copy Sprite"}</span>
         </button>
          <button
@@ -341,7 +344,7 @@ function ResultsPanel({
                           <span>#{id}</span>
                           {isCopied ? (
                             <svg
-                              className="h-3 w-3 opacity-100"
+                              className="h-3 w-3"
                               fill="none"
                               viewBox="0 0 24 24"
                               stroke="currentColor"
@@ -351,8 +354,9 @@ function ResultsPanel({
                               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                             </svg>
                           ) : (
+                            // Hide the copy icon (not just fade it) until the chip is hovered or focused via keyboard so the chip's intrinsic width matches its label exactly when idle — that extra `gap-1` slot was the bad UX of "permanent right padding inside the badge". The aria-label on the parent button already announces the action to screen readers, so the icon stays decorative.
                             <svg
-                              className="h-3 w-3 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+                              className="hidden h-3 w-3 group-hover:inline-block group-focus-visible:inline-block"
                               fill="none"
                               viewBox="0 0 24 24"
                               stroke="currentColor"
