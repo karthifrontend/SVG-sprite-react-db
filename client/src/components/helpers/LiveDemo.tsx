@@ -247,6 +247,8 @@ export default function LiveDemoModal({
   // Debounce timer used by `handleSingleClick` to defer the copy action.
   const clickTimerRef = useRef<number | null>(null);
   const [hostVersion, setHostVersion] = useState<number>(0);
+  // Whether the icons grid is ready to render. Flips to `false` whenever the modal opens (so the modal can mount its shell instantly with a shimmer grid in place of the parsed symbols), then to `true` on the next animation frame so the symbols have time to populate `symbolsRef` and the hidden `#live-demo-sprite-host` has been built with `<symbol>` nodes the grid can `<use>` against.
+  const [gridReady, setGridReady] = useState<boolean>(false);
 
   // Read-only mode for the icon grid's per-card rename/delete controls.
   const isReadOnly =
@@ -293,6 +295,23 @@ export default function LiveDemoModal({
     if (lastSeededSourceRef.current === seedKey) return;
     lastSeededSourceRef.current = seedKey;
     syncSymbols(parseSpriteSymbols(sprite));
+  }, [isOpen, sprite]);
+
+  // Defer the grid render by one animation frame after the modal opens so the user
+  // sees an immediate skeleton instead of a blank grid while the sprite XML is parsed
+  // synchronously and the symbols are staged in `symbolsRef`.
+  useEffect(() => {
+    if (!isOpen) {
+      setGridReady(false);
+      return;
+    }
+    setGridReady(false);
+    const handle = window.requestAnimationFrame(() => {
+      setGridReady(true);
+    });
+    return () => {
+      window.cancelAnimationFrame(handle);
+    };
   }, [isOpen, sprite]);
 
   const filteredIds = useMemo<string[]>(() => {
@@ -1195,7 +1214,9 @@ export default function LiveDemoModal({
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 custom-scrollbar">
-              {filteredIds.length === 0 ? (
+              {!gridReady || displayedSymbolIds.length === 0 ? (
+                <DemoGridSkeleton cardCount={Math.max(displayedSymbolIds.length, 12)} />
+              ) : filteredIds.length === 0 ? (
                 <div className="py-16 flex flex-col items-center justify-center text-slate-400">
                   <SadFaceIcon
                     className="w-12 h-12 mb-3 text-slate-300"
@@ -1730,6 +1751,34 @@ function DemoIconCard({
           {id}
         </span>
       )}
+    </div>
+  );
+}
+
+// Shown inside the icons grid while the modal is still parsing the sprite XML,
+// building the hidden `#live-demo-sprite-host`, and emitting the per-symbol
+// recolour CSS.
+function DemoGridSkeleton({ cardCount }: { cardCount: number }) {
+  const shown = Math.min(Math.max(cardCount, 12), 20);
+  const skeletonCard = (index: number) => (
+    <div
+      key={`skeleton-${index}`}
+      className="demo-icon-card-skeleton relative bg-white p-4 rounded-xl border border-slate-200/60 flex flex-col items-center justify-center animate-fade-in-up"
+      style={{ animationDelay: `${(index % 10) * 0.02}s` }}
+      aria-hidden="true"
+    >
+      <div className="flex items-center justify-center bg-slate-50 rounded-lg transition-colors p-4 mb-2.5 w-full h-27.5">
+        <div className="skeleton-shimmer flex items-center justify-center w-full h-full rounded" />
+      </div>
+      <div className="skeleton-shimmer h-3 w-2/3 rounded" />
+    </div>
+  );
+  return (
+    <div className="space-y-3" role="status" aria-label="Loading icons">
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-4">
+        {Array.from({ length: shown }, (_, i) => skeletonCard(i))}
+      </div>
+      <span className="sr-only">Loading icon library, please wait.</span>
     </div>
   );
 }

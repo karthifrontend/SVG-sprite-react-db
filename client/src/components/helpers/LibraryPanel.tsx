@@ -600,6 +600,19 @@ function LibraryPanel({
                           type="button"
                           onClick={async (e) => {
                             e.stopPropagation();
+                            const source: LiveDemoSource = {
+                              type: "library",
+                              id: version.id,
+                              name: group.bundleName,
+                              version: version.version,
+                              isOwner: version.isOwner,
+                              isPublic: version.isPublic,
+                            };
+                            onOpenDemo?.({
+                              sprite: "",
+                              symbolIds: [],
+                              source,
+                            });
                             try {
                               const detail = await getSpriteById(version.id);
                               onOpenDemo?.({
