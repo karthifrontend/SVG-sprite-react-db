@@ -26,9 +26,13 @@ function App() {
     }
     if (previousAuthKeyRef.current !== currentKey) {
       if (currentKey && currentUser) {
+        // Stash both the email and the friendly display name so the post-reload
+        // toast can greet the user with their name instead of their email
+        // (displayName typically comes from the OAuth provider; fall back to the
+        // email when the provider didn't return one).
         sessionStorage.setItem(
           PENDING_LOGIN_TOAST_KEY,
-          currentUser.email
+          currentUser.displayName || currentUser.email,
         );
       } else {
         sessionStorage.setItem(PENDING_LOGOUT_TOAST_KEY, "1");
@@ -39,10 +43,13 @@ function App() {
 
   useEffect(() => {
     if (initializing) return;
-    const loginEmail = sessionStorage.getItem(PENDING_LOGIN_TOAST_KEY);
-    if (loginEmail) {
+    const loginName = sessionStorage.getItem(PENDING_LOGIN_TOAST_KEY);
+    if (loginName) {
       sessionStorage.removeItem(PENDING_LOGIN_TOAST_KEY);
-      showToast(`Welcome, ${loginEmail}`, "success");
+      // The pending value can be either a display name (preferred) or — for
+      // older sessions where only the email was stashed — an email address.
+      // Show either as the friendly greeting the user expects.
+      showToast(`Welcome, ${loginName}`, "success");
       return;
     }
     if (sessionStorage.getItem(PENDING_LOGOUT_TOAST_KEY) === "1") {
