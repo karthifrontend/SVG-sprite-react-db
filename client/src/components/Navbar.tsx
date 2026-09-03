@@ -1,6 +1,6 @@
-// Top navigation bar. Shows the brand, library toggle, and sign-in / user menu.
-import { useAuth } from "../context/AuthContext";
+// Top navigation bar. Shows the brand, library toggle, and sign-in / user info.
 import type { ReactNode } from "react";
+import { useAuth } from "../context/AuthContext";
 
 type NavbarProps = {
   onOpenLogin: () => void;
@@ -20,7 +20,7 @@ function Navbar({ onOpenLogin, libraryToggleSlot }: NavbarProps) {
       <div className="flex items-center gap-3">
         {libraryToggleSlot}
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-linear-to-br from-indigo-500 to-violet-600">
             <svg
               className="h-4 w-4 text-white"
               fill="none"
