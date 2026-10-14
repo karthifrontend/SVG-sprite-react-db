@@ -163,37 +163,6 @@ export function sanitizeSymbolName(
   return name;
 }
 
-// Strip hardcoded colors from SVG content and replace with var(--icon-color, currentColor).
-// This matches the legacy implementation's approach to making icons themeable.
-function stripAndNormalizeColors(markup: string): string {
-  // Replace attribute-based fill/stroke with themeable CSS variable.
-  // This regex matches fill="..." or stroke="..." and replaces with the currentColor variable.
-  let result = markup.replace(
-    /fill="(?!(none|var\(--icon-color,\s*currentColor\)))[^"]*"/gi,
-    'fill="var(--icon-color, currentColor)"'
-  );
-  result = result.replace(
-    /stroke="(?!(none|var\(--icon-color,\s*currentColor\)))[^"]*"/gi,
-    'stroke="var(--icon-color, currentColor)"'
-  );
-  return result;
-}
-
-// Count the number of distinct paintable colors present in the supplied markup.
-// "Paintable" means a real color value (not `none`, `transparent`, `currentColor`,
-// `inherit`, or a `url(#...)` reference). Used to decide whether an icon can
-// safely be recoloured via the `var(--icon-color, currentColor)` CSS variable
-// without losing information — if there's more than one unique color, the
-// icon is multicolor and the original colors must be preserved.
-function countDistinctPaintableColors(markup: string): number {
-  const seen = new Set<string>();
-  const values = extractColorValues(markup);
-  for (const v of values) {
-    seen.add(v.toLowerCase());
-  }
-  return seen.size;
-}
-
 // Parse an uploaded SVG file into a symbol description that can be embedded inside a sprite sheet. Symbol IDs are derived from the filename.
 export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
   const text = await file.text();
@@ -210,44 +179,22 @@ export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
     viewBox = `0 0 ${parseFloat(w)} ${parseFloat(h)}`;
   }
 
-  // Decide whether this icon can be safely recoloured. We look at the full
-  // document (root + inner) so a multicolor icon whose primary color lives on
-  // the root and overrides specific children is still flagged as multicolor.
-  // The root attributes are reconstructed as a synthetic string so the
-  // existing colour-extraction regexes (which only know how to parse attribute
-  // and style values, not actual DOM nodes) can pick them up.
-  const rootAttrsSynthetic = Array.from(svg.attributes)
-    .map((a) => `${a.name}="${a.value}"`)
-    .join(" ");
-  const fullMarkup = `<svg ${rootAttrsSynthetic}>${svg.innerHTML}</svg>`;
-  const isMulticolor = countDistinctPaintableColors(fullMarkup) > 1;
-
-  // The legacy generator copies root presentation attributes onto a group,
-  // then normalizes colors in the serialized child markup.
+  // Copy root presentation attributes onto a wrapping <g> so they're preserved
+  // when the symbol is embedded. Original fill/stroke values are kept verbatim
+  // so the generated sprite preserves each icon's intended colors — the
+  // Live Demo's custom-CSS recolour step applies its own `!important`
+  // overrides to the tintable (solid/outlined) icons, and the multicolor
+  // variants are skipped there, so no information is lost by not
+  // normalising the markup here.
   const groupAttributes: string[] = [];
   const ignoredAttributes = new Set([
     "id", "width", "height", "xmlns", "xmlns:xlink", "version", "class", "viewBox",
   ]);
   Array.from(svg.attributes).forEach((attribute) => {
     if (ignoredAttributes.has(attribute.name)) return;
-    let value = attribute.value;
-    // Multicolor icons must keep their original colors untouched so the
-    // sprite preserves the icon's intended appearance. Recolouring them
-    // would clobber every hardcoded color and force them all to the same
-    // CSS variable, which is exactly the "colored icons turned black" bug.
-    if (
-      !isMulticolor &&
-      (attribute.name === "fill" || attribute.name === "stroke") &&
-      value !== "none"
-    ) {
-      value = "var(--icon-color, currentColor)";
-    }
-    groupAttributes.push(` ${attribute.name}="${value}"`);
+    groupAttributes.push(` ${attribute.name}="${attribute.value}"`);
   });
-  let inner = isMulticolor
-    ? svg.innerHTML
-    : stripAndNormalizeColors(svg.innerHTML);
-  inner = `<g${groupAttributes.join("")}>${inner}</g>`;
+  const inner = `<g${groupAttributes.join("")}>${svg.innerHTML}</g>`;
 
   // Symbol id from filename. The sanitizer is the single source of truth for id formatting: it strips the extension, drops copy-suffixes, replaces bad characters, and prefixes `icon-` when the name doesn't already start with it.
   const id = sanitizeSymbolName(file.name);

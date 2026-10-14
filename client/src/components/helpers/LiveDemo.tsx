@@ -1,4 +1,4 @@
-// Live demo modal. Opens after a successful compile to preview, search, select, and copy/use the generated symbols.
+﻿// Live demo modal. Opens after a successful compile to preview, search, select, and copy/use the generated symbols.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, ChangeEvent, ReactNode } from "react";
 import {
@@ -126,10 +126,6 @@ const GRADIENT_PRESETS: GradientPreset[] = [
   { id: "amethyst", start: "#8b5cf6", end: "#d946ef" },
 ];
 
-function getDefaultActiveColor(): string {
-  return SOLID_PRESETS[0]?.color ?? "text-slate-700";
-}
-
 // Serialise the in-memory `<symbol>` elements into a sprite XML doc.
 function serializeLiveSprite(symbols: Element[]): string {
   const inner = symbols
@@ -185,7 +181,12 @@ export default function LiveDemoModal({
   // Custom-CSS state. When the parent supplies `cssState` + `onCssStateChange`, the values are owned outside the modal so they survive across opens (e.g. re-opening a saved library version via the eye icon). When the parent doesn't supply them we fall back to local state, so the modal still works in isolation (and in Storybook).
   const defaultCssState: LiveDemoCssState = {
     iconSize: 24,
-    activeColorClass: getDefaultActiveColor(),
+    // No active colour by default — the demo shows each icon in its original
+    // colours. Recolouring only kicks in once the user explicitly picks a
+    // solid preset, a custom hex, or a gradient. (Previously this defaulted
+    // to a slate Tailwind class, which forced every non-multicolor icon to
+    // render in that slate colour on first open.)
+    activeColorClass: null,
     activeCustomColor: null,
     activeGradient: null,
     useGradient: false,
@@ -542,10 +543,13 @@ export default function LiveDemoModal({
         activeCustomColor: null,
       });
     } else {
+      // Toggling the gradient off returns the demo to the no-active-colour
+      // state, so each icon goes back to its original colours instead of
+      // being forced into a default preset.
       updateCss({
         useGradient: false,
         activeGradient: null,
-        activeColorClass: getDefaultActiveColor(),
+        activeColorClass: null,
       });
     }
   }
