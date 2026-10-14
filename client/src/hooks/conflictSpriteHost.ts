@@ -28,7 +28,7 @@ function paintHostSymbols(host: SVGSVGElement): void {
   host.querySelectorAll("symbol").forEach((sym) => {
     const inner = sym.innerHTML;
     const variant = classifySymbolVariant(inner);
-    if (variant === "multicolor") return;
+    if (variant === "colored") return;
     const wrapped = `<svg xmlns="${SVG_NS}">${inner}</svg>`;
     const doc = parser.parseFromString(wrapped, "image/svg+xml");
     if (doc.querySelector("parsererror")) return;

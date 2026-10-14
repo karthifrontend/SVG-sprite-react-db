@@ -473,7 +473,17 @@ export function extractSymbolsFromSprite(xml: string): SpriteSymbol[] {
   }
 }
 
-export type IconVariant = "solid" | "outlined" | "multicolor";
+// "colored": the icon carries its own colors (any hardcoded fill/stroke, gradient or pattern paint) and must never be recoloured.
+// "solid" / "outlined": the icon has no colors of its own (default black / currentColor), so custom CSS may recolour it.
+export type IconVariant = "solid" | "outlined" | "colored";
+
+// Paint values that do NOT carry a color of their own. `var(--icon-color, ...)` is what older versions of this app wrote into saved sprites in place of the real color, so it is treated as "no own color".
+function isNeutralPaint(value: string): boolean {
+  return (
+    /^(none|transparent|currentcolor|inherit)$/i.test(value) ||
+    /^var\(\s*--icon-color/i.test(value)
+  );
+}
 
 function extractColorValues(markup: string): string[] {
   const values: string[] = [];
@@ -484,16 +494,14 @@ function extractColorValues(markup: string): string[] {
   while ((match = attrRegex.exec(markup)) !== null) {
     const value = match[3]?.trim();
     if (!value) continue;
-    if (/^(none|transparent|currentcolor|inherit)$/i.test(value)) continue;
-    if (value.startsWith("url(")) continue;
+    if (isNeutralPaint(value)) continue;
     values.push(value);
   }
 
   while ((match = styleRegex.exec(markup)) !== null) {
     const value = match[2]?.trim();
     if (!value) continue;
-    if (/^(none|transparent|currentcolor|inherit)$/i.test(value)) continue;
-    if (value.startsWith("url(")) continue;
+    if (isNeutralPaint(value)) continue;
     values.push(value);
   }
 
@@ -533,21 +541,17 @@ function countPaintableShapes(markup: string): {
   return { fills, strokes };
 }
 
-// Classify a symbol's inner markup into the recolouring strategy that should
-// be applied. See `IconVariant` for the rationale.
+// Classify a symbol's inner markup into the recolouring strategy that should be applied. Any icon that defines its own color (single color, multicolor, gradient/pattern paint, embedded image) is "colored" and keeps its original look.
 export function classifySymbolVariant(markup: string): IconVariant {
-  const colors = extractColorValues(markup);
-  const uniqueColors = colors.filter(
-    (value, index) => colors.indexOf(value) === index,
-  );
-  if (uniqueColors.length > 1) return "multicolor";
+  if (extractColorValues(markup).length > 0) return "colored";
+  if (/<(linearGradient|radialGradient|pattern|image)\b/i.test(markup)) return "colored";
   const { fills, strokes } = countPaintableShapes(markup);
   if (strokes > 0 && strokes >= fills) return "outlined";
   return "solid";
 }
 
 export function isTintableSymbolMarkup(markup: string): boolean {
-  return classifySymbolVariant(markup) !== "multicolor";
+  return classifySymbolVariant(markup) !== "colored";
 }
 
 export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {

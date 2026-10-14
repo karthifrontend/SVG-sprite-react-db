@@ -223,7 +223,7 @@ function recolorSymbolInnerPerElement(inner: string): string {
   if (!inner || !inner.trim()) return inner;
 
   const variant = classifySymbolVariant(inner);
-  if (variant === "multicolor") {
+  if (variant === "colored") {
     return inner;
   }
 

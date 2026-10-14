@@ -184,7 +184,7 @@ export default function LiveDemoModal({
     // No active colour by default — the demo shows each icon in its original
     // colours. Recolouring only kicks in once the user explicitly picks a
     // solid preset, a custom hex, or a gradient. (Previously this defaulted
-    // to a slate Tailwind class, which forced every non-multicolor icon to
+    // to a slate Tailwind class, which forced every recolourable icon to
     // render in that slate colour on first open.)
     activeColorClass: null,
     activeCustomColor: null,
@@ -589,7 +589,7 @@ export default function LiveDemoModal({
     const variant = classifySymbolVariant(inner);
     const color = resolveActiveColor();
     const sizeAttrs = `width="${iconSize}" height="${iconSize}"`;
-    if (variant === "multicolor" || !color) {
+    if (variant === "colored" || !color) {
       return `<svg xmlns="http://www.w3.org/2000/svg" ${sizeAttrs} viewBox="${viewBox}">${inner}</svg>`;
     }
     if (color.kind === "color") {
@@ -695,7 +695,7 @@ export default function LiveDemoModal({
         // Re-classify against the raw inner markup to decide the rule.
         // We don't have a DOMParser here, so re-use the in-memory helpers.
         const variant = classifySymbolVariant(inner);
-        if (variant === "multicolor") return;
+        if (variant === "colored") return;
         if (variant === "outlined") {
           cssChunks.push(
             `#${symId} * { fill: none !important; stroke: url(#${GRAD_ID}) !important; }`,
@@ -737,7 +737,7 @@ export default function LiveDemoModal({
       const symId = sym.getAttribute("id");
       if (!symId) return;
       const variant = classifySymbolVariant(sym.innerHTML);
-      if (variant === "multicolor") return;
+      if (variant === "colored") return;
       if (variant === "outlined") {
         // elements.
         cssChunks.push(
