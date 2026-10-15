@@ -394,7 +394,7 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
                   <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[12px] text-indigo-600">
                     sprite-grid.svg
                   </code>
-                  <span className="text-slate-500">— 24px grid (6 per row) for CSS background-position</span>
+                  <span className="text-slate-500">— icon grid (6 per row, padded) for CSS background-position</span>
                 </li>
                 <li className="flex items-center gap-2.5">
                   <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-rose-50 text-rose-500">
