@@ -1,4 +1,4 @@
-﻿// Builds sprite XML, extracts symbols, validates SVG files, and formats sizes/dates.
+// Builds sprite XML, extracts symbols, validates SVG files, and formats sizes/dates.
 export type SpriteSymbol = {
   id: string;
   viewBox: string;
@@ -629,6 +629,195 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
     )
     .join("");
 
+  // Framework code samples embedded in the standalone demo page. Identical
+  // content to `UserGuidePanel.tsx` so the downloaded demo offers the same
+  // copy-paste snippets as the in-app guide. Keep `body` values as plain
+  // strings here so the template literal below stays readable.
+  const codeSamples: Record<string, { file: string; body: string }> = {
+    html: {
+      file: "index.html",
+      body: [
+        "<!-- 1. Paste sprite.svg at the top of <body> -->",
+        "<body>",
+        '  <svg aria-hidden="true" style="width: 0; height: 0; position: absolute;">',
+        "    <!-- Sprite definitions, including gradients, go here -->",
+        "  </svg>",
+        "",
+        "  <!-- 2. Use any icon anywhere -->",
+        '  <svg class="icon" width="24" height="24">',
+        '    <use href="#icon-home"></use>',
+        "  </svg>",
+        "",
+        "  <!-- 3. Style with CSS (Including Gradients!) -->",
+        "  <style>",
+        "    .icon { color: #334155; }",
+        "    .icon:hover { color: #4f46e5; }",
+        "",
+        "    /* Apply a gradient to an icon using the CSS variable */",
+        "    .icon-gradient {",
+        "      --icon-color: url(#grad-id);",
+        "    }",
+        "  </style>",
+        "</body>",
+      ].join("\n"),
+    },
+    react: {
+      file: "Icon.jsx",
+      body: [
+        "// 1. Place sprite.svg in /public folder",
+        "",
+        "// 2. Create Icon component",
+        "function Icon({ name, size = 24, className = \"\" }) {",
+        "  return (",
+        "    <svg",
+        "      width={size}",
+        "      height={size}",
+        '      className={`icon ${className}`}',
+        '      aria-hidden="true"',
+        "    >",
+        "      <use href={`/sprite.svg#${name}`} />",
+        "    </svg>",
+        "  );",
+        "}",
+        "",
+        "// 3. Usage",
+        '<Icon name="icon-home" size={32} />',
+        '<Icon name="icon-search" className="text-blue-500" />',
+        '<Icon name="icon-star" style={{ "--icon-color": "url(#grad-id)" }} />',
+      ].join("\n"),
+    },
+    vue: {
+      file: "SvgIcon.vue",
+      body: [
+        "<!-- 1. Place sprite.svg in /public folder -->",
+        "",
+        "<template>",
+        "  <svg",
+        "    :width=\"size\"",
+        "    :height=\"size\"",
+        '    class="svg-icon"',
+        '    aria-hidden="true"',
+        "  >",
+        "    <use :href=\"`/sprite.svg#${name}`\" />",
+        "  </svg>",
+        "</template>",
+        "",
+        "<script setup>",
+        "defineProps({",
+        "  name: { type: String, required: true },",
+        "  size: { type: Number, default: 24 }",
+        "});",
+        "</script>",
+        "",
+        "<!-- Usage:",
+        "<SvgIcon name=\"icon-home\" :size=\"32\" />",
+        "<SvgIcon name=\"icon-star\" style=\"--icon-color: url(#grad-id);\" />",
+        "-->",
+      ].join("\n"),
+    },
+    angular: {
+      file: "svg-icon.component.ts",
+      body: [
+        "// 1. Place sprite.svg in /src/assets",
+        "",
+        "import { Component, Input } from '@angular/core';",
+        "",
+        "@Component({",
+        "  selector: 'svg-icon',",
+        "  standalone: true,",
+        "  template: `",
+        "    <svg [attr.width]=\"size\" [attr.height]=\"size\"",
+        "         class=\"svg-icon\" aria-hidden=\"true\">",
+        "      <use [attr.href]=\"'/assets/sprite.svg#' + name\">",
+        "      </use>",
+        "    </svg>",
+        "  `,",
+        "  styles: [`.svg-icon { display: inline-block; }`]",
+        "})",
+        "export class SvgIconComponent {",
+        "  @Input() name = '';",
+        "  @Input() size = 24;",
+        "}",
+        "",
+        "// Usage:",
+        "// <svg-icon name=\"icon-home\" [size]=\"32\"></svg-icon>",
+      ].join("\n"),
+    },
+    svelte: {
+      file: "Icon.svelte",
+      body: [
+        "<!-- 1. Place sprite.svg in /static folder -->",
+        "",
+        "<script>",
+        "  export let name = '';",
+        "  export let size = 24;",
+        "</script>",
+        "",
+        "<svg",
+        "  width={size}",
+        "  height={size}",
+        '  class="svg-icon"',
+        '  aria-hidden="true"',
+        ">",
+        "  <use href={`/sprite.svg#${name}`} />",
+        "</svg>",
+        "",
+        "<style>",
+        "  .svg-icon { display: inline-block; color: inherit; }",
+        "</style>",
+        "",
+        "<!-- Usage: <Icon name=\"icon-home\" size={32} /> -->",
+      ].join("\n"),
+    },
+    nextjs: {
+      file: "components/Icon.tsx",
+      body: [
+        "// 1. Place sprite.svg in /public folder",
+        "",
+        "interface IconProps {",
+        "  name: string;",
+        "  size?: number;",
+        "  className?: string;",
+        "}",
+        "",
+        "export default function Icon({",
+        "  name,",
+        "  size = 24,",
+        "  className = \"\"",
+        "}: IconProps) {",
+        "  return (",
+        "    <svg",
+        "      width={size}",
+        "      height={size}",
+        "      className={`inline-block ${className}`}",
+        '      aria-hidden="true"',
+        "    >",
+        "      <use href={`/sprite.svg#${name}`} />",
+        "    </svg>",
+        "  );",
+        "}",
+        "",
+        "// Usage (App Router - Server Component safe):",
+        "// <Icon name=\"icon-home\" size={32} />",
+      ].join("\n"),
+    },
+  };
+
+  // The supported framework tab ids. The matching labels are defined inside
+  // the inline `buildPanelMarkup` function so the standalone demo can render
+  // without depending on this variable.
+
+  // Encode the code samples as a JSON blob so the inline script can render
+  // them without us having to hand-build escaped HTML for every snippet.
+  const codeSamplesJson = JSON.stringify(codeSamples)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+
+  // The tab buttons / code panels are rendered by the inline script below
+  // (it has access to `codeSamples` via the JSON blob), so we don't need to
+  // pre-render them here.
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -636,7 +825,7 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SVG Sprite Demo — ${ids.length} Symbols</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -646,6 +835,7 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
       padding: 2rem;
       min-height: 100vh;
     }
+    code, pre { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
     .header { text-align: center; margin-bottom: 2rem; }
     .header h1 { font-size: 1.75rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem; }
     .header p { font-size: 0.875rem; color: #94a3b8; }
@@ -681,6 +871,181 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
       word-break: break-all; max-width: 100%;
     }
     .footer { text-align: center; margin-top: 2.5rem; font-size: 0.75rem; color: #cbd5e1; }
+
+    /* --- Floating User Guide launcher --- */
+    .guide-launcher {
+      position: fixed; right: 24px; bottom: 24px; z-index: 60;
+      width: 56px; height: 56px; border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1, #7c3aed);
+      color: #fff; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 10px 25px rgba(99, 102, 241, 0.35), 0 4px 10px rgba(99, 102, 241, 0.2);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .guide-launcher:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 14px 30px rgba(99, 102, 241, 0.45); }
+    .guide-launcher:active { transform: translateY(0) scale(0.98); }
+    .guide-launcher svg { width: 24px; height: 24px; }
+
+    /* --- User Guide side panel --- */
+    .guide-overlay {
+      position: fixed; inset: 0; z-index: 70;
+      background: rgba(15, 23, 42, 0.5);
+      backdrop-filter: blur(4px);
+      animation: guide-fade 0.25s ease both;
+    }
+    .guide-panel {
+      position: fixed; top: 0; right: 0; z-index: 80;
+      height: 100%; width: 100%; max-width: 32rem;
+      background: #fff; box-shadow: -10px 0 30px rgba(15, 23, 42, 0.18);
+      display: flex; flex-direction: column;
+      animation: guide-slide 0.3s ease-out both;
+    }
+    .guide-header {
+      flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 24px;
+      background: linear-gradient(90deg, #eef2ff, #f5f3ff);
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .guide-header-left { display: flex; align-items: center; gap: 12px; }
+    .guide-header-icon {
+      width: 36px; height: 36px; border-radius: 12px;
+      background: linear-gradient(135deg, #6366f1, #7c3aed);
+      box-shadow: 0 4px 10px rgba(99, 102, 241, 0.25);
+      display: flex; align-items: center; justify-content: center; color: #fff;
+    }
+    .guide-header-icon svg { width: 20px; height: 20px; }
+    .guide-header h2 { font-size: 1rem; font-weight: 700; color: #0f172a; line-height: 1.2; }
+    .guide-header p { font-size: 11px; color: #94a3b8; }
+    .guide-close {
+      border: none; background: transparent; cursor: pointer;
+      padding: 8px; border-radius: 8px; color: #94a3b8;
+      transition: background 0.15s, color 0.15s;
+    }
+    .guide-close:hover { background: rgba(255, 255, 255, 0.6); color: #475569; }
+    .guide-close svg { width: 20px; height: 20px; }
+
+    .guide-body { flex: 1; overflow-y: auto; padding: 20px 24px 24px; }
+    .guide-section { margin-bottom: 24px; }
+    .guide-section-title {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+    }
+    .guide-section-num {
+      flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800;
+    }
+    .guide-section-num.n1 { background: #e0e7ff; color: #4f46e5; }
+    .guide-section-num.n2 { background: #d1fae5; color: #059669; }
+    .guide-section-num.n3 { background: #ede9fe; color: #7c3aed; }
+    .guide-section-num.n4 { background: #fef3c7; color: #d97706; }
+    .guide-section h3 { font-size: 0.875rem; font-weight: 700; color: #1e293b; }
+    .guide-section-body { margin-left: 36px; font-size: 13px; line-height: 1.6; color: #475569; }
+    .guide-section-body p { margin-bottom: 10px; }
+    .guide-section-body strong { color: #334155; }
+    .guide-section-body code {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 12px; border-radius: 4px;
+      padding: 1px 6px; color: #4f46e5; white-space: nowrap;
+    }
+    .guide-section-body ul { list-style: none; padding: 0; }
+    .guide-section-body li { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .guide-section-body li .li-icon {
+      width: 20px; height: 20px; flex-shrink: 0; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .guide-section-body li .li-icon.indigo { background: #eef2ff; color: #6366f1; }
+    .guide-section-body li .li-icon.emerald { background: #ecfdf5; color: #10b981; }
+    .guide-section-body li .li-icon.rose { background: #fff1f2; color: #f43f5e; }
+    .guide-section-body li .li-icon svg { width: 14px; height: 14px; }
+    .guide-section-body li .li-text { color: #64748b; }
+    .guide-section-body hr { border: none; border-top: 1px solid #f1f5f9; margin: 16px 0; }
+    .guide-tip-card {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0;
+      border-radius: 10px; font-size: 12px; color: #475569; line-height: 1.55;
+      margin-bottom: 8px; transition: background 0.15s, border-color 0.15s;
+    }
+    .guide-tip-card:hover { background: #f1f5f9; border-color: #cbd5e1; }
+    .guide-tip-icon { font-size: 14px; line-height: 1.4; flex-shrink: 0; }
+    .guide-tip-card code { font-family: 'JetBrains Mono', monospace; font-size: 11px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 4px; padding: 0 4px; color: #4f46e5; }
+    .guide-tip-callout {
+      margin-top: 10px; border: 1px solid #fde68a; background: #fffbeb;
+      padding: 10px 14px; border-radius: 8px; font-size: 12px; color: #b45309;
+    }
+    .guide-tip-callout code { font-family: 'JetBrains Mono', monospace; background: rgba(255,255,255,0.7); padding: 0 4px; border-radius: 3px; }
+
+    .guide-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+    .guide-tab {
+      font-size: 11px; font-weight: 600;
+      padding: 5px 12px; border-radius: 8px;
+      background: #f1f5f9; color: #64748b;
+      border: 1px solid transparent; cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      line-height: 1.4;
+    }
+    .guide-tab:hover { background: #e2e8f0; color: #334155; }
+    .guide-tab.active {
+      background: linear-gradient(135deg, #6366f1, #7c3aed);
+      color: #fff; border-color: transparent;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+    }
+    .guide-tab-panel { display: none; }
+    .guide-tab-panel.active { display: block; animation: guide-fade-up 0.25s ease both; }
+    .guide-code-block {
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid #1e293b; background: #0f172a;
+    }
+    .guide-code-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 14px; background: #1e293b;
+      border-bottom: 1px solid #334155;
+    }
+    .guide-code-header span {
+      font-size: 11px; font-weight: 600; color: #94a3b8;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .guide-copy-btn {
+      font-size: 11px; font-weight: 600; color: #94a3b8;
+      padding: 2px 8px; border-radius: 4px;
+      background: transparent; border: 1px solid #334155;
+      cursor: pointer; transition: background 0.15s, color 0.15s;
+    }
+    .guide-copy-btn:hover { background: #334155; color: #e2e8f0; }
+    .guide-copy-btn.copied { background: #059669; color: #fff; border-color: #059669; }
+    .guide-code-block pre {
+      padding: 14px; margin: 0; overflow-x: auto;
+      scrollbar-width: thin; scrollbar-color: #334155 transparent;
+    }
+    .guide-code-block pre::-webkit-scrollbar { height: 4px; }
+    .guide-code-block pre::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
+    .guide-code-block code {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 11px; line-height: 1.65; color: #a5f3fc; white-space: pre;
+    }
+
+    .guide-body::-webkit-scrollbar { width: 5px; }
+    .guide-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+
+    @keyframes guide-fade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes guide-slide {
+      from { transform: translateX(100%); opacity: 0; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+    @keyframes guide-fade-up {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 640px) {
+      .guide-panel { max-width: 100%; }
+      .guide-launcher { right: 16px; bottom: 16px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -701,31 +1066,247 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   <div class="grid" id="iconGrid">${iconCards}
   </div>
   <div class="footer">Generated by SVG Sprite Compiler</div>
+
+  <button type="button" class="guide-launcher" id="guideLauncher" aria-label="Open user guide" title="User Guide">
+    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+    </svg>
+  </button>
+
+  <div id="guideRoot" hidden></div>
+
+  <script id="guideCodeSamples" type="application/json">${codeSamplesJson}</script>
   <script>
-    document.querySelectorAll('.color-btn').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        document.querySelectorAll('.color-btn').forEach(function (b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        var color = btn.getAttribute('data-color');
-        document.querySelectorAll('.icon-preview svg').forEach(function (svg) {
-          svg.style.color = color;
+    (function () {
+      // ----- Original demo behavior (unchanged) -----
+      document.querySelectorAll('.color-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          document.querySelectorAll('.color-btn').forEach(function (b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          var color = btn.getAttribute('data-color');
+          document.querySelectorAll('.icon-preview svg').forEach(function (svg) {
+            svg.style.color = color;
+          });
         });
       });
-    });
-    document.querySelectorAll('.icon-card').forEach(function (card) {
-      card.addEventListener('click', function () {
-        var use = card.querySelector('use');
-        var id = use.getAttribute('href').replace('#', '');
-        var code = '<svg width="24" height="24"><use href="#' + id + '"><\\/use><\\/svg>';
-        navigator.clipboard.writeText(code).then(function () {
-          var label = card.querySelector('.icon-label');
-          var orig = label.textContent;
-          label.textContent = '✓ Copied!';
-          label.style.color = '#059669';
-          setTimeout(function () { label.textContent = orig; label.style.color = ''; }, 1500);
+      document.querySelectorAll('.icon-card').forEach(function (card) {
+        card.addEventListener('click', function () {
+          var use = card.querySelector('use');
+          var id = use.getAttribute('href').replace('#', '');
+          var code = '<svg width="24" height="24"><use href="#' + id + '"><\\/use><\\/svg>';
+          navigator.clipboard.writeText(code).then(function () {
+            var label = card.querySelector('.icon-label');
+            var orig = label.textContent;
+            label.textContent = '✓ Copied!';
+            label.style.color = '#059669';
+            setTimeout(function () { label.textContent = orig; label.style.color = ''; }, 1500);
+          });
         });
       });
-    });
+
+      // ----- User Guide panel -----
+      var samplesNode = document.getElementById('guideCodeSamples');
+      var codeSamples = samplesNode ? JSON.parse(samplesNode.textContent) : {};
+      var activeTab = 'html';
+      var lastFocus = null;
+
+      function escapeHtml(text) {
+        return String(text)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      function buildPanelMarkup() {
+        var tabs = ['html','react','vue','angular','svelte','nextjs'];
+        var labels = { html:'HTML', react:'React', vue:'Vue', angular:'Angular', svelte:'Svelte', nextjs:'Next.js' };
+        var tabsHtml = tabs.map(function (id) {
+          return '<button type="button" class="guide-tab" data-tab="' + id + '">' + labels[id] + '</button>';
+        }).join('');
+        var panelsHtml = tabs.map(function (id) {
+          return '<div class="guide-tab-panel" data-panel="' + id + '">' +
+                   '<div class="guide-code-block">' +
+                     '<div class="guide-code-header">' +
+                       '<span data-file="' + id + '">' + (codeSamples[id] ? codeSamples[id].file : '') + '</span>' +
+                       '<button type="button" class="guide-copy-btn" data-copy="' + id + '">Copy</button>' +
+                     '</div>' +
+                     '<pre><code data-code="' + id + '"></code></pre>' +
+                   '</div>' +
+                 '</div>';
+        }).join('');
+
+        return '' +
+          '<div class="guide-overlay" id="guideOverlay" aria-hidden="true"></div>' +
+          '<aside class="guide-panel" id="guidePanel" role="dialog" aria-modal="true" aria-label="User Guide">' +
+            '<div class="guide-header">' +
+              '<div class="guide-header-left">' +
+                '<div class="guide-header-icon">' +
+                  '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
+                    '<path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>' +
+                  '</svg>' +
+                '</div>' +
+                '<div>' +
+                  '<h2>User Guide</h2>' +
+                  '<p>Step-by-step instructions</p>' +
+                '</div>' +
+              '</div>' +
+              '<button type="button" class="guide-close" id="guideClose" aria-label="Close guide">' +
+                '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
+                  '<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>' +
+                '</svg>' +
+              '</button>' +
+            '</div>' +
+            '<div class="guide-body">' +
+              '<section class="guide-section">' +
+                '<div class="guide-section-title">' +
+                  '<span class="guide-section-num n1">1</span>' +
+                  '<h3>Upload SVG Icons</h3>' +
+                '</div>' +
+                '<div class="guide-section-body">' +
+                  '<p>Choose <strong>Create New</strong> to build a fresh sprite from scratch, or <strong>Update Existing</strong> to add icons to an existing sprite file.</p>' +
+                  '<p><strong>Drag &amp; drop</strong> your <code>.svg</code> files onto the upload zone, or click it to browse and select files.</p>' +
+                  '<p>Review the staged files list and clear all before generating.</p>' +
+                  '<div class="guide-tip-callout"><strong>💡 Tip:</strong> File names become symbol IDs. Use clean names like <code>arrow-right.svg</code>.</div>' +
+                '</div>' +
+              '</section>' +
+              '<hr style="border:none;border-top:1px solid #f1f5f9;margin:16px 0">' +
+              '<section class="guide-section">' +
+                '<div class="guide-section-title">' +
+                  '<span class="guide-section-num n2">2</span>' +
+                  '<h3>What You Get</h3>' +
+                '</div>' +
+                '<div class="guide-section-body">' +
+                  '<p>A <strong>ZIP bundle</strong> containing:</p>' +
+                  '<ul>' +
+                    '<li><span class="li-icon indigo"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></span><code>sprite.svg</code><span class="li-text"> — Your compiled SVG sprite</span></li>' +
+                    '<li><span class="li-icon emerald"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg></span><code>demo.html</code><span class="li-text"> — Interactive preview page</span></li>' +
+                    '<li><span class="li-icon rose"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></span><code>sprite-preview.png</code><span class="li-text"> — Screenshot for docs/sharing</span></li>' +
+                  '</ul>' +
+                '</div>' +
+              '</section>' +
+              '<hr style="border:none;border-top:1px solid #f1f5f9;margin:16px 0">' +
+              '<section class="guide-section">' +
+                '<div class="guide-section-title">' +
+                  '<span class="guide-section-num n3">3</span>' +
+                  '<h3>Use in Your Code</h3>' +
+                '</div>' +
+                '<div class="guide-section-body">' +
+                  '<p>Include the sprite in your HTML and reference icons with <code>&lt;use&gt;</code>.</p>' +
+                  '<div class="guide-tabs">' + tabsHtml + '</div>' +
+                  panelsHtml +
+                '</div>' +
+              '</section>' +
+              '<hr style="border:none;border-top:1px solid #f1f5f9;margin:16px 0">' +
+              '<section class="guide-section">' +
+                '<div class="guide-section-title">' +
+                  '<span class="guide-section-num n4">4</span>' +
+                  '<h3>Pro Tips</h3>' +
+                '</div>' +
+                '<div class="guide-section-body">' +
+                  '<div class="guide-tip-card"><span class="guide-tip-icon">🎨</span><span>Use <code>color: currentColor</code> in your CSS — icons inherit their parent\u2019s text color automatically.</span></div>' +
+                  '<div class="guide-tip-card"><span class="guide-tip-icon">✨</span><span><strong>New: Gradients!</strong> Apply gradients to icons by setting <code>--icon-color: url(#grad-id)</code> in CSS. The generated sprite natively supports this!</span></div>' +
+                  '<div class="guide-tip-card"><span class="guide-tip-icon">📐</span><span>Icons scale perfectly via <code>width</code> and <code>height</code> — they\u2019re vector, so no quality loss at any size.</span></div>' +
+                  '<div class="guide-tip-card"><span class="guide-tip-icon">♿</span><span>Add <code>aria-hidden="true"</code> to decorative icons or <code>role="img"</code> + <code>aria-label</code> for meaningful ones.</span></div>' +
+                  '<div class="guide-tip-card"><span class="guide-tip-icon">🔄</span><span><strong>"Update Existing"</strong> mode merges new symbols with the base sprite — duplicate ids are overwritten, existing ids preserved.</span></div>' +
+                  '<div class="guide-tip-card"><span class="guide-tip-icon">⚡</span><span>One sprite file = one HTTP request for all icons. Far better performance than individual SVG or icon font files.</span></div>' +
+                '</div>' +
+              '</section>' +
+            '</div>' +
+          '</aside>';
+      }
+
+      function setActiveTab(id) {
+        if (!codeSamples[id]) return;
+        activeTab = id;
+        var tabs = document.querySelectorAll('#guidePanel .guide-tab');
+        var panels = document.querySelectorAll('#guidePanel .guide-tab-panel');
+        tabs.forEach(function (t) { t.classList.toggle('active', t.getAttribute('data-tab') === id); });
+        panels.forEach(function (p) {
+          var isActive = p.getAttribute('data-panel') === id;
+          p.classList.toggle('active', isActive);
+          if (isActive) {
+            var codeEl = p.querySelector('[data-code]');
+            if (codeEl && codeSamples[id]) codeEl.textContent = codeSamples[id].body;
+          }
+        });
+      }
+
+      function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          return navigator.clipboard.writeText(text);
+        }
+        return new Promise(function (resolve) {
+          try {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          } catch (e) { /* swallow */ }
+          resolve();
+        });
+      }
+
+      function openGuide() {
+        var root = document.getElementById('guideRoot');
+        if (!root) return;
+        lastFocus = document.activeElement;
+        root.innerHTML = buildPanelMarkup();
+        root.hidden = false;
+        document.body.style.overflow = 'hidden';
+
+        // Wire interactions
+        document.getElementById('guideOverlay').addEventListener('click', closeGuide);
+        document.getElementById('guideClose').addEventListener('click', closeGuide);
+        document.querySelectorAll('#guidePanel .guide-tab').forEach(function (btn) {
+          btn.addEventListener('click', function () { setActiveTab(btn.getAttribute('data-tab')); });
+        });
+        document.querySelectorAll('#guidePanel [data-copy]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var id = btn.getAttribute('data-copy');
+            var sample = codeSamples[id];
+            if (!sample) return;
+            copyText(sample.body).then(function () {
+              var orig = btn.textContent;
+              btn.classList.add('copied');
+              btn.textContent = 'Copied!';
+              setTimeout(function () {
+                btn.classList.remove('copied');
+                btn.textContent = orig;
+              }, 1500);
+            });
+          });
+        });
+
+        setActiveTab(activeTab);
+        // Focus the close button for keyboard users
+        var closeBtn = document.getElementById('guideClose');
+        if (closeBtn) closeBtn.focus();
+      }
+
+      function closeGuide() {
+        var root = document.getElementById('guideRoot');
+        if (!root) return;
+        root.hidden = true;
+        root.innerHTML = '';
+        document.body.style.overflow = '';
+        if (lastFocus && typeof lastFocus.focus === 'function') {
+          lastFocus.focus();
+        } else {
+          var launcher = document.getElementById('guideLauncher');
+          if (launcher) launcher.focus();
+        }
+      }
+
+      var launcher = document.getElementById('guideLauncher');
+      if (launcher) launcher.addEventListener('click', openGuide);
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && document.getElementById('guidePanel')) closeGuide();
+      });
+    })();
   </script>
 </body>
 </html>`;
