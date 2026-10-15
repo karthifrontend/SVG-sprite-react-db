@@ -21,7 +21,7 @@ import SaveToLibraryModal from "./helpers/SaveToLibraryModal";
 import IconConflictModal from "./helpers/IconConflictModal";
 import type { ConflictResolution, IconConflict } from "../hooks/useSpriteCompiler";
 import SelectFromLibraryModal from "./helpers/SelectFromLibraryModal";
-import { buildDemoHtml } from "../utils/buildDemo";
+import { buildDemoHtml, buildGridSpriteXml } from "../utils/buildDemo";
 import { createZip, triggerBrowserDownload } from "../utils/zipBundle";
 import { renderSpritePreviewPng } from "../utils/previewPng";
 import { truncateLibName } from "../utils/toastFormat";
@@ -698,7 +698,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       });
   }
 
-  // Build + download an SVG sprite bundle (sprite + demo.html + preview.png) wrapped in a zip. Used by the Results panel's "Download zip" button and by the live demo's logged-out "Save" button — both call the same builder so the bundle contents are identical regardless of the entry point.
+  // Build + download an SVG sprite bundle (sprite + demo.html + background-position grid sprite + preview.png) wrapped in a zip. Used by the Results panel's "Download zip" button and by the live demo's logged-out "Save" button — both call the same builder so the bundle contents are identical regardless of the entry point.
   const [resultsDownloadBusy, setResultsDownloadBusy] = useState(false);
   async function buildAndDownloadBundle(input: {
     xml: string;
@@ -715,6 +715,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     const entries: { name: string; data: string | Uint8Array }[] = [
       { name: `${fileName}.svg`, data: xml },
       { name: "demo.html", data: demoHtml },
+      { name: `${fileName}-grid.svg`, data: buildGridSpriteXml(xml, ids) },
     ];
     if (previewPng) {
       entries.push({
