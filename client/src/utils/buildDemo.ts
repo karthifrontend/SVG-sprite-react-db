@@ -445,6 +445,79 @@ export function buildSpriteXml(symbols: SpriteSymbol[]): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="width: 0; height: 0; position: absolute;">\n  <defs>\n  ${symbolsXml}\n</defs>\n</svg>`;
 }
 
+// Layout of the background-position sprite: square cells, `GRID_COLUMNS` per row. Each icon is scaled to fit an `GRID_ICON_SIZE` box centred in its cell, which leaves `(GRID_CELL_SIZE - GRID_ICON_SIZE) / 2` px of even spacing on every side.
+const GRID_CELL_SIZE = 56;
+const GRID_ICON_SIZE = 24;
+const GRID_COLUMNS = 12;
+
+const roundNum = (n: number): number => Math.round(n * 10000) / 10000;
+
+function parseViewBox(viewBox: string): { minX: number; minY: number; w: number; h: number } {
+  const parts = viewBox.trim().split(/[\s,]+/).map(Number);
+  if (parts.length === 4 && parts.every(Number.isFinite) && parts[2] > 0 && parts[3] > 0) {
+    return { minX: parts[0], minY: parts[1], w: parts[2], h: parts[3] };
+  }
+  return { minX: 0, minY: 0, w: 24, h: 24 };
+}
+
+// ids defined inside one icon (gradients, clip paths, masks...) would collide with the same ids in other icons once every icon lives in a single document, so each icon's ids are namespaced with its symbol id.
+function scopeInnerIds(inner: string, scope: string): string {
+  const ids = new Set<string>();
+  const idRegex = /\bid\s*=\s*(["'])(.*?)\1/g;
+  let m: RegExpExecArray | null;
+  while ((m = idRegex.exec(inner)) !== null) ids.add(m[2]);
+  if (ids.size === 0) return inner;
+  const escape = (v: string): string => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let out = inner;
+  ids.forEach((oldId) => {
+    const next = `${scope}__${oldId}`;
+    const e = escape(oldId);
+    out = out
+      .replace(new RegExp(`(\\bid\\s*=\\s*["'])${e}(["'])`, "g"), `$1${next}$2`)
+      .replace(new RegExp(`url\\(\\s*(["']?)#${e}\\1\\s*\\)`, "g"), `url(#${next})`)
+      .replace(new RegExp(`((?:xlink:)?href\\s*=\\s*["'])#${e}(["'])`, "g"), `$1#${next}$2`);
+  });
+  return out;
+}
+
+// Build a standalone "grid" sprite for CSS `background-position` usage: ONE <svg> holding every icon, laid out left-to-right in rows of `GRID_COLUMNS`. Each icon is a plain <g> (no nested <svg>): the outer group moves to the cell, the inner group scales the icon's viewBox uniformly to fit the icon box and centres it (so non-square or non-24px icons keep their proportions and stay aligned). Icon n sits at background-position `-(n % 6 * 48)px -(floor(n / 6) * 48)px`.
+export function buildGridSpriteFromSymbols(symbols: SpriteSymbol[]): string {
+  const count = symbols.length;
+  const cols = Math.max(1, Math.min(GRID_COLUMNS, count));
+  const rows = Math.max(1, Math.ceil(count / GRID_COLUMNS));
+  const width = cols * GRID_CELL_SIZE;
+  const height = rows * GRID_CELL_SIZE;
+  const cells = symbols
+    .map((sym, index) => {
+      const x = (index % GRID_COLUMNS) * GRID_CELL_SIZE;
+      const y = Math.floor(index / GRID_COLUMNS) * GRID_CELL_SIZE;
+      const { minX, minY, w, h } = parseViewBox(sym.viewBox);
+      const scale = GRID_ICON_SIZE / Math.max(w, h);
+      const offsetX = (GRID_CELL_SIZE - w * scale) / 2 - minX * scale;
+      const offsetY = (GRID_CELL_SIZE - h * scale) / 2 - minY * scale;
+      const inner = scopeInnerIds(sym.inner, sym.id);
+      return (
+        `  <g id="${sym.id}" transform="translate(${x},${y})">` +
+        `<g transform="translate(${roundNum(offsetX)},${roundNum(offsetY)}) scale(${roundNum(scale)})">${inner}</g>` +
+        `</g>`
+      );
+    })
+    .join("\n");
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
+    `width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n${cells}\n</svg>`
+  );
+}
+
+// Convenience wrapper for the zip bundle: reads the compiled sprite XML and lays the icons out in `ids` order (the order shown in the demo / preview).
+export function buildGridSpriteXml(spriteXml: string, ids: string[]): string {
+  const byId = new Map(extractSymbolsFromSprite(spriteXml).map((s) => [s.id, s]));
+  const ordered = ids
+    .map((id) => byId.get(id))
+    .filter((s): s is SpriteSymbol => !!s);
+  return buildGridSpriteFromSymbols(ordered);
+}
+
 // Extract every <symbol> from an existing sprite XML string so it can be merged with newly uploaded icons. Falls back to an empty list when the document cannot be parsed.
 export function extractSymbolsFromSprite(xml: string): SpriteSymbol[] {
   if (!xml) return [];
@@ -956,6 +1029,7 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
     .guide-section-body li .li-icon.indigo { background: #eef2ff; color: #6366f1; }
     .guide-section-body li .li-icon.emerald { background: #ecfdf5; color: #10b981; }
     .guide-section-body li .li-icon.rose { background: #fff1f2; color: #f43f5e; }
+    .guide-section-body li .li-icon.amber { background: #fffbeb; color: #f59e0b; }
     .guide-section-body li .li-icon svg { width: 14px; height: 14px; }
     .guide-section-body li .li-text { color: #64748b; }
     .guide-section-body hr { border: none; border-top: 1px solid #f1f5f9; margin: 16px 0; }
@@ -1180,6 +1254,7 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
                   '<ul>' +
                     '<li><span class="li-icon indigo"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></span><code>sprite.svg</code><span class="li-text"> — Your compiled SVG sprite</span></li>' +
                     '<li><span class="li-icon emerald"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg></span><code>demo.html</code><span class="li-text"> — Interactive preview page</span></li>' +
+                    '<li><span class="li-icon amber"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg></span><code>sprite-grid.svg</code><span class="li-text"> — icon grid (6 per row, padded) for CSS background-position</span></li>' +
                     '<li><span class="li-icon rose"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></span><code>sprite-preview.png</code><span class="li-text"> — Screenshot for docs/sharing</span></li>' +
                   '</ul>' +
                 '</div>' +

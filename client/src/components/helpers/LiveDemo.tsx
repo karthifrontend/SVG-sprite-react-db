@@ -17,6 +17,7 @@ import { useToast } from "../../context/ToastContext";
 import { useAuth } from "../../context/AuthContext";
 import {
   buildDemoHtml,
+  buildGridSpriteXml,
   classifySymbolVariant,
   copyToClipboard,
 } from "../../utils/buildDemo";
@@ -967,6 +968,7 @@ export default function LiveDemoModal({
       const entries: { name: string; data: string | Uint8Array }[] = [
         { name: `${fileName}.svg`, data: spriteXml },
         { name: "demo.html", data: demoHtml },
+        { name: `${fileName}-grid.svg`, data: buildGridSpriteXml(spriteXml, ids) },
       ];
       if (previewPng) {
         entries.push({

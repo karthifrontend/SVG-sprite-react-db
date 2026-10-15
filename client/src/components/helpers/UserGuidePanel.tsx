@@ -375,6 +375,28 @@ function UserGuidePanel({ isOpen = false, onClose }: UserGuidePanelProps) {
                   <span className="text-slate-500">— Interactive preview page</span>
                 </li>
                 <li className="flex items-center gap-2.5">
+                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-500">
+                    <svg
+                      className="h-3.5 w-3.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"
+                      />
+                    </svg>
+                  </span>
+                  <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[12px] text-indigo-600">
+                    sprite-grid.svg
+                  </code>
+                  <span className="text-slate-500">— icon grid (6 per row, padded) for CSS background-position</span>
+                </li>
+                <li className="flex items-center gap-2.5">
                   <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-rose-50 text-rose-500">
                     <svg
                       className="h-3.5 w-3.5"
