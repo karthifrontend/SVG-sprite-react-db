@@ -446,9 +446,9 @@ export function buildSpriteXml(symbols: SpriteSymbol[]): string {
 }
 
 // Layout of the background-position sprite: square cells, `GRID_COLUMNS` per row. Each icon is scaled to fit an `GRID_ICON_SIZE` box centred in its cell, which leaves `(GRID_CELL_SIZE - GRID_ICON_SIZE) / 2` px of even spacing on every side.
-const GRID_CELL_SIZE = 48;
-const GRID_ICON_SIZE = 32;
-const GRID_COLUMNS = 6;
+const GRID_CELL_SIZE = 56;
+const GRID_ICON_SIZE = 24;
+const GRID_COLUMNS = 12;
 
 const roundNum = (n: number): number => Math.round(n * 10000) / 10000;
 
