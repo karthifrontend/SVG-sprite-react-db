@@ -473,8 +473,10 @@ export function extractSymbolsFromSprite(xml: string): SpriteSymbol[] {
   }
 }
 
-// "colored": the icon carries its own colors (any hardcoded fill/stroke, gradient or pattern paint) and must never be recoloured.
-// "solid" / "outlined": the icon has no colors of its own (default black / currentColor), so custom CSS may recolour it.
+// Which icon types custom CSS (solid color / gradient) may repaint.
+//   Color enabled  -> "solid" | "outlined": Outline, Filled, Glyph, Monochrome, Rounded, Sharp. These icons are single-tone, so one custom color or gradient can replace their paint.
+//   Color disabled -> "colored": Colored, Multicolor, Gradient, Brand, 3D, Isometric, Illustrative. These icons keep their original paint untouched.
+// The type can't be read from the file directly, so it is inferred from the markup (see `classifySymbolVariant`).
 export type IconVariant = "solid" | "outlined" | "colored";
 
 // Paint values that do NOT carry a color of their own. `var(--icon-color, ...)` is what older versions of this app wrote into saved sprites in place of the real color, so it is treated as "no own color".
@@ -506,6 +508,49 @@ function extractColorValues(markup: string): string[] {
   }
 
   return values;
+}
+
+const ACHROMATIC_NAMES: Record<string, number> = {
+  black: 0,
+  dimgray: 105,
+  dimgrey: 105,
+  gray: 128,
+  grey: 128,
+  darkgray: 169,
+  darkgrey: 169,
+  silver: 192,
+  lightgray: 211,
+  lightgrey: 211,
+  gainsboro: 220,
+  whitesmoke: 245,
+  white: 255,
+};
+
+// Reduce a paint value to a gray level (0-255) when it is black / white / a gray, or `null` when it is a real (chromatic) color or can't be understood. Unknown values deliberately return `null` so they are treated as colored and left untouched.
+function grayLevelOf(raw: string): number | null {
+  const v = raw.trim().toLowerCase();
+  if (v in ACHROMATIC_NAMES) return ACHROMATIC_NAMES[v];
+  let m = v.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/);
+  if (m) {
+    let hex = m[1];
+    if (hex.length <= 4) hex = hex.replace(/./g, (c) => c + c);
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return r === g && g === b ? r : null;
+  }
+  m = v.match(/^rgba?\(\s*([\d.]+)(%?)\s*[ ,]\s*([\d.]+)(%?)\s*[ ,]\s*([\d.]+)(%?)/);
+  if (m) {
+    const toByte = (n: string, pct: string): number =>
+      Math.round(pct ? (parseFloat(n) / 100) * 255 : parseFloat(n));
+    const r = toByte(m[1], m[2]);
+    const g = toByte(m[3], m[4]);
+    const b = toByte(m[5], m[6]);
+    return r === g && g === b ? r : null;
+  }
+  m = v.match(/^hsla?\(\s*[\d.]+(?:deg)?\s*[ ,]\s*([\d.]+)%\s*[ ,]\s*([\d.]+)%/);
+  if (m && parseFloat(m[1]) === 0) return Math.round((parseFloat(m[2]) / 100) * 255);
+  return null;
 }
 
 function countPaintableShapes(markup: string): {
@@ -541,12 +586,28 @@ function countPaintableShapes(markup: string): {
   return { fills, strokes };
 }
 
-// Classify a symbol's inner markup into the recolouring strategy that should be applied. Any icon that defines its own color (single color, multicolor, gradient/pattern paint, embedded image) is "colored" and keeps its original look.
+// Elements that only appear in rich artwork (gradient / brand / 3D / isometric / illustrative icons), never in plain single-tone icons.
+const RICH_ARTWORK_TAGS = /<(linearGradient|radialGradient|meshGradient|pattern|image|filter|feGaussianBlur|feDropShadow|feOffset|feColorMatrix)\b/i;
+
+// Classify a symbol's inner markup. An icon is color-enabled only when it is single-tone:
+//  - no gradients / patterns / images / filters (Gradient, Brand, 3D, Isometric, Illustrative),
+//  - no chromatic fill or stroke (Colored), and
+//  - at most ONE distinct black / white / gray paint (Multicolor and multi-shade art stay untouched).
+// Icons that paint with `currentColor` or have no explicit paint at all (the typical Outline / Filled / Glyph / Rounded / Sharp icon) are color-enabled. Everything else is "colored" and keeps its original look.
 export function classifySymbolVariant(markup: string): IconVariant {
-  if (extractColorValues(markup).length > 0) return "colored";
-  if (/<(linearGradient|radialGradient|pattern|image)\b/i.test(markup)) return "colored";
+  if (RICH_ARTWORK_TAGS.test(markup)) return "colored";
+
+  const paints = extractColorValues(markup);
+  if (paints.length > 0) {
+    const levels = paints.map(grayLevelOf);
+    if (levels.some((level) => level === null)) return "colored";
+    if (new Set(levels).size > 1) return "colored";
+  }
+
   const { fills, strokes } = countPaintableShapes(markup);
   if (strokes > 0 && strokes >= fills) return "outlined";
+  // Line icons often set `fill="none"` and draw with an inherited stroke.
+  if (fills === 0 && /\bfill\s*[=:]\s*['"]?none\b/i.test(markup)) return "outlined";
   return "solid";
 }
 
