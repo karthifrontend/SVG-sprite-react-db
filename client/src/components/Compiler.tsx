@@ -1,4 +1,4 @@
-// Main Compiler view. Coordinates dropzone, mode tabs, generation, live demo, and library save/load flows.
+﻿// Main Compiler view. Coordinates dropzone, mode tabs, generation, live demo, and library save/load flows.
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useFileDropzone } from "../hooks/useFileDropzone";
 import { useSpriteCompiler } from "../hooks/useSpriteCompiler";
@@ -287,7 +287,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
   // Custom-CSS state shared with the live demo. The state is held in a single "preview" buffer that mirrors whatever the user is currently looking at. The buffer is seeded: from the saved library's CSS when the user opens that library's preview, or from the default CSS when the user opens a fresh scratch compile. While the user is tweaking the demo, only the preview buffer is updated — the source library's stored CSS is never touched. The new CSS is only persisted back to a library key when the user explicitly clicks Save to Library, at which point we copy the preview buffer to the newly-created library's key. The previously-loaded library keeps its original CSS untouched.
   const defaultCssState: LiveDemoCssState = {
     iconSize: 24,
-    activeColorClass: "text-slate-700",
+    // No active colour by default — the demo shows each icon in its original
+    // colours. Recolouring only kicks in once the user explicitly picks a
+    // solid preset, a custom hex, or a gradient in the Custom CSS tab.
+    activeColorClass: null,
     activeCustomColor: null,
     activeGradient: null,
     useGradient: false,
