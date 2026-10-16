@@ -599,7 +599,31 @@ const ACHROMATIC_NAMES: Record<string, number> = {
   white: 255,
 };
 
-// Reduce a paint value to a gray level (0-255) when it is black / white / a gray, or `null` when it is a real (chromatic) color or can't be understood. Unknown values deliberately return `null` so they are treated as colored and left untouched.
+// What counts as "monochrome" besides pure black / white / gray: the slightly tinted neutrals that icon sets use for single-tone art (Tailwind slate / gray / zinc, Material blue-gray...). Such a paint is near-gray when EITHER its HSL saturation is tiny (<= NEUTRAL_MAX_SATURATION, e.g. zinc / stone / #666), OR it is a cool slate-blue (hue 195-250 deg) that is not strongly saturated (<= SLATE_MAX_SATURATION, e.g. #334155, #4b5563, #64748b). Warm / green / purple tints and anything more saturated (olive, brown, dull blue, yellow, red...) are real colors and stay "colored".
+const NEUTRAL_MAX_SATURATION = 0.08;
+const SLATE_MAX_SATURATION = 0.3;
+const SLATE_HUE_RANGE: [number, number] = [195, 250];
+
+// Gray level of an RGB triple when it is (near-)achromatic, otherwise `null`.
+function nearGrayLevel(r: number, g: number, b: number): number | null {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const level = Math.round((r + g + b) / 3);
+  if (max === min) return level;
+  const sum = max + min;
+  const saturation = (max - min) / (sum > 255 ? 510 - sum : sum);
+  if (saturation <= NEUTRAL_MAX_SATURATION) return level;
+  const d = max - min;
+  let hue: number;
+  if (max === r) hue = ((g - b) / d) % 6;
+  else if (max === g) hue = (b - r) / d + 2;
+  else hue = (r - g) / d + 4;
+  hue = (hue * 60 + 360) % 360;
+  const isSlate = hue >= SLATE_HUE_RANGE[0] && hue <= SLATE_HUE_RANGE[1] && saturation <= SLATE_MAX_SATURATION;
+  return isSlate ? level : null;
+}
+
+// Reduce a paint value to a gray level (0-255) when it is black / white / a (near-)gray, or `null` when it is a real (chromatic) color or can't be understood. Unknown values deliberately return `null` so they are treated as colored and left untouched.
 function grayLevelOf(raw: string): number | null {
   const v = raw.trim().toLowerCase();
   if (v in ACHROMATIC_NAMES) return ACHROMATIC_NAMES[v];
@@ -607,22 +631,25 @@ function grayLevelOf(raw: string): number | null {
   if (m) {
     let hex = m[1];
     if (hex.length <= 4) hex = hex.replace(/./g, (c) => c + c);
-    const r = parseInt(hex.slice(0, 2), 16);
-    const g = parseInt(hex.slice(2, 4), 16);
-    const b = parseInt(hex.slice(4, 6), 16);
-    return r === g && g === b ? r : null;
+    return nearGrayLevel(
+      parseInt(hex.slice(0, 2), 16),
+      parseInt(hex.slice(2, 4), 16),
+      parseInt(hex.slice(4, 6), 16),
+    );
   }
   m = v.match(/^rgba?\(\s*([\d.]+)(%?)\s*[ ,]\s*([\d.]+)(%?)\s*[ ,]\s*([\d.]+)(%?)/);
   if (m) {
     const toByte = (n: string, pct: string): number =>
       Math.round(pct ? (parseFloat(n) / 100) * 255 : parseFloat(n));
-    const r = toByte(m[1], m[2]);
-    const g = toByte(m[3], m[4]);
-    const b = toByte(m[5], m[6]);
-    return r === g && g === b ? r : null;
+    return nearGrayLevel(toByte(m[1], m[2]), toByte(m[3], m[4]), toByte(m[5], m[6]));
   }
   m = v.match(/^hsla?\(\s*[\d.]+(?:deg)?\s*[ ,]\s*([\d.]+)%\s*[ ,]\s*([\d.]+)%/);
-  if (m && parseFloat(m[1]) === 0) return Math.round((parseFloat(m[2]) / 100) * 255);
+  if (m) {
+    const hue = parseFloat(v.match(/^hsla?\(\s*([\d.]+)/)![1]);
+    const sat = parseFloat(m[1]) / 100;
+    const ok = sat <= NEUTRAL_MAX_SATURATION || (hue >= SLATE_HUE_RANGE[0] && hue <= SLATE_HUE_RANGE[1] && sat <= SLATE_MAX_SATURATION);
+    if (ok) return Math.round((parseFloat(m[2]) / 100) * 255);
+  }
   return null;
 }
 
@@ -660,12 +687,15 @@ function countPaintableShapes(markup: string): {
 }
 
 // Elements that only appear in rich artwork (gradient / brand / 3D / isometric / illustrative icons), never in plain single-tone icons.
+// A single shape element that carries `fill="none"`.
+const INVISIBLE_SHAPE = /<(?:path|rect|circle|ellipse|polygon|polyline|line)\b[^>]*\bfill\s*=\s*["']none["'][^>]*>/gi;
+
 const RICH_ARTWORK_TAGS = /<(linearGradient|radialGradient|meshGradient|pattern|image|filter|feGaussianBlur|feDropShadow|feOffset|feColorMatrix)\b/i;
 
 // Classify a symbol's inner markup. An icon is color-enabled only when it is single-tone:
 //  - no gradients / patterns / images / filters (Gradient, Brand, 3D, Isometric, Illustrative),
 //  - no chromatic fill or stroke (Colored), and
-//  - at most ONE distinct black / white / gray paint (Multicolor and multi-shade art stay untouched).
+//  - at most ONE distinct black / white / gray paint, including slate-like tints such as #4b5563 (Multicolor and multi-shade art stay untouched).
 // Icons that paint with `currentColor` or have no explicit paint at all (the typical Outline / Filled / Glyph / Rounded / Sharp icon) are color-enabled. Everything else is "colored" and keeps its original look.
 export function classifySymbolVariant(markup: string): IconVariant {
   if (RICH_ARTWORK_TAGS.test(markup)) return "colored";
@@ -677,10 +707,12 @@ export function classifySymbolVariant(markup: string): IconVariant {
     if (new Set(levels).size > 1) return "colored";
   }
 
-  const { fills, strokes } = countPaintableShapes(markup);
+  // Shapes that have `fill="none"` and no stroke draw nothing (the transparent 24x24 bounding box that Material-style icons start with). They must not make a filled icon look like an outline icon.
+  const visible = markup.replace(INVISIBLE_SHAPE, (tag) => (/\bstroke\b/i.test(tag) ? tag : ""));
+  const { fills, strokes } = countPaintableShapes(visible);
   if (strokes > 0 && strokes >= fills) return "outlined";
   // Line icons often set `fill="none"` and draw with an inherited stroke.
-  if (fills === 0 && /\bfill\s*[=:]\s*['"]?none\b/i.test(markup)) return "outlined";
+  if (fills === 0 && /\bfill\s*[=:]\s*['"]?none\b/i.test(visible)) return "outlined";
   return "solid";
 }
 
