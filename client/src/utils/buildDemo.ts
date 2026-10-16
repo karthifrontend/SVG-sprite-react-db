@@ -690,6 +690,15 @@ export function isTintableSymbolMarkup(markup: string): boolean {
 
 export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   const ids = symbolIds;
+  // Per-icon recolour type, computed with the SAME classifier the Live Demo uses (`colored` icons keep their own paint; `solid` / `outlined` icons can be recoloured). Embedded as JSON so the standalone page applies exactly the same rules.
+  const iconVariants: Record<string, IconVariant> = {};
+  extractSymbolsFromSprite(spriteXml).forEach((sym) => {
+    iconVariants[sym.id] = classifySymbolVariant(sym.inner);
+  });
+  const iconVariantsJson = JSON.stringify(iconVariants)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
   const iconCards = ids
     .map(
       (id) => `
@@ -938,6 +947,25 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
       justify-content: center; background: #f1f5f9; border-radius: 8px;
     }
     .icon-preview svg { color: currentColor; transition: color 0.2s; }
+    .controls .group { display: flex; align-items: center; gap: 0.5rem; transition: opacity 0.2s; }
+    .controls .group.disabled { opacity: 0.5; pointer-events: none; }
+    .controls .sep { width: 1px; height: 24px; background: #e2e8f0; }
+    .controls .mini { font-size: 0.625rem; }
+    .color-input {
+      width: 28px; height: 28px; padding: 0; border-radius: 50%;
+      border: 2px solid #e2e8f0; cursor: pointer; background: none; overflow: hidden;
+    }
+    .color-input::-webkit-color-swatch-wrapper { padding: 0; }
+    .color-input::-webkit-color-swatch { border: none; border-radius: 50%; }
+    .color-input::-moz-color-swatch { border: none; border-radius: 50%; }
+    .color-input.active { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.25); }
+    .grad-toggle { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+    .reset-btn {
+      padding: 6px 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff;
+      color: #334155; font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all 0.15s;
+    }
+    .reset-btn:hover { border-color: #a5b4fc; background: #eef2ff; color: #4f46e5; }
+    .reset-btn[hidden] { display: none; }
     .icon-label {
       font-size: 0.6875rem; font-family: 'Courier New', monospace;
       font-weight: 600; color: #64748b; text-align: center;
@@ -1129,13 +1157,27 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
     <p>${ids.length} symbol${ids.length !== 1 ? "s" : ""} in sprite.svg</p>
   </div>
   <div class="controls">
-    <label>Color:</label>
-    <button class="color-btn active" data-color="#334155" style="background:#334155" title="Slate"></button>
-    <button class="color-btn" data-color="#4f46e5" style="background:#4f46e5" title="Indigo"></button>
-    <button class="color-btn" data-color="#059669" style="background:#059669" title="Emerald"></button>
-    <button class="color-btn" data-color="#e11d48" style="background:#e11d48" title="Rose"></button>
-    <button class="color-btn" data-color="#d97706" style="background:#d97706" title="Amber"></button>
-    <button class="color-btn" data-color="#7c3aed" style="background:#7c3aed" title="Violet"></button>
+    <div class="group" id="solidGroup">
+      <label>Solid:</label>
+      <button class="color-btn" data-color="#334155" style="background:#334155" title="Dark Slate"></button>
+      <button class="color-btn" data-color="#4f46e5" style="background:#4f46e5" title="Indigo"></button>
+      <button class="color-btn" data-color="#059669" style="background:#059669" title="Emerald"></button>
+      <button class="color-btn" data-color="#f43f5e" style="background:#f43f5e" title="Rose"></button>
+      <button class="color-btn" data-color="#f59e0b" style="background:#f59e0b" title="Amber"></button>
+      <input type="color" class="color-input" id="customColor" value="#ff0055" title="Custom Solid Color" aria-label="Custom solid color">
+    </div>
+    <span class="sep"></span>
+    <label class="grad-toggle"><input type="checkbox" id="gradToggle"><span>Grad:</span></label>
+    <div class="group disabled" id="gradGroup">
+      <button class="grad-btn color-btn" data-start="#f43f5e" data-end="#fb923c" style="background:linear-gradient(135deg,#f43f5e,#fb923c)" title="sunset"></button>
+      <button class="grad-btn color-btn" data-start="#3b82f6" data-end="#2dd4bf" style="background:linear-gradient(135deg,#3b82f6,#2dd4bf)" title="ocean"></button>
+      <button class="grad-btn color-btn" data-start="#8b5cf6" data-end="#d946ef" style="background:linear-gradient(135deg,#8b5cf6,#d946ef)" title="amethyst"></button>
+      <label class="mini">Start</label>
+      <input type="color" class="color-input" id="gradStart" value="#f43f5e" aria-label="Gradient start color">
+      <label class="mini">End</label>
+      <input type="color" class="color-input" id="gradEnd" value="#fb923c" aria-label="Gradient end color">
+    </div>
+    <button type="button" class="reset-btn" id="resetCss" hidden>Reset custom css</button>
   </div>
   <div class="grid" id="iconGrid">${iconCards}
   </div>
@@ -1149,20 +1191,140 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
 
   <div id="guideRoot" hidden></div>
 
+  <script id="iconVariants" type="application/json">${iconVariantsJson}</script>
   <script id="guideCodeSamples" type="application/json">${codeSamplesJson}</script>
   <script>
     (function () {
-      // ----- Original demo behavior (unchanged) -----
-      document.querySelectorAll('.color-btn').forEach(function (btn) {
+      // ----- Custom CSS colour / gradient (mirrors the Live Demo) -----
+      // Only icons that carry no colours of their own ("solid" / "outlined") are recoloured; "colored" icons (colored, multicolor, gradient, brand, 3D, ...) always keep their original paint. With nothing selected every icon shows its original colours.
+      var SVG_NS = 'http://www.w3.org/2000/svg';
+      var variantsNode = document.getElementById('iconVariants');
+      var variants = variantsNode ? JSON.parse(variantsNode.textContent) : {};
+      var DEFAULT_CUSTOM = '#ff0055';
+      var DEFAULT_GRAD = { start: '#f43f5e', end: '#fb923c' };
+      var state = { color: null, custom: false, gradient: null };
+
+      var solidGroup = document.getElementById('solidGroup');
+      var gradGroup = document.getElementById('gradGroup');
+      var gradToggle = document.getElementById('gradToggle');
+      var customInput = document.getElementById('customColor');
+      var gradStart = document.getElementById('gradStart');
+      var gradEnd = document.getElementById('gradEnd');
+      var resetBtn = document.getElementById('resetCss');
+      var solidBtns = document.querySelectorAll('#solidGroup .color-btn');
+      var gradBtns = document.querySelectorAll('.grad-btn');
+
+      var styleEl = document.createElement('style');
+      styleEl.id = 'demoColorStyle';
+      document.head.appendChild(styleEl);
+      // Hidden <svg> that holds the gradient definitions (kept at 0x0, not display:none, so browsers still resolve url(#id) against it).
+      var gradHost = document.createElementNS(SVG_NS, 'svg');
+      gradHost.setAttribute('aria-hidden', 'true');
+      gradHost.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;';
+      var gradDefs = document.createElementNS(SVG_NS, 'defs');
+      gradHost.appendChild(gradDefs);
+      document.body.appendChild(gradHost);
+
+      function viewBoxOf(symbol) {
+        var parts = (symbol.getAttribute('viewBox') || '0 0 24 24').split(/[\\s,]+/).map(Number);
+        if (parts.length === 4 && parts.every(isFinite) && parts[2] > 0 && parts[3] > 0) return parts;
+        return [0, 0, 24, 24];
+      }
+
+      function applyCustomCss() {
+        var rules = [];
+        while (gradDefs.firstChild) gradDefs.removeChild(gradDefs.firstChild);
+        Object.keys(variants).forEach(function (id, index) {
+          var variant = variants[id];
+          if (variant === 'colored') return;
+          var symbol = document.getElementById(id);
+          if (!symbol) return;
+          var sel = '#' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + ' *';
+          var paint = null;
+          if (state.gradient) {
+            var vb = viewBoxOf(symbol);
+            var gid = 'demo-grad-' + index;
+            var grad = document.createElementNS(SVG_NS, 'linearGradient');
+            grad.setAttribute('id', gid);
+            grad.setAttribute('gradientUnits', 'userSpaceOnUse');
+            grad.setAttribute('x1', vb[0]);
+            grad.setAttribute('y1', vb[1]);
+            grad.setAttribute('x2', vb[0] + vb[2]);
+            grad.setAttribute('y2', vb[1] + vb[3]);
+            [[ '0%', state.gradient.start ], [ '100%', state.gradient.end ]].forEach(function (pair) {
+              var stop = document.createElementNS(SVG_NS, 'stop');
+              stop.setAttribute('offset', pair[0]);
+              stop.setAttribute('stop-color', pair[1]);
+              grad.appendChild(stop);
+            });
+            gradDefs.appendChild(grad);
+            paint = 'url(#' + gid + ')';
+          } else if (state.color) {
+            paint = 'currentColor';
+          }
+          if (!paint) return;
+          rules.push(variant === 'outlined'
+            ? sel + ' { fill: none !important; stroke: ' + paint + ' !important; }'
+            : sel + ' { fill: ' + paint + ' !important; stroke: none !important; }');
+        });
+        styleEl.textContent = rules.join(' ');
+        document.querySelectorAll('.icon-preview svg').forEach(function (svg) {
+          svg.style.color = state.gradient ? '' : (state.color || '');
+        });
+      }
+
+      function syncControls() {
+        var gradientOn = !!state.gradient;
+        gradToggle.checked = gradientOn;
+        solidGroup.classList.toggle('disabled', gradientOn);
+        gradGroup.classList.toggle('disabled', !gradientOn);
+        solidBtns.forEach(function (b) {
+          b.classList.toggle('active', !gradientOn && !state.custom && b.getAttribute('data-color') === state.color);
+        });
+        customInput.classList.toggle('active', !gradientOn && state.custom);
+        resetBtn.hidden = !(state.color || state.gradient);
+      }
+
+      function update() { applyCustomCss(); syncControls(); }
+
+      solidBtns.forEach(function (btn) {
         btn.addEventListener('click', function () {
-          document.querySelectorAll('.color-btn').forEach(function (b) { b.classList.remove('active'); });
-          btn.classList.add('active');
-          var color = btn.getAttribute('data-color');
-          document.querySelectorAll('.icon-preview svg').forEach(function (svg) {
-            svg.style.color = color;
-          });
+          state = { color: btn.getAttribute('data-color'), custom: false, gradient: null };
+          update();
         });
       });
+      customInput.addEventListener('input', function () {
+        state = { color: customInput.value, custom: true, gradient: null };
+        update();
+      });
+      gradToggle.addEventListener('change', function () {
+        state = gradToggle.checked
+          ? { color: null, custom: false, gradient: { start: gradStart.value, end: gradEnd.value } }
+          : { color: null, custom: false, gradient: null };
+        update();
+      });
+      gradBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          gradStart.value = btn.getAttribute('data-start');
+          gradEnd.value = btn.getAttribute('data-end');
+          state = { color: null, custom: false, gradient: { start: gradStart.value, end: gradEnd.value } };
+          update();
+        });
+      });
+      [gradStart, gradEnd].forEach(function (input) {
+        input.addEventListener('input', function () {
+          if (state.gradient) state.gradient = { start: gradStart.value, end: gradEnd.value };
+          update();
+        });
+      });
+      resetBtn.addEventListener('click', function () {
+        state = { color: null, custom: false, gradient: null };
+        customInput.value = DEFAULT_CUSTOM;
+        gradStart.value = DEFAULT_GRAD.start;
+        gradEnd.value = DEFAULT_GRAD.end;
+        update();
+      });
+      update();
       document.querySelectorAll('.icon-card').forEach(function (card) {
         card.addEventListener('click', function () {
           var use = card.querySelector('use');

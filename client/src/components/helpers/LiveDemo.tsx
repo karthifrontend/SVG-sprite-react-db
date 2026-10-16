@@ -1665,7 +1665,8 @@ function DemoIconCard({
   const sizeStyle = { width: `${iconSize}px`, height: `${iconSize}px` } as const;
   const symbolInnerHtml = symbol?.innerHTML ?? "";
   const iconVariant = classifySymbolVariant(symbolInnerHtml);
-  const useSnippet: ReactNode = activeGradient ? (
+  // `colored` icons keep their own paint, so the gradient mask (which repaints the whole silhouette) is only used for icons that can be recoloured.
+  const useSnippet: ReactNode = activeGradient && iconVariant !== "colored" ? (
     <svg className="transition-all duration-200" style={sizeStyle} data-demo-icon-style={id}>
       <defs>
         <linearGradient id={`grad-${id}`} x1="0%" y1="0%" x2="100%" y2="100%">
