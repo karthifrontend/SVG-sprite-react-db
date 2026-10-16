@@ -690,12 +690,22 @@ export function isTintableSymbolMarkup(markup: string): boolean {
 
 export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   const ids = symbolIds;
+  // Recolour type of every icon, from the same classifier the Live Demo uses. "solid" / "outlined" = color enabled (Outline, Filled, Glyph, Monochrome, Rounded, Sharp); "colored" = color disabled (Colored, Multicolor, Gradient, Brand, 3D, Isometric, Illustrative). Unknown icons are treated as color disabled so they are never altered.
+  const iconVariants: Record<string, IconVariant> = {};
+  extractSymbolsFromSprite(spriteXml).forEach((sym) => {
+    iconVariants[sym.id] = classifySymbolVariant(sym.inner);
+  });
+  const variantOf = (id: string): IconVariant => iconVariants[id] ?? "colored";
+  const iconVariantsJson = JSON.stringify(iconVariants)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
   const iconCards = ids
     .map(
       (id) => `
       <div class="icon-card">
         <div class="icon-preview">
-          <svg width="40" height="40"><use href="#${id}"></use></svg>
+          <svg width="40" height="40" data-icon-variant="${variantOf(id)}"><use href="#${id}"></use></svg>
         </div>
         <span class="icon-label">${id}</span>
       </div>`,
@@ -1150,17 +1160,39 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   <div id="guideRoot" hidden></div>
 
   <script id="guideCodeSamples" type="application/json">${codeSamplesJson}</script>
+  <script id="iconVariants" type="application/json">${iconVariantsJson}</script>
   <script>
     (function () {
-      // ----- Original demo behavior (unchanged) -----
+      // ----- Color buttons -----
+      // Icons keep their original colors until a color is picked. A picked color is applied ONLY to color-enabled icons (solid / outlined); color-disabled icons ("colored": colored, multicolor, gradient, brand, 3D, isometric, illustrative) are never touched.
+      var variantsNode = document.getElementById('iconVariants');
+      var iconVariants = variantsNode ? JSON.parse(variantsNode.textContent) : {};
+      var colorStyle = document.createElement('style');
+      colorStyle.id = 'demoColorStyle';
+      document.head.appendChild(colorStyle);
+
+      function applyColor(color) {
+        var rules = [];
+        Object.keys(iconVariants).forEach(function (id) {
+          var variant = iconVariants[id];
+          if (variant === 'colored') return;
+          var target = '[id=' + JSON.stringify(id) + '] *';
+          rules.push(variant === 'outlined'
+            ? target + ' { fill: none !important; stroke: currentColor !important; }'
+            : target + ' { fill: currentColor !important; stroke: none !important; }');
+        });
+        colorStyle.textContent = rules.join(' ');
+        document.querySelectorAll('.icon-preview svg').forEach(function (svg) {
+          var enabled = svg.getAttribute('data-icon-variant') !== 'colored';
+          svg.style.color = enabled ? color : '';
+        });
+      }
+
       document.querySelectorAll('.color-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
           document.querySelectorAll('.color-btn').forEach(function (b) { b.classList.remove('active'); });
           btn.classList.add('active');
-          var color = btn.getAttribute('data-color');
-          document.querySelectorAll('.icon-preview svg').forEach(function (svg) {
-            svg.style.color = color;
-          });
+          applyColor(btn.getAttribute('data-color'));
         });
       });
       document.querySelectorAll('.icon-card').forEach(function (card) {
