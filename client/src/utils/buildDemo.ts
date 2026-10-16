@@ -688,6 +688,80 @@ export function isTintableSymbolMarkup(markup: string): boolean {
   return classifySymbolVariant(markup) !== "colored";
 }
 
+// Paint used by color-enabled icons in the DOWNLOADED sprite file. Page CSS can drive it with `color: ...` (falls back to currentColor) or with the `--icon-color` custom property.
+const TINT_PAINT = "var(--icon-color, currentColor)";
+
+// A fill / stroke value that carries an actual color (anything except none / transparent / inherit / url(...) / an existing var(...)).
+function isRepaintableValue(raw: string): boolean {
+  const v = raw.trim();
+  if (!v) return false;
+  if (/^(none|transparent|inherit)$/i.test(v)) return false;
+  if (/^(url|var)\(/i.test(v)) return false;
+  return true;
+}
+
+// Rewrite every `fill:` / `stroke:` declaration found in a CSS text (inline style attribute or <style> element).
+function retintCssText(css: string): string {
+  return css.replace(/\b(fill|stroke)(\s*:\s*)([^;}\n"]+)/gi, (match, prop: string, sep: string, value: string) =>
+    isRepaintableValue(value) ? `${prop}${sep}${TINT_PAINT}` : match,
+  );
+}
+
+// Make one color-enabled symbol follow CSS color: every explicit color paint becomes `var(--icon-color, currentColor)`, and (when `addDefaultFill`) the symbol gets it as its default fill so shapes with no paint, which would otherwise render black, follow it too. `none` fills/strokes, gradients and mask / clip content are left alone.
+function tintSymbolElement(symbol: Element, addDefaultFill: boolean): void {
+  const skip = new Set(["mask", "clippath"]);
+  const visit = (el: Element): void => {
+    const tag = el.tagName.toLowerCase();
+    if (skip.has(tag)) return;
+    if (tag === "style") {
+      el.textContent = retintCssText(el.textContent ?? "");
+    } else {
+      for (const attr of ["fill", "stroke"]) {
+        const value = el.getAttribute(attr);
+        if (value !== null && isRepaintableValue(value)) el.setAttribute(attr, TINT_PAINT);
+      }
+      const style = el.getAttribute("style");
+      if (style) el.setAttribute("style", retintCssText(style));
+    }
+    Array.from(el.children).forEach(visit);
+  };
+  Array.from(symbol.children).forEach(visit);
+
+  if (addDefaultFill) {
+    const doc = symbol.ownerDocument;
+    const wrapper = doc.createElementNS(symbol.namespaceURI, "g");
+    wrapper.setAttribute("fill", TINT_PAINT);
+    while (symbol.firstChild) wrapper.appendChild(symbol.firstChild);
+    symbol.appendChild(wrapper);
+  }
+}
+
+// Sprite file for the download zip. Color-enabled icons (Outline, Filled, Glyph, Monochrome, Rounded, Sharp) are rewritten so CSS color works on them; color-disabled icons (Colored, Multicolor, Gradient, Brand, 3D, Isometric, Illustrative) are left exactly as they are. Returns the input unchanged when nothing needs rewriting or the XML can't be parsed. Used ONLY for the sprite file in the zip.
+export function buildDownloadSpriteXml(spriteXml: string): string {
+  if (!spriteXml) return spriteXml;
+  try {
+    const doc = new DOMParser().parseFromString(spriteXml, "image/svg+xml");
+    if (doc.querySelector("parsererror")) return spriteXml;
+    let changed = false;
+    Array.from(doc.getElementsByTagName("symbol")).forEach((symbol) => {
+      const inner = Array.from(symbol.childNodes)
+        .map((node) => (node as Element).outerHTML ?? node.nodeValue ?? "")
+        .join("")
+        .trim();
+      if (inner.includes("--icon-color")) return; // already prepared
+      const variant = classifySymbolVariant(inner);
+      if (variant === "colored") return;
+      // Shapes with no paint of their own render black, so filled icons (and "outlined" ones that have no stroke at all) get the tint as their default fill. Elements that set `fill="none"` still win, being closer to the shape than the wrapper.
+      const addDefaultFill = variant === "solid" || countPaintableShapes(inner).strokes === 0;
+      tintSymbolElement(symbol, addDefaultFill);
+      changed = true;
+    });
+    return changed ? new XMLSerializer().serializeToString(doc.documentElement) : spriteXml;
+  } catch {
+    return spriteXml;
+  }
+}
+
 export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   const ids = symbolIds;
   // Recolour type of every icon, from the same classifier the Live Demo uses. "solid" / "outlined" = color enabled (Outline, Filled, Glyph, Monochrome, Rounded, Sharp); "colored" = color disabled (Colored, Multicolor, Gradient, Brand, 3D, Isometric, Illustrative). Unknown icons are treated as color disabled so they are never altered.

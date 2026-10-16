@@ -21,7 +21,7 @@ import SaveToLibraryModal from "./helpers/SaveToLibraryModal";
 import IconConflictModal from "./helpers/IconConflictModal";
 import type { ConflictResolution, IconConflict } from "../hooks/useSpriteCompiler";
 import SelectFromLibraryModal from "./helpers/SelectFromLibraryModal";
-import { buildDemoHtml, buildGridSpriteXml } from "../utils/buildDemo";
+import { buildDemoHtml, buildDownloadSpriteXml, buildGridSpriteXml } from "../utils/buildDemo";
 import { createZip, triggerBrowserDownload } from "../utils/zipBundle";
 import { renderSpritePreviewPng } from "../utils/previewPng";
 import { truncateLibName } from "../utils/toastFormat";
@@ -713,7 +713,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     const demoHtml = buildDemoHtml(ids, xml);
     const previewPng = await renderSpritePreviewPng(xml, ids);
     const entries: { name: string; data: string | Uint8Array }[] = [
-      { name: `${fileName}.svg`, data: xml },
+      { name: `${fileName}.svg`, data: buildDownloadSpriteXml(xml) },
       { name: "demo.html", data: demoHtml },
       { name: `${fileName}-grid.svg`, data: buildGridSpriteXml(xml, ids) },
     ];
