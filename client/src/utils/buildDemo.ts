@@ -163,6 +163,72 @@ export function sanitizeSymbolName(
   return name;
 }
 
+// Paint written into COLOR-ENABLED icons of a generated sprite. Page CSS can drive it with `color: ...` (the fallback is currentColor) or by setting the `--icon-color` custom property. Color-disabled icons never receive it.
+const ICON_COLOR_VAR = "var(--icon-color, currentColor)";
+
+// A fill / stroke value that carries a real paint: everything except none / transparent / inherit / url(...) / an existing var(...). `currentColor` counts, so it is upgraded to the variable form too.
+function isRepaintablePaint(raw: string): boolean {
+  const v = raw.trim();
+  if (!v) return false;
+  if (/^(none|transparent|inherit)$/i.test(v)) return false;
+  if (/^(url|var)\(/i.test(v)) return false;
+  return true;
+}
+
+// Rewrite every `fill:` / `stroke:` declaration inside CSS text (a style="" attribute or a <style> element). A trailing !important is kept.
+function retintCssText(css: string): string {
+  return css.replace(
+    /\b(fill|stroke)(\s*:\s*)([^;}\n"]+)/gi,
+    (match, prop: string, sep: string, value: string) => {
+      const important = /\s*!important\s*$/i.exec(value);
+      const bare = important ? value.slice(0, important.index) : value;
+      return isRepaintablePaint(bare) ? `${prop}${sep}${ICON_COLOR_VAR}${important ? " !important" : ""}` : match;
+    },
+  );
+}
+
+const FILLABLE_TAGS = new Set(["path", "circle", "ellipse", "rect", "polygon", "polyline", "text"]);
+const NON_RENDERING_TAGS = new Set(["defs", "clippath", "mask", "pattern", "marker", "symbol"]);
+
+// True when at least one drawn shape has no fill from itself or any ancestor, i.e. it would render with the default black fill.
+function hasUnpaintedShape(svg: Element): boolean {
+  const unpainted = (el: Element): boolean => {
+    for (let node: Element | null = el; node; node = node.parentElement) {
+      if (node.hasAttribute("fill")) return false;
+      if (/(^|;)\s*fill\s*:/i.test(node.getAttribute("style") ?? "")) return false;
+      if (node === svg) break;
+    }
+    return true;
+  };
+  const walk = (el: Element): boolean => {
+    const tag = el.tagName.toLowerCase();
+    if (NON_RENDERING_TAGS.has(tag)) return false;
+    if (FILLABLE_TAGS.has(tag) && unpainted(el)) return true;
+    return Array.from(el.children).some(walk);
+  };
+  return Array.from(svg.children).some(walk);
+}
+
+// Turn the paints of a color-enabled icon into `var(--icon-color, currentColor)`, e.g. <path fill="#000"/> -> <path fill="var(--icon-color, currentColor)"/>. `fill="none"` / `stroke="none"`, url(...) paints and <mask> contents (whose white / black define transparency, not color) are left as they are.
+function applyIconColorVariable(root: Element): void {
+  const visit = (el: Element): void => {
+    const tag = el.tagName.toLowerCase();
+    if (tag === "mask") return;
+    if (tag === "style") {
+      el.textContent = retintCssText(el.textContent ?? "");
+    } else {
+      for (const attr of ["fill", "stroke"]) {
+        const value = el.getAttribute(attr);
+        if (value !== null && isRepaintablePaint(value)) el.setAttribute(attr, ICON_COLOR_VAR);
+      }
+      const style = el.getAttribute("style");
+      if (style) el.setAttribute("style", retintCssText(style));
+    }
+    Array.from(el.children).forEach(visit);
+  };
+  visit(root);
+}
+
 // Parse an uploaded SVG file into a symbol description that can be embedded inside a sprite sheet. Symbol IDs are derived from the filename.
 export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
   const text = await file.text();
@@ -179,22 +245,28 @@ export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
     viewBox = `0 0 ${parseFloat(w)} ${parseFloat(h)}`;
   }
 
-  // Copy root presentation attributes onto a wrapping <g> so they're preserved
-  // when the symbol is embedded. Original fill/stroke values are kept verbatim
-  // so the generated sprite preserves each icon's intended colors — the
-  // Live Demo's custom-CSS recolour step applies its own `!important`
-  // overrides to the tintable (solid/outlined) icons, and the multicolor
-  // variants are skipped there, so no information is lost by not
-  // normalising the markup here.
-  const groupAttributes: string[] = [];
+  // Copy root presentation attributes onto a wrapping <g> so they're preserved when the symbol is embedded.
   const ignoredAttributes = new Set([
     "id", "width", "height", "xmlns", "xmlns:xlink", "version", "class", "viewBox",
   ]);
-  Array.from(svg.attributes).forEach((attribute) => {
-    if (ignoredAttributes.has(attribute.name)) return;
-    groupAttributes.push(` ${attribute.name}="${attribute.value}"`);
-  });
-  const inner = `<g${groupAttributes.join("")}>${svg.innerHTML}</g>`;
+  const wrapSymbolInner = (): string => {
+    const groupAttributes: string[] = [];
+    Array.from(svg.attributes).forEach((attribute) => {
+      if (ignoredAttributes.has(attribute.name)) return;
+      groupAttributes.push(` ${attribute.name}="${attribute.value}"`);
+    });
+    return `<g${groupAttributes.join("")}>${svg.innerHTML}</g>`;
+  };
+  let inner = wrapSymbolInner();
+
+  // Color-enabled icons (Outline, Filled, Glyph, Monochrome, Rounded, Sharp) get `var(--icon-color, currentColor)` paints so CSS color / --icon-color can recolor them. Color-disabled icons (Colored, Multicolor, Gradient, Brand, 3D, Isometric, Illustrative) are kept exactly as designed.
+  const variant = classifySymbolVariant(inner);
+  if (variant !== "colored") {
+    // Shapes with no paint anywhere would render black, so a filled icon gets the variable as its default fill (shapes with their own fill="none" still win). Icons whose shapes are all painted already, like the usual `<g fill="none"><path fill="..."/></g>` exports, get no extra wrapper fill.
+    if (variant === "solid" && hasUnpaintedShape(svg)) svg.setAttribute("fill", ICON_COLOR_VAR);
+    applyIconColorVariable(svg);
+    inner = wrapSymbolInner();
+  }
 
   // Symbol id from filename. The sanitizer is the single source of truth for id formatting: it strips the extension, drops copy-suffixes, replaces bad characters, and prefixes `icon-` when the name doesn't already start with it.
   const id = sanitizeSymbolName(file.name);
