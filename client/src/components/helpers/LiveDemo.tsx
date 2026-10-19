@@ -1665,7 +1665,9 @@ function DemoIconCard({
   const sizeStyle = { width: `${iconSize}px`, height: `${iconSize}px` } as const;
   const symbolInnerHtml = symbol?.innerHTML ?? "";
   const iconVariant = classifySymbolVariant(symbolInnerHtml);
-  const useSnippet: ReactNode = activeGradient ? (
+  // Color-disabled icons (Colored, Multicolor, Gradient, Brand, 3D, Isometric, Illustrative) always render with their original paint: no gradient mask and no custom color. Only color-enabled icons follow the Custom CSS.
+  const colorEnabled = iconVariant !== "colored";
+  const useSnippet: ReactNode = activeGradient && colorEnabled ? (
     <svg className="transition-all duration-200" style={sizeStyle} data-demo-icon-style={id}>
       <defs>
         <linearGradient id={`grad-${id}`} x1="0%" y1="0%" x2="100%" y2="100%">
@@ -1680,8 +1682,8 @@ function DemoIconCard({
     </svg>
   ) : (
     <svg
-      className={`transition-all duration-200 ${activeCustomColor ? "" : activeColorClass ?? ""}`}
-      style={{ ...sizeStyle, ...(activeCustomColor ? { color: activeCustomColor } : {}) }}
+      className={`transition-all duration-200 ${colorEnabled && !activeCustomColor ? activeColorClass ?? "" : ""}`}
+      style={{ ...sizeStyle, ...(colorEnabled && activeCustomColor ? { color: activeCustomColor } : {}) }}
       data-demo-icon-style={id}
       data-icon-variant={iconVariant}
     >

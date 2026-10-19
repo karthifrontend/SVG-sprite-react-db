@@ -163,6 +163,79 @@ export function sanitizeSymbolName(
   return name;
 }
 
+// Paint written into COLOR-ENABLED icons of a generated sprite. Page CSS can drive it with `color: ...` (the fallback is currentColor) or by setting the `--icon-color` custom property. Color-disabled icons never receive it.
+const ICON_COLOR_VAR = "var(--icon-color, currentColor)";
+
+// A fill / stroke value that carries a real paint: everything except none / transparent / inherit / url(...) / an existing var(...). `currentColor` counts, so it is upgraded to the variable form too.
+function isRepaintablePaint(raw: string): boolean {
+  const v = raw.trim();
+  if (!v) return false;
+  if (/^(none|transparent|inherit)$/i.test(v)) return false;
+  if (/^(url|var)\(/i.test(v)) return false;
+  return true;
+}
+
+// Rewrite every `fill:` / `stroke:` declaration inside CSS text (a style="" attribute or a <style> element). A trailing !important is kept.
+function retintCssText(css: string): string {
+  return css.replace(
+    /\b(fill|stroke)(\s*:\s*)([^;}\n"]+)/gi,
+    (match, prop: string, sep: string, value: string) => {
+      const important = /\s*!important\s*$/i.exec(value);
+      const bare = important ? value.slice(0, important.index) : value;
+      return isRepaintablePaint(bare) ? `${prop}${sep}${ICON_COLOR_VAR}${important ? " !important" : ""}` : match;
+    },
+  );
+}
+
+function excludeClipAndMaskMarkup(markup: string): string {
+  return markup.replace(
+    /<(clipPath|mask)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+    "",
+  );
+}
+
+const FILLABLE_TAGS = new Set(["path", "circle", "ellipse", "rect", "polygon", "polyline", "text"]);
+const NON_RENDERING_TAGS = new Set(["defs", "clippath", "mask", "pattern", "marker", "symbol"]);
+
+// True when at least one drawn shape has no fill from itself or any ancestor, i.e. it would render with the default black fill.
+function hasUnpaintedShape(svg: Element): boolean {
+  const unpainted = (el: Element): boolean => {
+    for (let node: Element | null = el; node; node = node.parentElement) {
+      if (node.hasAttribute("fill")) return false;
+      if (/(^|;)\s*fill\s*:/i.test(node.getAttribute("style") ?? "")) return false;
+      if (node === svg) break;
+    }
+    return true;
+  };
+  const walk = (el: Element): boolean => {
+    const tag = el.tagName.toLowerCase();
+    if (NON_RENDERING_TAGS.has(tag)) return false;
+    if (FILLABLE_TAGS.has(tag) && unpainted(el)) return true;
+    return Array.from(el.children).some(walk);
+  };
+  return Array.from(svg.children).some(walk);
+}
+
+// Turn the paints of a color-enabled icon into `var(--icon-color, currentColor)`, e.g. <path fill="#000"/> -> <path fill="var(--icon-color, currentColor)"/>. `fill="none"` / `stroke="none"`, url(...) paints and <mask> contents (whose white / black define transparency, not color) are left as they are.
+function applyIconColorVariable(root: Element): void {
+  const visit = (el: Element): void => {
+    const tag = el.tagName.toLowerCase();
+    if (tag === "mask" || tag === "clippath") return;
+    if (tag === "style") {
+      el.textContent = retintCssText(el.textContent ?? "");
+    } else {
+      for (const attr of ["fill", "stroke"]) {
+        const value = el.getAttribute(attr);
+        if (value !== null && isRepaintablePaint(value)) el.setAttribute(attr, ICON_COLOR_VAR);
+      }
+      const style = el.getAttribute("style");
+      if (style) el.setAttribute("style", retintCssText(style));
+    }
+    Array.from(el.children).forEach(visit);
+  };
+  visit(root);
+}
+
 // Parse an uploaded SVG file into a symbol description that can be embedded inside a sprite sheet. Symbol IDs are derived from the filename.
 export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
   const text = await file.text();
@@ -179,22 +252,28 @@ export async function svgFileToSymbol(file: File): Promise<SpriteSymbol> {
     viewBox = `0 0 ${parseFloat(w)} ${parseFloat(h)}`;
   }
 
-  // Copy root presentation attributes onto a wrapping <g> so they're preserved
-  // when the symbol is embedded. Original fill/stroke values are kept verbatim
-  // so the generated sprite preserves each icon's intended colors — the
-  // Live Demo's custom-CSS recolour step applies its own `!important`
-  // overrides to the tintable (solid/outlined) icons, and the multicolor
-  // variants are skipped there, so no information is lost by not
-  // normalising the markup here.
-  const groupAttributes: string[] = [];
+  // Copy root presentation attributes onto a wrapping <g> so they're preserved when the symbol is embedded.
   const ignoredAttributes = new Set([
     "id", "width", "height", "xmlns", "xmlns:xlink", "version", "class", "viewBox",
   ]);
-  Array.from(svg.attributes).forEach((attribute) => {
-    if (ignoredAttributes.has(attribute.name)) return;
-    groupAttributes.push(` ${attribute.name}="${attribute.value}"`);
-  });
-  const inner = `<g${groupAttributes.join("")}>${svg.innerHTML}</g>`;
+  const wrapSymbolInner = (): string => {
+    const groupAttributes: string[] = [];
+    Array.from(svg.attributes).forEach((attribute) => {
+      if (ignoredAttributes.has(attribute.name)) return;
+      groupAttributes.push(` ${attribute.name}="${attribute.value}"`);
+    });
+    return `<g${groupAttributes.join("")}>${svg.innerHTML}</g>`;
+  };
+  let inner = wrapSymbolInner();
+
+  // Color-enabled icons (Outline, Filled, Glyph, Monochrome, Rounded, Sharp) get `var(--icon-color, currentColor)` paints so CSS color / --icon-color can recolor them. Color-disabled icons (Colored, Multicolor, Gradient, Brand, 3D, Isometric, Illustrative) are kept exactly as designed.
+  const variant = classifySymbolVariant(inner);
+  if (variant !== "colored") {
+    // Shapes with no paint anywhere would render black, so a filled icon gets the variable as its default fill (shapes with their own fill="none" still win). Icons whose shapes are all painted already, like the usual `<g fill="none"><path fill="..."/></g>` exports, get no extra wrapper fill.
+    if (variant === "solid" && hasUnpaintedShape(svg)) svg.setAttribute("fill", ICON_COLOR_VAR);
+    applyIconColorVariable(svg);
+    inner = wrapSymbolInner();
+  }
 
   // Symbol id from filename. The sanitizer is the single source of truth for id formatting: it strips the extension, drops copy-suffixes, replaces bad characters, and prefixes `icon-` when the name doesn't already start with it.
   const id = sanitizeSymbolName(file.name);
@@ -599,7 +678,31 @@ const ACHROMATIC_NAMES: Record<string, number> = {
   white: 255,
 };
 
-// Reduce a paint value to a gray level (0-255) when it is black / white / a gray, or `null` when it is a real (chromatic) color or can't be understood. Unknown values deliberately return `null` so they are treated as colored and left untouched.
+// What counts as "monochrome" besides pure black / white / gray: the slightly tinted neutrals that icon sets use for single-tone art (Tailwind slate / gray / zinc, Material blue-gray...). Such a paint is near-gray when EITHER its HSL saturation is tiny (<= NEUTRAL_MAX_SATURATION, e.g. zinc / stone / #666), OR it is a cool slate-blue (hue 195-250 deg) that is not strongly saturated (<= SLATE_MAX_SATURATION, e.g. #334155, #4b5563, #64748b). Warm / green / purple tints and anything more saturated (olive, brown, dull blue, yellow, red...) are real colors and stay "colored".
+const NEUTRAL_MAX_SATURATION = 0.08;
+const SLATE_MAX_SATURATION = 0.3;
+const SLATE_HUE_RANGE: [number, number] = [195, 250];
+
+// Gray level of an RGB triple when it is (near-)achromatic, otherwise `null`.
+function nearGrayLevel(r: number, g: number, b: number): number | null {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const level = Math.round((r + g + b) / 3);
+  if (max === min) return level;
+  const sum = max + min;
+  const saturation = (max - min) / (sum > 255 ? 510 - sum : sum);
+  if (saturation <= NEUTRAL_MAX_SATURATION) return level;
+  const d = max - min;
+  let hue: number;
+  if (max === r) hue = ((g - b) / d) % 6;
+  else if (max === g) hue = (b - r) / d + 2;
+  else hue = (r - g) / d + 4;
+  hue = (hue * 60 + 360) % 360;
+  const isSlate = hue >= SLATE_HUE_RANGE[0] && hue <= SLATE_HUE_RANGE[1] && saturation <= SLATE_MAX_SATURATION;
+  return isSlate ? level : null;
+}
+
+// Reduce a paint value to a gray level (0-255) when it is black / white / a (near-)gray, or `null` when it is a real (chromatic) color or can't be understood. Unknown values deliberately return `null` so they are treated as colored and left untouched.
 function grayLevelOf(raw: string): number | null {
   const v = raw.trim().toLowerCase();
   if (v in ACHROMATIC_NAMES) return ACHROMATIC_NAMES[v];
@@ -607,22 +710,25 @@ function grayLevelOf(raw: string): number | null {
   if (m) {
     let hex = m[1];
     if (hex.length <= 4) hex = hex.replace(/./g, (c) => c + c);
-    const r = parseInt(hex.slice(0, 2), 16);
-    const g = parseInt(hex.slice(2, 4), 16);
-    const b = parseInt(hex.slice(4, 6), 16);
-    return r === g && g === b ? r : null;
+    return nearGrayLevel(
+      parseInt(hex.slice(0, 2), 16),
+      parseInt(hex.slice(2, 4), 16),
+      parseInt(hex.slice(4, 6), 16),
+    );
   }
   m = v.match(/^rgba?\(\s*([\d.]+)(%?)\s*[ ,]\s*([\d.]+)(%?)\s*[ ,]\s*([\d.]+)(%?)/);
   if (m) {
     const toByte = (n: string, pct: string): number =>
       Math.round(pct ? (parseFloat(n) / 100) * 255 : parseFloat(n));
-    const r = toByte(m[1], m[2]);
-    const g = toByte(m[3], m[4]);
-    const b = toByte(m[5], m[6]);
-    return r === g && g === b ? r : null;
+    return nearGrayLevel(toByte(m[1], m[2]), toByte(m[3], m[4]), toByte(m[5], m[6]));
   }
   m = v.match(/^hsla?\(\s*[\d.]+(?:deg)?\s*[ ,]\s*([\d.]+)%\s*[ ,]\s*([\d.]+)%/);
-  if (m && parseFloat(m[1]) === 0) return Math.round((parseFloat(m[2]) / 100) * 255);
+  if (m) {
+    const hue = parseFloat(v.match(/^hsla?\(\s*([\d.]+)/)![1]);
+    const sat = parseFloat(m[1]) / 100;
+    const ok = sat <= NEUTRAL_MAX_SATURATION || (hue >= SLATE_HUE_RANGE[0] && hue <= SLATE_HUE_RANGE[1] && sat <= SLATE_MAX_SATURATION);
+    if (ok) return Math.round((parseFloat(m[2]) / 100) * 255);
+  }
   return null;
 }
 
@@ -660,27 +766,35 @@ function countPaintableShapes(markup: string): {
 }
 
 // Elements that only appear in rich artwork (gradient / brand / 3D / isometric / illustrative icons), never in plain single-tone icons.
+// A single shape element that carries `fill="none"`.
+const INVISIBLE_SHAPE = /<(?:path|rect|circle|ellipse|polygon|polyline|line)\b[^>]*\bfill\s*=\s*["']none["'][^>]*>/gi;
+
 const RICH_ARTWORK_TAGS = /<(linearGradient|radialGradient|meshGradient|pattern|image|filter|feGaussianBlur|feDropShadow|feOffset|feColorMatrix)\b/i;
 
 // Classify a symbol's inner markup. An icon is color-enabled only when it is single-tone:
 //  - no gradients / patterns / images / filters (Gradient, Brand, 3D, Isometric, Illustrative),
 //  - no chromatic fill or stroke (Colored), and
-//  - at most ONE distinct black / white / gray paint (Multicolor and multi-shade art stay untouched).
+//  - at most ONE distinct black / white / gray paint, including slate-like tints such as #4b5563 (Multicolor and multi-shade art stay untouched).
 // Icons that paint with `currentColor` or have no explicit paint at all (the typical Outline / Filled / Glyph / Rounded / Sharp icon) are color-enabled. Everything else is "colored" and keeps its original look.
 export function classifySymbolVariant(markup: string): IconVariant {
   if (RICH_ARTWORK_TAGS.test(markup)) return "colored";
 
-  const paints = extractColorValues(markup);
+  // Clip paths describe shape geometry and masks describe alpha; their paint
+  // values are not visible icon colors and must not affect tintability.
+  const paintMarkup = excludeClipAndMaskMarkup(markup);
+  const paints = extractColorValues(paintMarkup);
   if (paints.length > 0) {
     const levels = paints.map(grayLevelOf);
     if (levels.some((level) => level === null)) return "colored";
     if (new Set(levels).size > 1) return "colored";
   }
 
-  const { fills, strokes } = countPaintableShapes(markup);
+  // Shapes that have `fill="none"` and no stroke draw nothing (the transparent 24x24 bounding box that Material-style icons start with). They must not make a filled icon look like an outline icon.
+  const visible = paintMarkup.replace(INVISIBLE_SHAPE, (tag) => (/\bstroke\b/i.test(tag) ? tag : ""));
+  const { fills, strokes } = countPaintableShapes(visible);
   if (strokes > 0 && strokes >= fills) return "outlined";
   // Line icons often set `fill="none"` and draw with an inherited stroke.
-  if (fills === 0 && /\bfill\s*[=:]\s*['"]?none\b/i.test(markup)) return "outlined";
+  if (fills === 0 && /\bfill\s*[=:]\s*['"]?none\b/i.test(visible)) return "outlined";
   return "solid";
 }
 
@@ -690,12 +804,22 @@ export function isTintableSymbolMarkup(markup: string): boolean {
 
 export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   const ids = symbolIds;
+  // Recolour type of every icon, from the same classifier the Live Demo uses. "solid" / "outlined" = color enabled (Outline, Filled, Glyph, Monochrome, Rounded, Sharp); "colored" = color disabled (Colored, Multicolor, Gradient, Brand, 3D, Isometric, Illustrative). Unknown icons are treated as color disabled so they are never altered.
+  const iconVariants: Record<string, IconVariant> = {};
+  extractSymbolsFromSprite(spriteXml).forEach((sym) => {
+    iconVariants[sym.id] = classifySymbolVariant(sym.inner);
+  });
+  const variantOf = (id: string): IconVariant => iconVariants[id] ?? "colored";
+  const iconVariantsJson = JSON.stringify(iconVariants)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
   const iconCards = ids
     .map(
       (id) => `
       <div class="icon-card">
         <div class="icon-preview">
-          <svg width="40" height="40"><use href="#${id}"></use></svg>
+          <svg width="40" height="40" data-icon-variant="${variantOf(id)}"><use href="#${id}"></use></svg>
         </div>
         <span class="icon-label">${id}</span>
       </div>`,
@@ -1150,17 +1274,39 @@ export function buildDemoHtml(symbolIds: string[], spriteXml: string): string {
   <div id="guideRoot" hidden></div>
 
   <script id="guideCodeSamples" type="application/json">${codeSamplesJson}</script>
+  <script id="iconVariants" type="application/json">${iconVariantsJson}</script>
   <script>
     (function () {
-      // ----- Original demo behavior (unchanged) -----
+      // ----- Color buttons -----
+      // Icons keep their original colors until a color is picked. A picked color is applied ONLY to color-enabled icons (solid / outlined); color-disabled icons ("colored": colored, multicolor, gradient, brand, 3D, isometric, illustrative) are never touched.
+      var variantsNode = document.getElementById('iconVariants');
+      var iconVariants = variantsNode ? JSON.parse(variantsNode.textContent) : {};
+      var colorStyle = document.createElement('style');
+      colorStyle.id = 'demoColorStyle';
+      document.head.appendChild(colorStyle);
+
+      function applyColor(color) {
+        var rules = [];
+        Object.keys(iconVariants).forEach(function (id) {
+          var variant = iconVariants[id];
+          if (variant === 'colored') return;
+          var target = '[id=' + JSON.stringify(id) + '] *';
+          rules.push(variant === 'outlined'
+            ? target + ' { fill: none !important; stroke: currentColor !important; }'
+            : target + ' { fill: currentColor !important; stroke: none !important; }');
+        });
+        colorStyle.textContent = rules.join(' ');
+        document.querySelectorAll('.icon-preview svg').forEach(function (svg) {
+          var enabled = svg.getAttribute('data-icon-variant') !== 'colored';
+          svg.style.color = enabled ? color : '';
+        });
+      }
+
       document.querySelectorAll('.color-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
           document.querySelectorAll('.color-btn').forEach(function (b) { b.classList.remove('active'); });
           btn.classList.add('active');
-          var color = btn.getAttribute('data-color');
-          document.querySelectorAll('.icon-preview svg').forEach(function (svg) {
-            svg.style.color = color;
-          });
+          applyColor(btn.getAttribute('data-color'));
         });
       });
       document.querySelectorAll('.icon-card').forEach(function (card) {
