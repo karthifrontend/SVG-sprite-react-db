@@ -187,6 +187,13 @@ function retintCssText(css: string): string {
   );
 }
 
+function excludeClipAndMaskMarkup(markup: string): string {
+  return markup.replace(
+    /<(clipPath|mask)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+    "",
+  );
+}
+
 const FILLABLE_TAGS = new Set(["path", "circle", "ellipse", "rect", "polygon", "polyline", "text"]);
 const NON_RENDERING_TAGS = new Set(["defs", "clippath", "mask", "pattern", "marker", "symbol"]);
 
@@ -213,7 +220,7 @@ function hasUnpaintedShape(svg: Element): boolean {
 function applyIconColorVariable(root: Element): void {
   const visit = (el: Element): void => {
     const tag = el.tagName.toLowerCase();
-    if (tag === "mask") return;
+    if (tag === "mask" || tag === "clippath") return;
     if (tag === "style") {
       el.textContent = retintCssText(el.textContent ?? "");
     } else {
@@ -772,7 +779,10 @@ const RICH_ARTWORK_TAGS = /<(linearGradient|radialGradient|meshGradient|pattern|
 export function classifySymbolVariant(markup: string): IconVariant {
   if (RICH_ARTWORK_TAGS.test(markup)) return "colored";
 
-  const paints = extractColorValues(markup);
+  // Clip paths describe shape geometry and masks describe alpha; their paint
+  // values are not visible icon colors and must not affect tintability.
+  const paintMarkup = excludeClipAndMaskMarkup(markup);
+  const paints = extractColorValues(paintMarkup);
   if (paints.length > 0) {
     const levels = paints.map(grayLevelOf);
     if (levels.some((level) => level === null)) return "colored";
@@ -780,7 +790,7 @@ export function classifySymbolVariant(markup: string): IconVariant {
   }
 
   // Shapes that have `fill="none"` and no stroke draw nothing (the transparent 24x24 bounding box that Material-style icons start with). They must not make a filled icon look like an outline icon.
-  const visible = markup.replace(INVISIBLE_SHAPE, (tag) => (/\bstroke\b/i.test(tag) ? tag : ""));
+  const visible = paintMarkup.replace(INVISIBLE_SHAPE, (tag) => (/\bstroke\b/i.test(tag) ? tag : ""));
   const { fills, strokes } = countPaintableShapes(visible);
   if (strokes > 0 && strokes >= fills) return "outlined";
   // Line icons often set `fill="none"` and draw with an inherited stroke.
