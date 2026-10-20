@@ -1,6 +1,6 @@
 // useSpriteCompiler. Owns the compile state machine: queue icons, merge/update, build sprite XML, and emit demo HTML.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { buildDemoHtml, buildSpriteXml, extractSymbolsFromSprite, sortSymbolsById, svgFileToSymbol, type SpriteSymbol } from "../utils/buildDemo";
+import { buildDemoHtml, buildSpriteXml, extractSymbolsFromSprite, svgFileToSymbol, type SpriteSymbol } from "../utils/buildDemo";
 
 type CompilerState = {
   generating: boolean;
@@ -131,22 +131,26 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
         replaceUrl(null);
         const seen = new Set<string>();
         const merged: SpriteSymbol[] = [];
-        for (const s of [...existingSymbols, ...trulyNewSymbols]) {
+        // Preserve order: existing symbols first (in their original order), then newly added symbols.
+        for (const s of existingSymbols) {
+          if (seen.has(s.id)) continue;
+          seen.add(s.id);
+          merged.push(s);
+        }
+        for (const s of trulyNewSymbols) {
           if (seen.has(s.id)) continue;
           seen.add(s.id);
           merged.push(s);
         }
 
-        const sortedMerged = sortSymbolsById(merged);
-
-        const xml = buildSpriteXml(sortedMerged);
+        const xml = buildSpriteXml(merged);
         const blob = new Blob([xml], { type: "image/svg+xml" });
         const url = URL.createObjectURL(blob);
         replaceUrl(url);
         setSpriteXml(xml);
-        setSymbolIds(sortedMerged.map(s => s.id));
+        setSymbolIds(merged.map(s => s.id));
         xmlRef.current = xml;
-        symbolIdsRef.current = sortedMerged.map(s => s.id);
+        symbolIdsRef.current = merged.map(s => s.id);
         return { duplicateCount, newCount: trulyNewSymbols.length, allDuplicates: false };
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to generate sprite.");
@@ -189,39 +193,43 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
         }
         let newCount = 0;
         let duplicateCount = 0;
-        // 2. Walk the staged files and apply the resolution.
+        // 2. Walk the staged files and apply the resolution. Append any newly resolved icons at the end.
+        const newlyAddedSymbols: SpriteSymbol[] = [];
         for (const incoming of newSymbols) {
           const existing = existingById.get(incoming.id);
           if (!existing) {
-            // Brand-new id — just add it.
-            pushUnique(incoming);
+            // Brand-new id — add to new symbols list to append at the end.
+            newlyAddedSymbols.push(incoming);
             newCount += 1;
             continue;
           }
           duplicateCount += 1;
           const resolution = resolutions[incoming.id];
           if (!resolution || resolution.kind === "replace") {
-            pushUnique(incoming);
+            newlyAddedSymbols.push(incoming);
             newCount += 1;
           } else if (resolution.kind === "skip") {
             // Keep the existing symbol; the staged file is dropped.
             pushUnique(existing);
           } else {
             pushUnique(existing);
-            pushUnique({ ...incoming, id: resolution.renamedId });
+            newlyAddedSymbols.push({ ...incoming, id: resolution.renamedId });
             newCount += 1;
           }
         }
-        const sortedMerged = sortSymbolsById(merged);
+        // Append all newly added symbols at the end.
+        for (const s of newlyAddedSymbols) {
+          pushUnique(s);
+        }
 
-        const xml = buildSpriteXml(sortedMerged);
+        const xml = buildSpriteXml(merged);
         const blob = new Blob([xml], { type: "image/svg+xml" });
         const url = URL.createObjectURL(blob);
         replaceUrl(url);
         setSpriteXml(xml);
-        setSymbolIds(sortedMerged.map((s) => s.id));
+        setSymbolIds(merged.map((s) => s.id));
         xmlRef.current = xml;
-        symbolIdsRef.current = sortedMerged.map((s) => s.id);
+        symbolIdsRef.current = merged.map((s) => s.id);
         return { duplicateCount, newCount, allDuplicates: false };
       } catch (err) {
         setError(
@@ -286,13 +294,11 @@ export function useSpriteCompiler(): CompilerState & CompilerActions {
       const blob = new Blob([input.xml], { type: "image/svg+xml" });
       const url = URL.createObjectURL(blob);
       replaceUrl(url);
-      const sortedIds = sortSymbolsById(extractSymbolsFromSprite(input.xml)).map(
-        (s) => s.id,
-      );
+      // Use the provided symbolIds order from the library; don't re-sort
       setSpriteXml(input.xml);
-      setSymbolIds(sortedIds);
+      setSymbolIds(input.symbolIds);
       xmlRef.current = input.xml;
-      symbolIdsRef.current = sortedIds;
+      symbolIdsRef.current = input.symbolIds;
     },
     [replaceUrl]
   );
