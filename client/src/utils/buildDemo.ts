@@ -667,16 +667,50 @@ export function extractSymbolsFromSprite(xml: string): SpriteSymbol[] {
         .map((el) => {
           const id = el.getAttribute("id") || "";
           if (!id) return null;
-          // Grid sprites have a nested <g> with transform and scale; the innermost content is the icon.
-          // Extract the inner <g> which contains the actual icon content and its viewBox is implicitly 0 0 24 24 (the original icon size before scaling).
+          // Grid sprites have a nested <g> with transform/scale for grid layout positioning.
+          // Extract the content INSIDE that nested <g>, stripping away the transform wrapper.
+          // We need to wrap the content in an SVG to compute its bounding box and determine
+          // the correct viewBox so all extracted icons scale uniformly when rebuilt.
           const nestedG = el.querySelector("g");
           if (!nestedG) return null;
           const inner = Array.from(nestedG.childNodes)
             .map((node) => (node as Element).outerHTML ?? node.nodeValue ?? "")
             .join("")
             .trim();
-          // Grid sprites don't store original viewBox, so use the default.
-          const viewBox = "0 0 24 24";
+          
+          // Infer the viewBox from the inner content's coordinate ranges.
+          // Look for numeric coordinates in path data, circle radii, rect dimensions, etc.
+          let viewBox = "0 0 24 24";
+          try {
+            let maxCoord = 24;
+            // Check for paths with large coordinates
+            const pathMatches = inner.match(/d="([^"]*)"/g) || [];
+            for (const match of pathMatches) {
+              const coords = match.match(/[\d.]+/g) || [];
+              for (const coord of coords) {
+                const num = parseFloat(coord);
+                if (num > maxCoord && num < 1000) maxCoord = num;
+              }
+            }
+            // Check for circle radii
+            const radiusMatches = inner.match(/r="?(\d+(?:\.\d+)?)"?/gi) || [];
+            for (const match of radiusMatches) {
+              const num = parseFloat(match.match(/\d+(?:\.\d+)?/)![0]);
+              if (num > 0) maxCoord = Math.max(maxCoord, num * 2);
+            }
+            // Check for rect dimensions
+            const rectMatches = inner.match(/width="?(\d+(?:\.\d+)?)"?|height="?(\d+(?:\.\d+)?)"?/gi) || [];
+            for (const match of rectMatches) {
+              const num = parseFloat(match.match(/\d+(?:\.\d+)?/)![0]);
+              if (num > maxCoord && num < 1000) maxCoord = num;
+            }
+            if (maxCoord !== 24) {
+              viewBox = `0 0 ${Math.ceil(maxCoord)} ${Math.ceil(maxCoord)}`;
+            }
+          } catch {
+            // If parsing fails, fall back to default
+          }
+          
           return { id, viewBox, inner };
         })
         .filter((s): s is SpriteSymbol => s !== null);
