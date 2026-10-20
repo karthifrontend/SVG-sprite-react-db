@@ -1,4 +1,4 @@
-﻿// Main Compiler view. Coordinates dropzone, mode tabs, generation, live demo, and library save/load flows.
+// Main Compiler view. Coordinates dropzone, mode tabs, generation, live demo, and library save/load flows.
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useFileDropzone } from "../hooks/useFileDropzone";
 import { useSpriteCompiler } from "../hooks/useSpriteCompiler";
@@ -54,10 +54,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       );
     },
     onRejected: (rejected) => {
-      // Wrong-type SVG: the user dropped a sprite sheet into the icon upload section. Use warning tone (matches the duplicate-skip toast colour) and point them at the right upload target.
+      // Wrong-type SVG: the user dropped a sprite sheet or grid sprite into the icon upload section. Use warning tone (matches the duplicate-skip toast colour) and point them at the right upload target.
       showToast(
         rejected.kind === "sprite"
-          ? `${rejected.fileName} is a sprite sheet, drop standalone icons here.`
+          ? `${rejected.fileName} is a sprite file, drop standalone icons here.`
           : `${rejected.fileName} is not an SVG file.`,
         "warning"
       );

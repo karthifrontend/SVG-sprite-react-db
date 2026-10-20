@@ -126,6 +126,37 @@ export async function isSpriteSvgFile(file: File): Promise<boolean> {
   }
 }
 
+// Synchronously classify a raw SVG string as either a "grid sprite" (a flat layout of <g> elements with no <symbol> children) or not. Grid sprites are generated from buildGridSpriteFromSymbols and should not be uploaded as standalone icons.
+export function isGridSvgText(text: string): boolean {
+  if (!text) return false;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(text, "image/svg+xml");
+    if (doc.querySelector("parsererror")) return false;
+    const svg = doc.querySelector("svg");
+    if (!svg) return false;
+    // A grid sprite has NO <symbol> elements and its direct <g> children all have `id` and `transform` attributes (the layout structure). It should have at least one <g> to be valid.
+    if (svg.getElementsByTagName("symbol").length > 0) return false;
+    const directGs = Array.from(svg.children).filter(el => el.tagName.toLowerCase() === "g");
+    if (directGs.length === 0) return false;
+    // Check if the <g> elements look like grid cells: each should have an `id` and `transform` attribute.
+    return directGs.every(g => g.hasAttribute("id") && g.hasAttribute("transform"));
+  } catch {
+    return false;
+  }
+}
+
+// Async variant that reads a `File` and delegates to `isGridSvgText`. Returns `false` for unreadable / non-SVG files so the caller can treat them as "not a grid" without a separate try/catch.
+export async function isGridSvgFile(file: File): Promise<boolean> {
+  if (!file) return false;
+  try {
+    const text = await file.text();
+    return isGridSvgText(text);
+  } catch {
+    return false;
+  }
+}
+
 export function sanitizeSymbolName(
   rawName: string,
   fallbackIndex?: number,
@@ -604,22 +635,54 @@ export function extractSymbolsFromSprite(xml: string): SpriteSymbol[] {
     const parser = new DOMParser();
     const doc = parser.parseFromString(xml, "image/svg+xml");
     if (doc.querySelector("parsererror")) return [];
+    
+    // Try to extract <symbol> elements first (standard sprite format)
     const symbolEls = Array.from(doc.getElementsByTagName("symbol"));
-    return symbolEls
-      .map((el) => {
-        const id = el.getAttribute("id") || "";
-        if (!id) return null;
-        const viewBox =
-          el.getAttribute("viewBox") ||
-          el.getAttribute("data-viewBox") ||
-          "0 0 24 24";
-        const inner = Array.from(el.childNodes)
-          .map((node) => (node as Element).outerHTML ?? node.nodeValue ?? "")
-          .join("")
-          .trim();
-        return { id, viewBox, inner };
-      })
-      .filter((s): s is SpriteSymbol => s !== null);
+    if (symbolEls.length > 0) {
+      return symbolEls
+        .map((el) => {
+          const id = el.getAttribute("id") || "";
+          if (!id) return null;
+          const viewBox =
+            el.getAttribute("viewBox") ||
+            el.getAttribute("data-viewBox") ||
+            "0 0 24 24";
+          const inner = Array.from(el.childNodes)
+            .map((node) => (node as Element).outerHTML ?? node.nodeValue ?? "")
+            .join("")
+            .trim();
+          return { id, viewBox, inner };
+        })
+        .filter((s): s is SpriteSymbol => s !== null);
+    }
+    
+    // Fallback: try to extract grid sprite format (direct <g> children with id and transform)
+    const svg = doc.querySelector("svg");
+    if (!svg) return [];
+    const gridGs = Array.from(svg.children).filter(
+      (el) => el.tagName.toLowerCase() === "g" && el.hasAttribute("id") && el.hasAttribute("transform")
+    );
+    if (gridGs.length > 0) {
+      return gridGs
+        .map((el) => {
+          const id = el.getAttribute("id") || "";
+          if (!id) return null;
+          // Grid sprites have a nested <g> with transform and scale; the innermost content is the icon.
+          // Extract the inner <g> which contains the actual icon content and its viewBox is implicitly 0 0 24 24 (the original icon size before scaling).
+          const nestedG = el.querySelector("g");
+          if (!nestedG) return null;
+          const inner = Array.from(nestedG.childNodes)
+            .map((node) => (node as Element).outerHTML ?? node.nodeValue ?? "")
+            .join("")
+            .trim();
+          // Grid sprites don't store original viewBox, so use the default.
+          const viewBox = "0 0 24 24";
+          return { id, viewBox, inner };
+        })
+        .filter((s): s is SpriteSymbol => s !== null);
+    }
+    
+    return [];
   } catch {
     return [];
   }

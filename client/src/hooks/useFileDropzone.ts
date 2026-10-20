@@ -1,6 +1,6 @@
 // useFileDropzone. Encapsulates drag-and-drop state and file selection for the compiler's file zone.
 import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from "react";
-import { isSpriteSvgFile } from "../utils/buildDemo";
+import { isSpriteSvgFile, isGridSvgFile } from "../utils/buildDemo";
 
 export type DropzoneAcceptMode = "icons" | "sprite";
 
@@ -31,22 +31,24 @@ export function useFileDropzone(options?: {
     if (!incoming) return;
     const svgOnly = Array.from(incoming).filter(f => f.type === "image/svg+xml");
     if (svgOnly.length === 0) return;
-    // Classify each SVG against the dropzone's accept mode. We do this serially because `isSpriteSvgFile` reads the file via `File.text()` and we want the toasts / order to match what the user dropped.
+    // Classify each SVG against the dropzone's accept mode. We do this serially because `isSpriteSvgFile` and `isGridSvgFile` read the file via `File.text()` and we want the toasts / order to match what the user dropped.
     const mode = acceptRef.current;
-    const classified: Array<{ file: File; isSprite: boolean }> = [];
+    const classified: Array<{ file: File; isSprite: boolean; isGrid: boolean }> = [];
     for (const file of svgOnly) {
-      // `isSpriteSvgFile` swallows read/parse errors and returns `false`, so a corrupt SVG is just treated as "not a sprite" rather than throwing into the dropzone flow.
+      // `isSpriteSvgFile` and `isGridSvgFile` swallow read/parse errors and return `false`, so a corrupt SVG is just treated as neither sprite nor grid.
       const isSprite = await isSpriteSvgFile(file);
-      classified.push({ file, isSprite });
+      const isGrid = isSprite ? false : await isGridSvgFile(file);
+      classified.push({ file, isSprite, isGrid });
     }
     const accepted: File[] = [];
-    for (const { file, isSprite } of classified) {
-      // Filter by accept mode. The `kind` we report to the caller is the kind we REJECTED — the file the user should have dropped in the OTHER section.
+    for (const { file, isSprite, isGrid } of classified) {
+      // Filter by accept mode. In "icons" mode, reject both sprite AND grid files. In "sprite" mode, accept both sprite and grid files (so users can merge existing sprites or grids).
+      // The `kind` we report to the caller is the kind we REJECTED — the file the user should have dropped in the OTHER section.
       const matches =
-        mode === "icons" ? !isSprite : isSprite;
+        mode === "icons" ? (!isSprite && !isGrid) : (isSprite || isGrid);
       if (!matches) {
         onRejectedRef.current?.({
-          kind: isSprite ? "sprite" : "icon",
+          kind: isSprite || isGrid ? "sprite" : "icon",
           fileName: file.name,
         });
         continue;
