@@ -1,4 +1,4 @@
-﻿// Main Compiler view. Coordinates dropzone, mode tabs, generation, live demo, and library save/load flows.
+// Main Compiler view. Coordinates dropzone, mode tabs, generation, live demo, and library save/load flows.
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useFileDropzone } from "../hooks/useFileDropzone";
 import { useSpriteCompiler } from "../hooks/useSpriteCompiler";
@@ -6,7 +6,7 @@ import { useLibrary, notifyLibraryChanged } from "../hooks/useLibrary";
 import { getSpriteById, putSprite, saveSprite, type SpriteSummary } from "../api/sprites";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
-import { buildSpriteXml, extractSymbolsFromSprite, sortSymbolsById } from "../utils/buildDemo";
+import { buildSpriteXml, extractSymbolsFromSprite } from "../utils/buildDemo";
 import { copyToClipboard } from "../utils/buildDemo";
 import CompilerHeader from "./helpers/CompilerHeader";
 import ExistingSpriteSection from "./helpers/ExistingSpriteSection";
@@ -54,10 +54,10 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       );
     },
     onRejected: (rejected) => {
-      // Wrong-type SVG: the user dropped a sprite sheet into the icon upload section. Use warning tone (matches the duplicate-skip toast colour) and point them at the right upload target.
+      // Wrong-type SVG: the user dropped a sprite sheet or grid sprite into the icon upload section. Use warning tone (matches the duplicate-skip toast colour) and point them at the right upload target.
       showToast(
         rejected.kind === "sprite"
-          ? `${rejected.fileName} is a sprite sheet, drop standalone icons here.`
+          ? `${rejected.fileName} is a sprite file, drop standalone icons here.`
           : `${rejected.fileName} is not an SVG file.`,
         "warning"
       );
@@ -567,14 +567,13 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
       seen.add(s.id);
       return true;
     });
-    const sortedMerged = sortSymbolsById(merged);
-    const xml = buildSpriteXml(sortedMerged);
+    const xml = buildSpriteXml(merged);
     const saved = await saveSprite({
       name: detail.bundleName,
       bundleName: detail.bundleName,
       xml,
-      symbolIds: sortedMerged.map((s) => s.id),
-      symbolCount: sortedMerged.length,
+      symbolIds: merged.map((s) => s.id),
+      symbolCount: merged.length,
       isPublic: detail.isPublic,
     });
     await refetchLibrary();
@@ -586,7 +585,7 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
     const newVersion = saved.version;
     const bundleName = detail.bundleName;
     const previewXml = xml;
-    const previewIds = sortedMerged.map((s) => s.id);
+    const previewIds = merged.map((s) => s.id);
     const successMessage =
       duplicateCount > 0
         ? `Pasted ${pastedCount} icon${pastedCount === 1 ? "" : "s"} into ${truncateLibName(bundleName)} v${newVersion} (skipped ${duplicateCount} duplicate${duplicateCount === 1 ? "" : "s"}).`
@@ -681,10 +680,9 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
           symbols.push({ id: baseName, viewBox, inner });
         }
         if (symbols.length === 0) return;
-        const sortedSymbols = sortSymbolsById(symbols);
-        const xml = buildSpriteXml(sortedSymbols);
+        const xml = buildSpriteXml(symbols);
         setDemoSpriteXml(xml);
-        setDemoSymbolIds(sortedSymbols.map((s) => s.id));
+        setDemoSymbolIds(symbols.map((s) => s.id));
         setLiveDemoSource({ type: "scratch" });
         // Force a re-seed of the preview buffer for scratch mode so the modal opens with the right CSS.
         lastSeededSourceKeyRef.current = null;
@@ -903,10 +901,9 @@ function Compiler({ onRequireAuth, libraryOpen, onLibraryToggle }: CompilerProps
         return;
       }
       setLiveDemoIsBaseSpritePreview(true);
-      const sortedSymbols = sortSymbolsById(symbols);
-      const demoXml = buildSpriteXml(sortedSymbols);
+      const demoXml = buildSpriteXml(symbols);
       setDemoSpriteXml(demoXml);
-      setDemoSymbolIds(sortedSymbols.map((s) => s.id));
+      setDemoSymbolIds(symbols.map((s) => s.id));
       setLiveDemoSource(
         baseSpriteSource === "library"
           ? {

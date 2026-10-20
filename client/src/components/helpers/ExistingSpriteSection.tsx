@@ -1,6 +1,6 @@
 // Update-mode "Base Sprite File" picker. Lets the user choose the existing sprite to merge new icons into.
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { formatSize, isSpriteSvgFile } from "../../utils/buildDemo";
+import { formatSize, isSpriteSvgFile, isGridSvgFile } from "../../utils/buildDemo";
 import { CloseIcon } from "../icons/icons";
 
 type ExistingSpriteSectionProps = {
@@ -70,8 +70,10 @@ function ExistingSpriteSection({
       onFile(null);
       return;
     }
-    // The "existing sprite" section must only accept sprite sheets (root <svg> containing at least one <symbol>). Reject standalone icons so the user gets a clear toast pointing them at the icon upload section. We ONLY fire `onRejected` here (no `onFile(null)`), because the parent would otherwise show its own generic "must be an SVG file" toast on top of our specific one — producing two toasts for the same mistake.
-    if (!(await isSpriteSvgFile(picked))) {
+    // The "existing sprite" section accepts either sprite sheets (containing <symbol> elements) or grid sprites (containing <g> elements with id and transform). Reject standalone icons so the user gets a clear toast pointing them at the icon upload section. We ONLY fire `onRejected` here (no `onFile(null)`), because the parent would otherwise show its own generic "must be an SVG file" toast on top of our specific one — producing two toasts for the same mistake.
+    const isSprite = await isSpriteSvgFile(picked);
+    const isGrid = isSprite ? false : await isGridSvgFile(picked);
+    if (!isSprite && !isGrid) {
       onRejected?.({ fileName: picked.name });
       return;
     }
