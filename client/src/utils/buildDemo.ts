@@ -667,17 +667,17 @@ export function extractSymbolsFromSprite(xml: string): SpriteSymbol[] {
         .map((el) => {
           const id = el.getAttribute("id") || "";
           if (!id) return null;
-          // Grid sprites have a nested <g> with transform and scale; we need to preserve that structure
-          // so the icon displays correctly. The outer <g> has the grid positioning (translate),
-          // the inner <g> has the scale/center offset. We keep both to maintain the layout.
+          // Grid sprites have a nested <g> with transform and scale; the innermost content is the icon.
+          // Extract the inner <g> which contains the actual icon content and its viewBox is implicitly 0 0 24 24 (the original icon size before scaling).
           const nestedG = el.querySelector("g");
           if (!nestedG) return null;
-          // Build the inner content by including the nested <g> with its full markup
-          const innerMarkup = nestedG.outerHTML;
-          if (!innerMarkup) return null;
+          const inner = Array.from(nestedG.childNodes)
+            .map((node) => (node as Element).outerHTML ?? node.nodeValue ?? "")
+            .join("")
+            .trim();
           // Grid sprites don't store original viewBox, so use the default.
           const viewBox = "0 0 24 24";
-          return { id, viewBox, inner: innerMarkup };
+          return { id, viewBox, inner };
         })
         .filter((s): s is SpriteSymbol => s !== null);
     }
