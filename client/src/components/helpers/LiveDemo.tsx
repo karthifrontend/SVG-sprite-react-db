@@ -1201,22 +1201,22 @@ export default function LiveDemoModal({
                       ? "Deselect All"
                       : "Select All"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleRemoveSelected}
-                    disabled={isReadOnly || selectedIcons.size === 0}
-                    title={
-                      isReadOnly
-                        ? "You cannot remove icons from a public library you do not own."
-                        : selectedIcons.size === 0
+                  {!isReadOnly && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveSelected}
+                      disabled={selectedIcons.size === 0}
+                      title={
+                        selectedIcons.size === 0
                           ? "Select icons to remove."
                           : `Remove ${selectedIcons.size} selected icon${selectedIcons.size === 1 ? "" : "s"} from this sprite.`
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:border-rose-100 disabled:bg-white disabled:text-rose-300 disabled:hover:border-rose-100 disabled:hover:bg-white disabled:hover:text-rose-300"
-                  >
-                    <TrashIcon className="h-3 w-3" />
-                    Remove ({selectedIcons.size})
-                  </button>
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:border-rose-100 disabled:bg-white disabled:text-rose-300 disabled:hover:border-rose-100 disabled:hover:bg-white disabled:hover:text-rose-300"
+                    >
+                      <TrashIcon className="h-3 w-3" />
+                      Remove ({selectedIcons.size})
+                    </button>
+                  )}
                 </div>
               )}
             </div>
